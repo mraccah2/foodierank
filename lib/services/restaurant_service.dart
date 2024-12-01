@@ -4,9 +4,81 @@ import 'package:http/http.dart' as http;
 import 'dart:typed_data';
 
 class RestaurantService {
-  /// Retrieves a list of nearby restaurants based on location and radius
+  static const int _targetCount = 20;
+  static const double _initialRadius = 500;
+  static const double _minIncrement = 500;
+  static const double _maxIncrement = 2000;
+  static const double _maxRadius = 5000;
+  static const int _lowResultsThreshold = 3;
+  static const List<String> cuisineTypes = [
+    'American', 'Asian', 'Bakery', 'Bar', 'BBQ', 'Bistro', 'Brazilian', 'British',
+    'Brunch', 'Buffet', 'Burger', 'Cafe', 'Caribbean', 'Chinese', 'Deli', 'Diner',
+    'French', 'Fusion', 'German', 'Greek', 'Hawaiian', 'Indian', 'Indonesian',
+    'Italian', 'Japanese', 'Korean', 'Lebanese', 'Mediterranean', 'Mexican',
+    'Moroccan', 'Noodles', 'Persian', 'Pizza', 'Pub', 'Ramen', 'Seafood',
+    'Spanish', 'Steakhouse', 'Sushi', 'Tapas', 'Thai', 'Vegan', 'Vegetarian',
+    'Vietnamese', 'Other'
+  ];
+
   Future<List<Map<String, dynamic>>> getNearbyRestaurants(
-      double latitude, double longitude, double radius) async {
+    double latitude,
+    double longitude,
+    {String? priceLevel}
+  ) async {
+    double radius = _initialRadius;
+    double currentIncrement = _minIncrement;
+    final Set<String> foundIds = {};
+    List<Map<String, dynamic>> allRestaurants = [];
+
+    // Keep searching until we have enough matching restaurants
+    while (allRestaurants.length < _targetCount && radius <= _maxRadius) {
+      final params = _buildSearchParams(latitude, longitude, radius, priceLevel: priceLevel);
+
+      try {
+        final response = await ProxyService.placesApiGet(
+          'places:searchNearby',
+          params,
+          fieldMask: 'places.id,places.displayName,places.rating,places.userRatingCount,places.photos,places.priceLevel,places.types,places.formattedAddress,places.location,places.editorialSummary',
+        );
+
+        if (response.containsKey('places')) {
+          final List<dynamic> places = response['places'];
+          int newMatchingPlaces = 0;
+
+          for (final place in places) {
+            final id = place['id'] as String;
+            if (!foundIds.contains(id)) {
+              final mappedPlace = _mapPlace(place, priceLevel);
+              if (mappedPlace != null) {  // Only count if it matches our price filter
+                foundIds.add(id);
+                allRestaurants.add(mappedPlace);
+                newMatchingPlaces++;
+              }
+            }
+          }
+
+          // Adjust increment based on matching results
+          if (newMatchingPlaces < _lowResultsThreshold) {
+            currentIncrement = (currentIncrement * 1.5).clamp(_minIncrement, _maxIncrement);
+            radius += currentIncrement;  // Expand search area faster
+          } else if (allRestaurants.length < _targetCount) {
+            radius += _minIncrement;  // Still need more results, expand normally
+          }
+        }
+      } catch (e) {
+        rethrow;
+      }
+    }
+
+    return allRestaurants;
+  }
+
+  Map<String, dynamic> _buildSearchParams(
+    double latitude,
+    double longitude,
+    double radius,
+    {String? priceLevel}
+  ) {
     final params = {
       'locationRestriction': {
         'circle': {
@@ -18,40 +90,42 @@ class RestaurantService {
         },
       },
       'includedTypes': ['restaurant'],
-      'maxResultCount': 20,
+      'maxResultCount': _targetCount,
       'languageCode': 'en',
     };
 
-    try {
-      final response = await ProxyService.placesApiGet(
-        'places:searchNearby',
-        params,
-        fieldMask: 'places.id,places.displayName,places.rating,places.userRatingCount,places.photos,places.priceLevel,places.types,places.formattedAddress,places.location,places.editorialSummary',
-      );
-
-      if (response.containsKey('places')) {
-        final List<dynamic> places = response['places'];
-        return places.map((place) {
-          final name = place['displayName']?['text'] ?? 'Unknown';
-          final editorialSummary = place['editorialSummary'];
-          
-          // Extract photo references from the photos array
-          final photos = place['photos'] as List<dynamic>?;
-          final photoRefs = photos?.map((photo) => photo['name'] as String).toList() ?? [];
-          
-          final mappedPlace = <String, dynamic>{
-            ...Map<String, dynamic>.from(place),
-            'photoRefs': photoRefs,
-          };
-          
-          return mappedPlace;
-        }).toList();
+    if (priceLevel != null) {
+      String level = '';
+      switch (priceLevel) {
+        case '\$': level = 'PRICE_LEVEL_INEXPENSIVE'; break;
+        case '\$\$': level = 'PRICE_LEVEL_MODERATE'; break;
+        case '\$\$\$': level = 'PRICE_LEVEL_EXPENSIVE'; break;
+        case '\$\$\$\$': level = 'PRICE_LEVEL_VERY_EXPENSIVE'; break;
       }
-      return [];
-
-    } catch (e) {
-      rethrow;
+      if (level.isNotEmpty) {
+        params['priceLevels'] = [level];
+      }
     }
+
+    return params;
+  }
+
+  Map<String, dynamic>? _mapPlace(Map<String, dynamic> place, String? targetPriceLevel) {
+    // First convert the API price level to our format ($, $$, etc)
+    final placePrice = getPriceLevel(place['priceLevel']);
+    
+    // If we have a target price level, only include exact matches
+    if (targetPriceLevel != null && placePrice != targetPriceLevel) {
+      return null;
+    }
+
+    final photos = place['photos'] as List<dynamic>?;
+    final photoRefs = photos?.map((photo) => photo['name'] as String).toList() ?? [];
+    
+    return {
+      ...Map<String, dynamic>.from(place),
+      'photoRefs': photoRefs,
+    };
   }
 
   String getPriceLevel(String? priceLevel) {

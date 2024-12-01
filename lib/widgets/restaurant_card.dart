@@ -153,15 +153,16 @@ class RestaurantCard extends StatelessWidget {
                   children: restaurant.types
                       .take(3)
                       .map((type) {
-                    return Chip(
-                      label: Text(
+                    return Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: Colors.blue.withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                      child: Text(
                         type.replaceAll('_', ' ').toLowerCase(),
                         style: const TextStyle(fontSize: 11),
                       ),
-                      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                      visualDensity: VisualDensity.compact,
-                      padding: const EdgeInsets.symmetric(horizontal: 8),
-                      labelPadding: EdgeInsets.zero,
                     );
                   }).toList(),
                 ),
