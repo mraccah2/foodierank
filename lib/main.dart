@@ -1,7 +1,14 @@
 import 'package:flutter/material.dart';
 import 'screens/restaurant_list_screen.dart';
+import 'package:flutter/services.dart';
 
 void main() {
+  WidgetsFlutterBinding.ensureInitialized();
+  SystemChrome.setPreferredOrientations([
+    DeviceOrientation.portraitUp,  // Default app orientation
+    DeviceOrientation.landscapeLeft,  // Allow landscape in photo viewer
+    DeviceOrientation.landscapeRight,
+  ]);
   runApp(const MyApp());
 }
 
