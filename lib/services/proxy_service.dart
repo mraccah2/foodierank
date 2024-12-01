@@ -34,7 +34,7 @@ class ProxyService {
         );
 
         if (response.statusCode != 200) {
-          throw Exception('Places API request failed with status ${response.statusCode}');
+          throw Exception('Places API request failed with status ${response.statusCode}: ${response.body}');
         }
 
         return json.decode(response.body);
@@ -59,7 +59,7 @@ class ProxyService {
     }
 
     try {
-      final url = Uri.parse('$baseUrl/api/place/v1/${photoName}/media').replace(
+      final url = Uri.parse('$baseUrl/api/place/v1/$photoName/media').replace(
         queryParameters: {
           'maxWidthPx': width.toString(),
           'maxHeightPx': height.toString(),

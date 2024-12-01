@@ -2,6 +2,7 @@ import 'package:foodierank/services/proxy_service.dart';
 import 'package:foodierank/config.dart';
 import 'package:http/http.dart' as http;
 import 'dart:typed_data';
+import 'package:flutter/material.dart' show TimeOfDay;
 
 class RestaurantService {
   static const int _targetCount = 20;
@@ -23,20 +24,25 @@ class RestaurantService {
   Future<List<Map<String, dynamic>>> getNearbyRestaurants(
     double latitude,
     double longitude,
-    {String? priceLevel}
+    {String? priceLevel, String? cuisineType, String? openDay, TimeOfDay? openTime}
   ) async {
     double radius = _initialRadius;
     double currentIncrement = _minIncrement;
     final Set<String> foundIds = {};
     List<Map<String, dynamic>> allRestaurants = [];
 
-    // Keep searching until we have enough matching restaurants
     while (allRestaurants.length < _targetCount && radius <= _maxRadius) {
-      final params = _buildSearchParams(latitude, longitude, radius, priceLevel: priceLevel);
+      final params = _buildSearchParams(
+        latitude,
+        longitude,
+        radius,
+        cuisineType: cuisineType,
+        priceLevel: priceLevel,
+      );
 
       try {
         final response = await ProxyService.placesApiGet(
-          'places:searchNearby',
+          'places:searchText',
           params,
           fieldMask: 'places.id,places.displayName,places.rating,places.userRatingCount,places.photos,places.priceLevel,places.types,places.formattedAddress,places.location,places.editorialSummary',
         );
@@ -77,10 +83,13 @@ class RestaurantService {
     double latitude,
     double longitude,
     double radius,
-    {String? priceLevel}
+    {String? cuisineType, String? priceLevel}
   ) {
-    final params = {
-      'locationRestriction': {
+    return {
+      'textQuery': cuisineType != null && cuisineType != 'Other' 
+        ? '$cuisineType restaurant'
+        : 'restaurant',
+      'locationBias': {
         'circle': {
           'center': {
             'latitude': latitude,
@@ -89,25 +98,23 @@ class RestaurantService {
           'radius': radius,
         },
       },
-      'includedTypes': ['restaurant'],
+      'includedType': 'restaurant',
       'maxResultCount': _targetCount,
       'languageCode': 'en',
+      if (priceLevel != null) ...{
+        'priceLevels': [_convertPriceLevel(priceLevel)],
+      },
     };
+  }
 
-    if (priceLevel != null) {
-      String level = '';
-      switch (priceLevel) {
-        case '\$': level = 'PRICE_LEVEL_INEXPENSIVE'; break;
-        case '\$\$': level = 'PRICE_LEVEL_MODERATE'; break;
-        case '\$\$\$': level = 'PRICE_LEVEL_EXPENSIVE'; break;
-        case '\$\$\$\$': level = 'PRICE_LEVEL_VERY_EXPENSIVE'; break;
-      }
-      if (level.isNotEmpty) {
-        params['priceLevels'] = [level];
-      }
+  String _convertPriceLevel(String priceLevel) {
+    switch (priceLevel) {
+      case '\$': return 'PRICE_LEVEL_INEXPENSIVE';
+      case '\$\$': return 'PRICE_LEVEL_MODERATE';
+      case '\$\$\$': return 'PRICE_LEVEL_EXPENSIVE';
+      case '\$\$\$\$': return 'PRICE_LEVEL_VERY_EXPENSIVE';
+      default: return '';
     }
-
-    return params;
   }
 
   Map<String, dynamic>? _mapPlace(Map<String, dynamic> place, String? targetPriceLevel) {
@@ -147,7 +154,7 @@ class RestaurantService {
 
   Future<Uint8List?> getPlacePhoto(String photoName, {int maxWidth = 800, int maxHeight = 450}) async {
     try {
-      final uri = Uri.parse('${ProxyService.baseUrl}/api/place/v1/${photoName}/media').replace(
+      final uri = Uri.parse('${ProxyService.baseUrl}/api/place/v1/$photoName/media').replace(
         queryParameters: {
           'maxWidthPx': maxWidth.toString(),
           'maxHeightPx': maxHeight.toString(),
