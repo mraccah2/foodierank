@@ -1,18 +1,50 @@
 import 'package:flutter/material.dart';
 import '../models/restaurant.dart';
 import '../services/proxy_service.dart';
+import 'package:url_launcher/url_launcher_string.dart';
 
 class RestaurantCard extends StatelessWidget {
   final Restaurant restaurant;
   final VoidCallback onPhotoTap;
   final int ranking;
+  final double? currentLat;
+  final double? currentLng;
 
   const RestaurantCard({
     super.key,
     required this.restaurant,
     required this.onPhotoTap,
     required this.ranking,
+    required this.currentLat,
+    required this.currentLng,
   });
+
+  // Add method to launch Google Maps
+  void _openInGoogleMaps(BuildContext context, Restaurant restaurant) async {
+    // Try to open in Google Maps app first
+    final mapsUrl = Uri.parse(
+      'comgooglemaps://?daddr=${restaurant.location.latitude},${restaurant.location.longitude}&directionsmode=driving'
+    ).toString();
+
+    // Fallback to web URL if app isn't installed
+    final webUrl = Uri.parse(
+      'https://www.google.com/maps/dir/?api=1'
+      '&destination=${restaurant.location.latitude},${restaurant.location.longitude}'
+      '&travelmode=driving'
+    ).toString();
+
+    if (await canLaunchUrlString(mapsUrl)) {
+      await launchUrlString(mapsUrl);
+    } else if (await canLaunchUrlString(webUrl)) {
+      await launchUrlString(webUrl, mode: LaunchMode.externalApplication);
+    } else {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Could not open Google Maps')),
+        );
+      }
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -119,7 +151,7 @@ class RestaurantCard extends StatelessWidget {
                     // Price Level
                     Text(
                       restaurant.priceLevel,
-                      style: Theme.of(context).textTheme.titleMedium,
+                      style: Theme.of(context).textTheme.bodyMedium,
                     ),
                     const SizedBox(width: 16),  // Add more space between price and rating
                     
@@ -140,7 +172,7 @@ class RestaurantCard extends StatelessWidget {
                     const SizedBox(width: 8),
                     Text(
                       '${restaurant.rating.toStringAsFixed(1)} (${restaurant.reviewCount})',
-                      style: Theme.of(context).textTheme.bodyLarge,
+                      style: Theme.of(context).textTheme.bodyMedium,
                     ),
                   ],
                 ),
@@ -161,7 +193,7 @@ class RestaurantCard extends StatelessWidget {
                       ),
                       child: Text(
                         type.replaceAll('_', ' ').toLowerCase(),
-                        style: const TextStyle(fontSize: 11),
+                        style: Theme.of(context).textTheme.bodyMedium,
                       ),
                     );
                   }).toList(),
@@ -172,7 +204,7 @@ class RestaurantCard extends StatelessWidget {
                 if (restaurant.description.isNotEmpty) ...[
                   Text(
                     restaurant.description,
-                    style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                       fontWeight: FontWeight.bold,
                     ),
                     maxLines: 3,
@@ -181,14 +213,35 @@ class RestaurantCard extends StatelessWidget {
                   const SizedBox(height: 16),
                 ],
                 // Address
-                Text(
-                  restaurant.address,
-                  style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                    color: Colors.blue,
-                    decoration: TextDecoration.underline,
+                GestureDetector(
+                  onTap: () => _openInGoogleMaps(context, restaurant),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      if (currentLat != null)
+                        Row(
+                          children: [
+                            const Icon(Icons.location_on, size: 16),
+                            const SizedBox(width: 4),
+                            Text(
+                              'Distance: approx. ${restaurant.location.formatDistance(currentLat!, currentLng!)}',
+                              style: Theme.of(context).textTheme.bodyMedium,
+                            ),
+                          ],
+                        ),
+                      const SizedBox(height: 4),
+                      Padding(
+                        padding: const EdgeInsets.only(left: 20),  // Align with distance text
+                        child: Text(
+                          restaurant.location.formattedAddress,
+                          style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                            decoration: TextDecoration.underline,
+                            color: Colors.blue,
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
                 ),
               ],
             ),

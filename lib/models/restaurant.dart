@@ -1,4 +1,4 @@
-import 'dart:math' show sqrt;
+import 'dart:math' show sqrt, sin, atan2, cos, pi;
 
 class Restaurant {
   final String id;
@@ -25,7 +25,7 @@ class Restaurant {
     this.priceLevel = '',
     this.description = '',
     this.address = '',
-    this.location = const Location(latitude: 0, longitude: 0),
+    this.location = const Location(latitude: 0, longitude: 0, formattedAddress: ''),
     this.photos = const [],
   });
 
@@ -90,8 +90,9 @@ class Restaurant {
       description: description,
       address: json['formattedAddress'] ?? '',
       location: Location(
-        latitude: json['location']?['latitude'] ?? 0.0,
-        longitude: json['location']?['longitude'] ?? 0.0,
+        latitude: json['location']['latitude'],
+        longitude: json['location']['longitude'],
+        formattedAddress: json['formattedAddress'],
       ),
       photos: [],
     );
@@ -116,11 +117,32 @@ class Restaurant {
 class Location {
   final double latitude;
   final double longitude;
+  final String formattedAddress;
 
   const Location({
     required this.latitude,
     required this.longitude,
+    required this.formattedAddress,
   });
+
+  String formatDistance(double currentLat, double currentLng) {
+    final distance = calculateDistance(latitude, longitude, currentLat, currentLng);
+    return distance < 1 
+      ? '${(distance * 1000).round()}m'
+      : '${distance.toStringAsFixed(1)}km';
+  }
+
+  double calculateDistance(double lat1, double lon1, double lat2, double lon2) {
+    const r = 6371;
+    final dLat = _toRadians(lat2 - lat1);
+    final dLon = _toRadians(lon2 - lon1);
+    final a = sin(dLat / 2) * sin(dLat / 2) +
+        cos(_toRadians(lat1)) * cos(_toRadians(lat2)) * sin(dLon / 2) * sin(dLon / 2);
+    final c = 2 * atan2(sqrt(a), sqrt(1 - a));
+    return r * c;
+  }
+
+  double _toRadians(double degree) => degree * pi / 180;
 }
 
 class Photo {

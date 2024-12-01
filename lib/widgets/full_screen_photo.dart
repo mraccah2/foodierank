@@ -33,7 +33,6 @@ class FullScreenPhoto extends StatelessWidget {
               imageUrl,
               fit: BoxFit.contain,
               errorBuilder: (context, error, stackTrace) {
-                print('dBug/full_screen_photo: Error loading image: $error');
                 return const Center(
                   child: Icon(Icons.error_outline, size: 40, color: Colors.white),
                 );
