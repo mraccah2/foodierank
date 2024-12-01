@@ -20,6 +20,10 @@ class MyApp extends StatelessWidget {
     return MaterialApp(
       title: 'FoodieRank',
       theme: ThemeData(
+        scaffoldBackgroundColor: Colors.white,
+        appBarTheme: AppBarTheme(
+          backgroundColor: Colors.white,
+        ),
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepOrange),
         useMaterial3: true,
       ),

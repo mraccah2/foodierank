@@ -5,7 +5,7 @@ import '../config.dart';
 
 class ProxyService {
   static final _client = http.Client();
-  static const String baseUrl = 'http://localhost:8080';
+  static final String baseUrl = Config.baseUrl;
   static const String _apiKey = Config.googleMapsApiKey;
   static final Map<String, String> _photoUrlCache = {};
 
@@ -19,22 +19,17 @@ class ProxyService {
 
     while (retryCount < maxRetries) {
       try {
-        final url = Uri.parse('$baseUrl/api/place/v1/$endpoint');
-        
-        final headers = {
-          'Content-Type': 'application/json',
-          'X-Goog-Api-Key': _apiKey,
-          if (fieldMask != null) 'X-Goog-FieldMask': fieldMask,
-        };
-
-        final response = await http.post(
-          url,
-          headers: headers,
-          body: json.encode(params),
+        final url = Uri.parse('$baseUrl/$endpoint').replace(
+          queryParameters: {
+            ...params,
+            'key': _apiKey,
+          },
         );
 
+        final response = await http.get(url);
+
         if (response.statusCode != 200) {
-          throw Exception('Places API request failed with status ${response.statusCode}: ${response.body}');
+          throw Exception('Request failed with status: ${response.statusCode}');
         }
 
         return json.decode(response.body);

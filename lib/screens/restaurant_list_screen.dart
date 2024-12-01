@@ -461,8 +461,9 @@ class _RestaurantListScreenState extends State<RestaurantListScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: Colors.white,
       appBar: AppBar(
-        backgroundColor: Colors.transparent,
+        backgroundColor: Colors.white,
         elevation: 0,
         title: Text(
           'Foodie Rank',
