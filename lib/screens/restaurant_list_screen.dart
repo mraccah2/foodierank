@@ -4,7 +4,6 @@ import '../models/restaurant.dart';
 import '../services/restaurant_service.dart';
 import '../widgets/restaurant_card.dart';
 import '../widgets/restaurant_photo_viewer.dart';
-import '../widgets/full_screen_photo.dart';
 
 class RestaurantListScreen extends StatefulWidget {
   const RestaurantListScreen({super.key});
@@ -19,6 +18,9 @@ class _RestaurantListScreenState extends State<RestaurantListScreen> {
   String? _error;
   bool _isLoading = true;
   final PageController _pageController = PageController();
+  String? _selectedPriceLevel;
+  String? _selectedType;
+  TextEditingController _customTypeController = TextEditingController();
 
   @override
   void initState() {
@@ -29,6 +31,7 @@ class _RestaurantListScreenState extends State<RestaurantListScreen> {
   @override
   void dispose() {
     _pageController.dispose();
+    _customTypeController.dispose();
     super.dispose();
   }
 
@@ -63,7 +66,7 @@ class _RestaurantListScreenState extends State<RestaurantListScreen> {
       final rawRestaurants = await _restaurantService.getNearbyRestaurants(
         position.latitude,
         position.longitude,
-        300.0,
+        priceLevel: _selectedPriceLevel,
       );
       
       final restaurants = rawRestaurants
@@ -101,6 +104,147 @@ class _RestaurantListScreenState extends State<RestaurantListScreen> {
           restaurant: restaurant,
         ),
       ),
+    );
+  }
+
+  void _showPriceFilter() {
+    showModalBottomSheet(
+      context: context,
+      builder: (BuildContext context) {
+        return Container(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                'Select Price Range',
+                style: Theme.of(context).textTheme.titleLarge,
+              ),
+              const SizedBox(height: 16),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                children: ['\$', '\$\$', '\$\$\$', '\$\$\$\$'].map((price) {
+                  return ElevatedButton(
+                    onPressed: () {
+                      setState(() {
+                        _selectedPriceLevel = price;
+                      });
+                      Navigator.pop(context);
+                      _loadRestaurants();
+                    },
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: _selectedPriceLevel == price 
+                          ? Theme.of(context).colorScheme.primary 
+                          : null,
+                    ),
+                    child: Text(price),
+                  );
+                }).toList(),
+              ),
+              const SizedBox(height: 16),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  void _showTypeFilter() {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      builder: (BuildContext context) {
+        return DraggableScrollableSheet(
+          initialChildSize: 0.6,
+          minChildSize: 0.4,
+          maxChildSize: 0.9,
+          builder: (_, controller) {
+            return Container(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    'Select Cuisine Type',
+                    style: Theme.of(context).textTheme.titleLarge,
+                  ),
+                  const SizedBox(height: 16),
+                  Expanded(
+                    child: GridView.builder(
+                      controller: controller,
+                      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                        crossAxisCount: 3,
+                        childAspectRatio: 2.5,
+                        crossAxisSpacing: 8,
+                        mainAxisSpacing: 8,
+                      ),
+                      itemCount: RestaurantService.cuisineTypes.length,
+                      itemBuilder: (context, index) {
+                        final type = RestaurantService.cuisineTypes[index];
+                        return ElevatedButton(
+                          onPressed: () {
+                            if (type == 'Other') {
+                              _showCustomTypeDialog();
+                            } else {
+                              setState(() {
+                                _selectedType = type;
+                              });
+                              Navigator.pop(context);
+                              _loadRestaurants();
+                            }
+                          },
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: _selectedType == type
+                                ? Theme.of(context).colorScheme.primary
+                                : null,
+                          ),
+                          child: Text(type),
+                        );
+                      },
+                    ),
+                  ),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  void _showCustomTypeDialog() {
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: const Text('Enter Cuisine Type'),
+          content: TextField(
+            controller: _customTypeController,
+            decoration: const InputDecoration(
+              hintText: 'Enter cuisine type...',
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Cancel'),
+            ),
+            TextButton(
+              onPressed: () {
+                if (_customTypeController.text.isNotEmpty) {
+                  setState(() {
+                    _selectedType = _customTypeController.text;
+                  });
+                  Navigator.pop(context);
+                  Navigator.pop(context);
+                  _loadRestaurants();
+                }
+              },
+              child: const Text('Search'),
+            ),
+          ],
+        );
+      },
     );
   }
 
@@ -167,39 +311,54 @@ class _RestaurantListScreenState extends State<RestaurantListScreen> {
       );
     }
 
+    // Define button style outside the widget tree
+    final buttonStyle = ElevatedButton.styleFrom(
+      backgroundColor: Colors.transparent,
+      elevation: 0,
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      side: BorderSide(
+        color: Theme.of(context).colorScheme.primary,
+        width: 1,
+      ),
+    );
+
     return Column(
       children: [
-        // Filter Buttons Row
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
           child: Row(
             mainAxisAlignment: MainAxisAlignment.spaceEvenly,
             children: [
               ElevatedButton(
-                onPressed: () {
-                  // TODO: Handle all types
-                },
+                onPressed: _showTypeFilter,
+                style: buttonStyle,
                 child: Text(
-                  'All Types',
-                  style: Theme.of(context).textTheme.bodyLarge,
+                  _selectedType ?? 'All Types',
+                  style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                    color: Theme.of(context).colorScheme.primary,
+                  ),
                 ),
               ),
               ElevatedButton(
                 onPressed: () {
                   // TODO: Handle open now
                 },
+                style: buttonStyle,
                 child: Text(
                   'Open Now',
-                  style: Theme.of(context).textTheme.bodyLarge,
+                  style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                    color: Theme.of(context).colorScheme.primary,
+                  ),
                 ),
               ),
               ElevatedButton(
-                onPressed: () {
-                  // TODO: Handle price range
-                },
+                onPressed: _showPriceFilter,
+                style: buttonStyle,
                 child: Text(
-                  '\$-\$\$\$\$',
-                  style: Theme.of(context).textTheme.bodyLarge,
+                  _selectedPriceLevel ?? '\$-\$\$\$\$',
+                  style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                    color: Theme.of(context).colorScheme.primary,
+                  ),
                 ),
               ),
             ],
