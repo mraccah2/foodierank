@@ -1,13 +1,56 @@
 import 'package:flutter/material.dart';
-import 'screens/restaurant_list_screen.dart';
+import 'screens/splash_screen.dart';
 import 'package:flutter/services.dart';
+import 'package:geolocator/geolocator.dart';
+import 'services/restaurant_service.dart';
+import 'dart:async';
 
 void main() {
-  WidgetsFlutterBinding.ensureInitialized();
-  SystemChrome.setPreferredOrientations([
-    DeviceOrientation.portraitUp,
-  ]);
-  runApp(const MyApp());
+  runZonedGuarded(() async {
+    WidgetsFlutterBinding.ensureInitialized();
+    
+    FlutterError.onError = (FlutterErrorDetails details) {
+      print('dBug/main: Flutter error: ${details.exception}');
+      print('dBug/main: Stack trace: ${details.stack}');
+    };
+
+    SystemChrome.setPreferredOrientations([
+      DeviceOrientation.portraitUp,
+    ]);
+
+    // Start location and restaurant fetch before showing splash screen
+    try {
+      final permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied) {
+        await Geolocator.requestPermission();
+      }
+
+      final position = await Geolocator.getCurrentPosition(
+        desiredAccuracy: LocationAccuracy.best,
+        timeLimit: const Duration(seconds: 5),
+      ).timeout(
+        const Duration(seconds: 5),
+        onTimeout: () async {
+          final lastKnown = await Geolocator.getLastKnownPosition();
+          if (lastKnown != null) return lastKnown;
+          throw TimeoutException('Could not get location');
+        },
+      );
+
+      // Start fetching restaurants
+      RestaurantService.instance.fetchInitialRestaurants(
+        position.latitude,
+        position.longitude,
+      );
+    } catch (e) {
+      print('dBug/main: Error in initial fetch: $e');
+    }
+
+    runApp(const MyApp());
+  }, (error, stack) {
+    print('dBug/main: Uncaught error: $error');
+    print('dBug/main: Stack trace: $stack');
+  });
 }
 
 class MyApp extends StatelessWidget {
@@ -35,57 +78,18 @@ class MyApp extends StatelessWidget {
         ),
         useMaterial3: true,
       ),
+      // Add error handling for navigation/routing errors
+      builder: (context, widget) {
+        Widget error = const Text('...rendering error...');
+        if (widget is Scaffold || widget is Navigator) {
+          error = Scaffold(body: Center(child: error));
+        }
+        ErrorWidget.builder = (FlutterErrorDetails errorDetails) {
+          return error;
+        };
+        return widget ?? error;
+      },
       home: const SplashScreen(),
-    );
-  }
-}
-
-class SplashScreen extends StatefulWidget {
-  const SplashScreen({super.key});
-
-  @override
-  State<SplashScreen> createState() => _SplashScreenState();
-}
-
-class _SplashScreenState extends State<SplashScreen> {
-  @override
-  void initState() {
-    super.initState();
-    _navigateToHome();
-  }
-
-  Future<void> _navigateToHome() async {
-    await Future.delayed(const Duration(seconds: 2));
-    if (mounted) {
-      Navigator.pushReplacement(
-        context,
-        MaterialPageRoute(builder: (context) => const RestaurantListScreen()),
-      );
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: Colors.white,
-      body: Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Text(
-              'FoodieRank',
-              style: Theme.of(context).textTheme.headlineLarge?.copyWith(
-                fontWeight: FontWeight.bold,
-                color: Colors.black,
-              ),
-            ),
-            const SizedBox(height: 16),
-            const CircularProgressIndicator(
-              color: Colors.black,
-            ),
-          ],
-        ),
-      ),
     );
   }
 }

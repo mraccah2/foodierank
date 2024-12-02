@@ -25,7 +25,7 @@ class _RestaurantListScreenState extends State<RestaurantListScreen> {
   bool _isLoading = true;
   final PageController _pageController = PageController();
   String? _selectedPriceLevel;
-  String? _selectedType;
+  String? _selectedType = 'All';
   final TextEditingController _customTypeController = TextEditingController();
   TimeOfDay? _selectedTime;
   double? _currentLat;
@@ -52,45 +52,30 @@ class _RestaurantListScreenState extends State<RestaurantListScreen> {
         _error = null;
       });
 
-      // Request location permission
-      final permission = await Geolocator.checkPermission();
-      if (permission == LocationPermission.denied) {
-        final requestedPermission = await Geolocator.requestPermission();
-        if (requestedPermission == LocationPermission.denied) {
-          throw Exception('Location permission denied');
-        }
-      }
-
-      if (permission == LocationPermission.deniedForever) {
-        throw Exception('Location permission permanently denied');
-      }
-
-      // Get current position with better accuracy and timeout settings
+      // Get current position
       final position = await Geolocator.getCurrentPosition(
         desiredAccuracy: LocationAccuracy.best,
         timeLimit: const Duration(seconds: 5),
-      ).timeout(
-        const Duration(seconds: 5),
-        onTimeout: () async {
-          // Fallback to last known position if getting current position times out
-          final lastKnown = await Geolocator.getLastKnownPosition();
-          if (lastKnown != null) return lastKnown;
-          throw TimeoutException('Could not get location');
-        },
       );
 
       _currentLat = position.latitude;
       _currentLng = position.longitude;
 
-      // Fetch restaurants
-      final rawRestaurants = await _restaurantService.getNearbyRestaurants(
-        position.latitude,
-        position.longitude,
-        priceLevel: _selectedPriceLevel,
-        cuisineType: _selectedType,
-        openTime: _selectedTime,
-      );
-      
+      // Use cached results if available and no filters are applied
+      final bool noFilters = _selectedPriceLevel == null && 
+                            (_selectedType == 'All' || _selectedType == null) && 
+                            _selectedTime == null;
+
+      final rawRestaurants = noFilters && _restaurantService.cachedRestaurants != null
+          ? _restaurantService.cachedRestaurants!
+          : await _restaurantService.getNearbyRestaurants(
+              position.latitude,
+              position.longitude,
+              priceLevel: _selectedPriceLevel,
+              cuisineType: _selectedType == 'All' ? null : _selectedType,
+              openTime: _selectedTime,
+            );
+
       final restaurants = rawRestaurants
           .map((place) => Restaurant.fromJson(place))
           .toList()
@@ -99,6 +84,11 @@ class _RestaurantListScreenState extends State<RestaurantListScreen> {
           final scoreB = b.calculateWilsonScore(b.rating, b.reviewCount);
           return scoreB.compareTo(scoreA);
         });
+      
+      // Assign ranks based on Wilson score
+      for (var i = 0; i < restaurants.length; i++) {
+        restaurants[i].rank = i + 1;
+      }
       
       if (mounted) {
         setState(() {
@@ -149,11 +139,11 @@ class _RestaurantListScreenState extends State<RestaurantListScreen> {
               const SizedBox(height: 16),
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                children: ['\$', '\$\$', '\$\$\$', '\$\$\$\$'].map((price) {
-                  final isSelected = _selectedPriceLevel == price;
+                children: ['All', '\$', '\$\$', '\$\$\$', '\$\$\$\$'].map((price) {
+                  final isSelected = _selectedPriceLevel == price || (price == 'All' && _selectedPriceLevel == null);
                   return InkWell(
                     onTap: () {
-                      setState(() => _selectedPriceLevel = price);
+                      setState(() => _selectedPriceLevel = price == 'All' ? null : price);
                       Navigator.pop(context);
                       _loadRestaurants();
                     },
@@ -199,7 +189,7 @@ class _RestaurantListScreenState extends State<RestaurantListScreen> {
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   Text(
-                    'Select Cuisine Type',
+                    'Select Type',
                     style: Theme.of(context).textTheme.titleLarge,
                   ),
                   const SizedBox(height: 12),
@@ -303,25 +293,25 @@ class _RestaurantListScreenState extends State<RestaurantListScreen> {
 
   void _showOpenTimeDialog() {
     // Use current time as initial selection if none set
-    
+
     // Generate list of valid times (30-minute increments from current time until midnight)
     final currentTime = TimeOfDay.now();
-    final times = <String>[];
-    
+    final times = <String>['Open Now']; // Add "Open Now" as the first option
+
     // Start from current hour/minute (rounded up to next 30 min increment)
     var hour = currentTime.hour;
     var minute = currentTime.minute >= 30 ? 0 : 30;
     if (currentTime.minute >= 30) {
       hour = (hour + 1) % 24;
     }
-    
+
     // Add times until midnight
     while (hour < 24) {
       final hourStr = (hour % 12 == 0 ? 12 : hour % 12).toString().padLeft(2, '0');
       final minStr = minute.toString().padLeft(2, '0');
       final amPm = hour < 12 ? 'AM' : 'PM';
       times.add('$hourStr:$minStr $amPm');
-      
+
       minute += 30;
       if (minute >= 60) {
         minute = 0;
@@ -351,19 +341,23 @@ class _RestaurantListScreenState extends State<RestaurantListScreen> {
                   children: times.map((time) => 
                     InkWell(
                       onTap: () {
-                        // Parse time string back to TimeOfDay
-                        final parts = time.split(' ');
-                        final timeParts = parts[0].split(':');
-                        var hour = int.parse(timeParts[0]);
-                        final minute = int.parse(timeParts[1]);
-                        final amPm = parts[1];
-                        
-                        if (amPm == 'PM' && hour != 12) hour += 12;
-                        if (amPm == 'AM' && hour == 12) hour = 0;
-                        
-                        setState(() {
-                          _selectedTime = TimeOfDay(hour: hour, minute: minute);
-                        });
+                        if (time == 'Open Now') {
+                          setState(() => _selectedTime = null);
+                        } else {
+                          // Parse time string back to TimeOfDay
+                          final parts = time.split(' ');
+                          final timeParts = parts[0].split(':');
+                          var hour = int.parse(timeParts[0]);
+                          final minute = int.parse(timeParts[1]);
+                          final amPm = parts[1];
+
+                          if (amPm == 'PM' && hour != 12) hour += 12;
+                          if (amPm == 'AM' && hour == 12) hour = 0;
+
+                          setState(() {
+                            _selectedTime = TimeOfDay(hour: hour, minute: minute);
+                          });
+                        }
                         Navigator.pop(context);
                         _loadRestaurants();
                       },
@@ -509,11 +503,13 @@ class _RestaurantListScreenState extends State<RestaurantListScreen> {
     final buttonStyle = ElevatedButton.styleFrom(
       backgroundColor: Colors.transparent,
       elevation: 0,
-      padding: const EdgeInsets.symmetric(horizontal: 16),
+      padding: const EdgeInsets.symmetric(horizontal: 8),
       side: const BorderSide(
         color: Colors.black,
         width: 1,
       ),
+      minimumSize: Size.zero,
+      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
     );
 
     return Column(
@@ -609,7 +605,7 @@ class _RestaurantListScreenState extends State<RestaurantListScreen> {
                           ),
                         );
                       },
-                      ranking: index + 1,
+                      ranking: restaurant.rank ?? index + 1,
                       currentLat: _currentLat,
                       currentLng: _currentLng,
                     ),

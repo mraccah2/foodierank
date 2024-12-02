@@ -5,6 +5,25 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart' show TimeOfDay;
 
 class RestaurantService {
+  static final RestaurantService instance = RestaurantService._internal();
+  List<Map<String, dynamic>>? _cachedRestaurants;
+  
+  factory RestaurantService() {
+    return instance;
+  }
+
+  RestaurantService._internal();
+
+  List<Map<String, dynamic>>? get cachedRestaurants => _cachedRestaurants;
+
+  Future<List<Map<String, dynamic>>> fetchInitialRestaurants(double latitude, double longitude) async {
+    if (_cachedRestaurants != null) {
+      return _cachedRestaurants!;
+    }
+    _cachedRestaurants = await getNearbyRestaurants(latitude, longitude);
+    return _cachedRestaurants!;
+  }
+
   static const int _targetCount = 20;
   static const double _initialRadius = 500;
   static const double _minIncrement = 500;
@@ -12,7 +31,7 @@ class RestaurantService {
   static const double _maxRadius = 5000;
   static const int _lowResultsThreshold = 3;
   static const List<String> cuisineTypes = [
-    'American', 'Asian', 'Bakery', 'Bar', 'BBQ', 'Bistro', 'Brazilian', 'British',
+    'All', 'American', 'Asian', 'Bakery', 'Bar', 'BBQ', 'Bistro', 'Brazilian', 'British',
     'Brunch', 'Buffet', 'Burger', 'Cafe', 'Caribbean', 'Chinese', 'Deli', 'Diner',
     'French', 'Fusion', 'German', 'Greek', 'Hawaiian', 'Indian', 'Indonesian',
     'Italian', 'Japanese', 'Korean', 'Lebanese', 'Mediterranean', 'Mexican',
