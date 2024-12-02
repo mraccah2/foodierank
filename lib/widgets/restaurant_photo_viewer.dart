@@ -3,6 +3,7 @@ import 'package:photo_view/photo_view.dart';
 import 'package:photo_view/photo_view_gallery.dart';
 import '../models/restaurant.dart';
 import '../services/proxy_service.dart';
+import 'package:flutter/services.dart';
 
 class RestaurantPhotoViewer extends StatefulWidget {
   final Restaurant restaurant;
@@ -28,11 +29,19 @@ class _RestaurantPhotoViewerState extends State<RestaurantPhotoViewer> {
     super.initState();
     _currentIndex = widget.initialIndex;
     _pageController = PageController(initialPage: _currentIndex);
+    SystemChrome.setPreferredOrientations([
+      DeviceOrientation.portraitUp,
+      DeviceOrientation.landscapeLeft,
+      DeviceOrientation.landscapeRight,
+    ]);
   }
 
   @override
   void dispose() {
     _pageController.dispose();
+    SystemChrome.setPreferredOrientations([
+      DeviceOrientation.portraitUp,
+    ]);
     super.dispose();
   }
 
