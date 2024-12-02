@@ -464,6 +464,7 @@ class _RestaurantListScreenState extends State<RestaurantListScreen> {
       backgroundColor: Colors.white,
       appBar: AppBar(
         backgroundColor: Colors.white,
+        surfaceTintColor: Colors.white,
         elevation: 0,
         title: Text(
           'Foodie Rank',

@@ -35,7 +35,7 @@ dependencies:
 
   # Add these new dependencies
   geolocator: ^10.1.0
-  cached_network_image: ^3.3.0
+  cached_network_image: ^3.2.0
   photo_view: ^0.14.0
   url_launcher: ^6.2.1
   intl: ^0.18.1

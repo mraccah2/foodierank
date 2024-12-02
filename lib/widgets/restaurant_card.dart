@@ -21,17 +21,34 @@ class RestaurantCard extends StatelessWidget {
 
   // Add method to launch Google Maps
   void _openInGoogleMaps(BuildContext context, Restaurant restaurant) async {
+    // Get travel mode based on the already calculated distance
+    String travelMode = 'driving';
+    if (currentLat != null && currentLng != null) {
+      final distance = restaurant.location.calculateDistance(
+        currentLat!, 
+        currentLng!,
+        restaurant.location.latitude,
+        restaurant.location.longitude
+      );
+      // If distance is less than 1.5km, use walking mode
+      if (distance <= 1.5) {
+        travelMode = 'walking';
+      }
+    }
+
     // Try to open in Google Maps app first
     final mapsUrl = Uri.parse(
-      'comgooglemaps://?daddr=${restaurant.location.latitude},${restaurant.location.longitude}&directionsmode=driving'
+      'comgooglemaps://?daddr=${restaurant.location.latitude},${restaurant.location.longitude}&directionsmode=$travelMode'
     ).toString();
 
     // Fallback to web URL if app isn't installed
     final webUrl = Uri.parse(
       'https://www.google.com/maps/dir/?api=1'
       '&destination=${restaurant.location.latitude},${restaurant.location.longitude}'
-      '&travelmode=driving'
+      '&travelmode=$travelMode'
     ).toString();
+
+    print('dBug/restaurant_card: Opening maps with travel mode: $travelMode for distance: ${restaurant.location.formatDistance(currentLat!, currentLng!)}');
 
     if (await canLaunchUrlString(mapsUrl)) {
       await launchUrlString(mapsUrl);
