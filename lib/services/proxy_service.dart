@@ -5,7 +5,7 @@ import '../config.dart';
 
 class ProxyService {
   static final _client = http.Client();
-  static final String baseUrl = Config.baseUrl;
+  static final String baseUrl = 'https://places.googleapis.com/v1';
   static const String _apiKey = Config.googleMapsApiKey;
   static final Map<String, String> _photoUrlCache = {};
 
@@ -19,14 +19,18 @@ class ProxyService {
 
     while (retryCount < maxRetries) {
       try {
-        final url = Uri.parse('$baseUrl/$endpoint').replace(
-          queryParameters: {
-            ...params,
-            'key': _apiKey,
-          },
-        );
+        final url = Uri.parse('$baseUrl/$endpoint');
+        final headers = {
+          'Content-Type': 'application/json',
+          'X-Goog-Api-Key': _apiKey,
+          if (fieldMask != null) 'X-Goog-FieldMask': fieldMask,
+        };
+        final body = jsonEncode(params);
 
-        final response = await http.get(url);
+        print('dBug/proxy_service: Making request to ${url.toString()}');
+        final response = await http.post(url, headers: headers, body: body);
+        print('dBug/proxy_service: Response status: ${response.statusCode}');
+        print('dBug/proxy_service: Response body: ${response.body.substring(0, min(200, response.body.length))}...');
 
         if (response.statusCode != 200) {
           throw Exception('Request failed with status: ${response.statusCode}');
@@ -35,6 +39,7 @@ class ProxyService {
         return json.decode(response.body);
 
       } catch (e) {
+        print('dBug/proxy_service: Error: $e');
         retryCount++;
         if (retryCount < maxRetries) {
           final delay = Duration(seconds: pow(2, retryCount).toInt());
@@ -54,21 +59,27 @@ class ProxyService {
     }
 
     try {
-      final url = Uri.parse('$baseUrl/api/place/v1/$photoName/media').replace(
-        queryParameters: {
+      final url = Uri.parse('$baseUrl/$photoName/media');
+      final headers = {
+        'Content-Type': 'application/json',
+        'X-Goog-Api-Key': _apiKey,
+      };
+
+      final response = await _client.get(
+        url.replace(queryParameters: {
           'maxWidthPx': width.toString(),
           'maxHeightPx': height.toString(),
-          'key': _apiKey,
           'skipHttpRedirect': 'true',
-        },
+        }),
+        headers: headers,
       );
 
-      final response = await _client.get(url);
       final data = jsonDecode(response.body);
       final photoUri = data['photoUri'] ?? '';
       _photoUrlCache[cacheKey] = photoUri;
       return photoUri;
     } catch (e) {
+      print('dBug/proxy_service: Error fetching photo: $e');
       return '';
     }
   }
