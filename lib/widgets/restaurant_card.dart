@@ -72,7 +72,7 @@ class RestaurantCard extends StatelessWidget {
     }
     
     return Card(
-      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.only(
           topLeft: Radius.circular(24),
@@ -81,7 +81,7 @@ class RestaurantCard extends StatelessWidget {
           bottomRight: Radius.circular(16),
         ),
       ),
-      color: Theme.of(context).colorScheme.surface.withOpacity(0.95),
+      color: Colors.white,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [

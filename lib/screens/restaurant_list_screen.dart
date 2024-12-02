@@ -429,10 +429,10 @@ class _RestaurantListScreenState extends State<RestaurantListScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: Colors.grey[200],
       appBar: AppBar(
-        backgroundColor: Colors.white,
-        surfaceTintColor: Colors.white,
+        backgroundColor: Colors.grey[200],
+        surfaceTintColor: Colors.grey[200],
         elevation: 0,
         title: Text(
           'Foodie Rank',
@@ -449,8 +449,11 @@ class _RestaurantListScreenState extends State<RestaurantListScreen> {
 
   Widget _buildBody() {
     if (_isLoading) {
-      return const Center(
-        child: CircularProgressIndicator(),
+      return Container(
+        color: Colors.grey[200],
+        child: const Center(
+          child: CircularProgressIndicator(),
+        ),
       );
     }
 
@@ -501,7 +504,7 @@ class _RestaurantListScreenState extends State<RestaurantListScreen> {
 
     // Define button style outside the widget tree
     final buttonStyle = ElevatedButton.styleFrom(
-      backgroundColor: Colors.transparent,
+      backgroundColor: Colors.white,
       elevation: 0,
       padding: const EdgeInsets.symmetric(horizontal: 8),
       side: const BorderSide(
@@ -514,7 +517,8 @@ class _RestaurantListScreenState extends State<RestaurantListScreen> {
 
     return Column(
       children: [
-        Padding(
+        Container(
+          color: Colors.grey[200],
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
           child: Row(
             mainAxisAlignment: MainAxisAlignment.spaceEvenly,
@@ -572,53 +576,59 @@ class _RestaurantListScreenState extends State<RestaurantListScreen> {
           ),
         ),
         
-        // Restaurant Cards
+        // Restaurant Cards with padding
         Expanded(
-          child: PageView.builder(
-            controller: _pageController,
-            scrollDirection: Axis.vertical,
-            itemCount: _restaurants!.length,
-            onPageChanged: (index) {
-              setState(() {
-              });
-            },
-            itemBuilder: (context, index) {
-              final restaurant = _restaurants![index];
-              return Column(
-                children: [
-                  if (index > 0)
-                    const Padding(
-                      padding: EdgeInsets.all(8.0),
-                      child: Icon(Icons.keyboard_arrow_up, color: Colors.grey),
+          child: Container(
+            color: Colors.grey[200],
+            child: PageView.builder(
+              controller: _pageController,
+              scrollDirection: Axis.vertical,
+              itemCount: _restaurants!.length,
+              onPageChanged: (index) {
+                setState(() {});
+              },
+              itemBuilder: (context, index) {
+                final restaurant = _restaurants![index];
+                return Column(
+                  children: [
+                    const SizedBox(height: 20.0),  // Top edge padding
+                    
+                    if (index > 0)
+                      const Icon(Icons.keyboard_arrow_up, color: Colors.grey),
+                    
+                    Expanded(
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 16.0).copyWith(
+                          top: 8.0,    // Space between up arrow and card
+                          bottom: 8.0,  // Space between card and down arrow
+                        ),
+                        child: RestaurantCard(
+                          restaurant: restaurant,
+                          onPhotoTap: () {
+                            Navigator.of(context).push(
+                              MaterialPageRoute(
+                                builder: (context) => RestaurantPhotoViewer(
+                                  restaurant: restaurant,
+                                  initialIndex: 0,
+                                ),
+                              ),
+                            );
+                          },
+                          ranking: restaurant.rank ?? index + 1,
+                          currentLat: _currentLat,
+                          currentLng: _currentLng,
+                        ),
+                      ),
                     ),
-                  
-                  Expanded(
-                    child: RestaurantCard(
-                      restaurant: restaurant,
-                      onPhotoTap: () {
-                        Navigator.of(context).push(
-                          MaterialPageRoute(
-                            builder: (context) => RestaurantPhotoViewer(
-                              restaurant: restaurant,
-                              initialIndex: 0,
-                            ),
-                          ),
-                        );
-                      },
-                      ranking: restaurant.rank ?? index + 1,
-                      currentLat: _currentLat,
-                      currentLng: _currentLng,
-                    ),
-                  ),
-                  
-                  if (index < _restaurants!.length - 1)
-                    const Padding(
-                      padding: EdgeInsets.all(8.0),
-                      child: Icon(Icons.keyboard_arrow_down, color: Colors.grey),
-                    ),
-                ],
-              );
-            },
+                    
+                    if (index < _restaurants!.length - 1)
+                      const Icon(Icons.keyboard_arrow_down, color: Colors.grey),
+                      
+                    const SizedBox(height: 60.0),  // Bottom edge padding
+                  ],
+                );
+              },
+            ),
           ),
         ),
       ],
