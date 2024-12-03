@@ -636,7 +636,7 @@ class _RestaurantListScreenState extends State<RestaurantListScreen> {
                     if (index < _restaurants!.length - 1)
                       const Icon(Icons.keyboard_arrow_down, color: Colors.grey),
                       
-                    const SizedBox(height: 60.0),  // Bottom edge padding
+                    const SizedBox(height: 30.0),  // Bottom edge padding
                   ],
                 );
               },
