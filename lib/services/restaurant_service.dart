@@ -215,4 +215,13 @@ class RestaurantService {
     final url = _photoCache[photoRef] ?? '';
     return url;
   }
+
+  Future<void> loadAndCacheRestaurants() async {
+    final restaurants = await getNearbyRestaurants(37.785834, -122.406417);
+    final headerPhotoRefs = restaurants
+        .where((r) => (r['photoRefs'] as List<dynamic>?)?.isNotEmpty ?? false)
+        .map((r) => (r['photoRefs'] as List<dynamic>).first as String)
+        .toList();
+    await prefetchHeaderPhotos(headerPhotoRefs);
+  }
 } 

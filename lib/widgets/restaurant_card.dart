@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import '../models/restaurant.dart';
-import '../services/proxy_service.dart';
 import 'package:url_launcher/url_launcher_string.dart';
 import '../services/restaurant_service.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 
 class RestaurantCard extends StatelessWidget {
   final Restaurant restaurant;
@@ -105,16 +105,15 @@ class RestaurantCard extends StatelessWidget {
                           RestaurantService.instance.prefetchHeaderPhotos([photoRef]);
                         }
                         if (cachedUrl.isNotEmpty) {
-                          return Image.network(
-                            cachedUrl,
+                          return CachedNetworkImage(
+                            imageUrl: cachedUrl,
                             fit: BoxFit.cover,
                             width: double.infinity,
                             height: 240,
-                            errorBuilder: (context, error, stackTrace) {
-                              return const Center(
-                                child: Icon(Icons.error_outline, size: 40),
-                              );
-                            },
+                            placeholder: (context, url) => const SizedBox.shrink(),
+                            errorWidget: (context, url, error) => const Center(
+                              child: Icon(Icons.error_outline, size: 40),
+                            ),
                           );
                         }
                         return const Center(child: CircularProgressIndicator());
