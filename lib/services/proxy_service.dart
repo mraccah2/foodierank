@@ -27,10 +27,7 @@ class ProxyService {
         };
         final body = jsonEncode(params);
 
-        print('dBug/proxy_service: Making request to ${url.toString()}');
         final response = await http.post(url, headers: headers, body: body);
-        print('dBug/proxy_service: Response status: ${response.statusCode}');
-        print('dBug/proxy_service: Response body: ${response.body.substring(0, min(200, response.body.length))}...');
 
         if (response.statusCode != 200) {
           throw Exception('Request failed with status: ${response.statusCode}');
@@ -39,7 +36,6 @@ class ProxyService {
         return json.decode(response.body);
 
       } catch (e) {
-        print('dBug/proxy_service: Error: $e');
         retryCount++;
         if (retryCount < maxRetries) {
           final delay = Duration(seconds: pow(2, retryCount).toInt());

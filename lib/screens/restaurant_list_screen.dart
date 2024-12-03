@@ -98,6 +98,18 @@ class _RestaurantListScreenState extends State<RestaurantListScreen> {
         _sortRestaurants();
       }
 
+      // Wait for header photos to be cached before showing cards
+      final headerPhotoRefs = _restaurants!
+          .where((r) => r.photoRefs.isNotEmpty)
+          .map((r) => r.photoRefs.first)
+          .toList();
+      
+      await RestaurantService.instance.prefetchHeaderPhotos(headerPhotoRefs);
+
+      setState(() {
+        _isLoading = false;
+      });
+
     } catch (e) {
       if (mounted) {
         setState(() {

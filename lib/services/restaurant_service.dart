@@ -7,6 +7,7 @@ import 'package:flutter/material.dart' show TimeOfDay;
 class RestaurantService {
   static final RestaurantService instance = RestaurantService._internal();
   List<Map<String, dynamic>>? _cachedRestaurants;
+  final Map<String, String> _photoCache = {};
   
   factory RestaurantService() {
     return instance;
@@ -45,8 +46,6 @@ class RestaurantService {
     double longitude,
     {String? priceLevel, String? cuisineType, String? openDay, TimeOfDay? openTime}
   ) async {
-    print('dBug/restaurant_service: Starting search with lat:$latitude, lng:$longitude, price:$priceLevel, cuisine:$cuisineType');
-    
     double radius = _initialRadius;
     double currentIncrement = _minIncrement;
     final Set<String> foundIds = {};
@@ -61,8 +60,6 @@ class RestaurantService {
         priceLevel: priceLevel,
       );
       
-      print('dBug/restaurant_service: API request params: $params');
-
       try {
         final response = await ProxyService.placesApiGet(
           'places:searchText',
@@ -70,8 +67,6 @@ class RestaurantService {
           fieldMask: 'places.id,places.displayName,places.rating,places.userRatingCount,places.photos,places.priceLevel,places.types,places.formattedAddress,places.location,places.editorialSummary',
         );
         
-        print('dBug/restaurant_service: API response received: ${response.containsKey('places') ? '${response['places'].length} places found' : 'No places key in response'}');
-
         if (response.containsKey('places')) {
           final List<dynamic> places = response['places'];
           int newMatchingPlaces = 0;
@@ -88,24 +83,18 @@ class RestaurantService {
             }
           }
 
-          print('dBug/restaurant_service: Found $newMatchingPlaces new matching places, total: ${allRestaurants.length}');
-
           if (newMatchingPlaces < _lowResultsThreshold) {
             currentIncrement = (currentIncrement * 1.5).clamp(_minIncrement, _maxIncrement);
             radius += currentIncrement;
-            print('dBug/restaurant_service: Low results, expanding radius to $radius meters');
           } else if (allRestaurants.length < _targetCount) {
             radius += _minIncrement;
-            print('dBug/restaurant_service: Normal expansion, new radius: $radius meters');
           }
         }
       } catch (e) {
-        print('dBug/restaurant_service: Error in API call: $e');
         rethrow;
       }
     }
 
-    print('dBug/restaurant_service: Search completed. Found ${allRestaurants.length} restaurants');
     return allRestaurants;
   }
 
@@ -200,11 +189,30 @@ class RestaurantService {
       if (response.statusCode == 200) {
         return response.bodyBytes;
       }
-      print('dBug/restaurant_service: Photo fetch failed with status: ${response.statusCode}');
       return null;
     } catch (e) {
-      print('dBug/restaurant_service: Error fetching photo: $e');
       return null;
     }
+  }
+
+  Future<void> prefetchHeaderPhotos(List<String> photoRefs) async {
+    await Future.wait(
+      photoRefs.map((photoRef) async {
+        if (!_photoCache.containsKey(photoRef)) {
+          try {
+            final photoUrl = await ProxyService.getPlacePhoto(photoRef, 800, 450);
+            if (photoUrl.isNotEmpty) {
+              _photoCache[photoRef] = photoUrl;
+            }
+          } catch (e) {
+          }
+        }
+      })
+    );
+  }
+
+  String getCachedPhotoUrl(String photoRef) {
+    final url = _photoCache[photoRef] ?? '';
+    return url;
   }
 } 
