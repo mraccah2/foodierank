@@ -5,7 +5,7 @@ import '../config.dart';
 
 class ProxyService {
   static final _client = http.Client();
-  static final String baseUrl = 'https://places.googleapis.com/v1';
+  static const String baseUrl = 'https://places.googleapis.com/v1';
   static const String _apiKey = Config.googleMapsApiKey;
   static final Map<String, String> _photoUrlCache = {};
 
@@ -16,6 +16,8 @@ class ProxyService {
   }) async {
     int retryCount = 0;
     const int maxRetries = 3;
+
+    print('dBug/proxy_service: Calling Places API - Endpoint: $endpoint, Params: $params');
 
     while (retryCount < maxRetries) {
       try {
@@ -53,6 +55,8 @@ class ProxyService {
     if (_photoUrlCache.containsKey(cacheKey)) {
       return _photoUrlCache[cacheKey]!;
     }
+
+    print('dBug/proxy_service: Fetching photo - PhotoName: $photoName, Width: $width, Height: $height');
 
     try {
       final url = Uri.parse('$baseUrl/$photoName/media');
