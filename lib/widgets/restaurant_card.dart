@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../models/restaurant.dart';
 import '../services/proxy_service.dart';
 import 'package:url_launcher/url_launcher_string.dart';
+import '../services/restaurant_service.dart';
 
 class RestaurantCard extends StatelessWidget {
   final Restaurant restaurant;
@@ -47,8 +48,6 @@ class RestaurantCard extends StatelessWidget {
       '&destination=${restaurant.location.latitude},${restaurant.location.longitude}'
       '&travelmode=$travelMode'
     ).toString();
-
-    print('dBug/restaurant_card: Opening maps with travel mode: $travelMode for distance: ${restaurant.location.formatDistance(currentLat!, currentLng!)}');
 
     if (await canLaunchUrlString(mapsUrl)) {
       await launchUrlString(mapsUrl);
@@ -99,12 +98,15 @@ class RestaurantCard extends StatelessWidget {
                   child: SizedBox(
                     width: double.infinity,
                     height: 240,
-                    child: FutureBuilder<String>(
-                      future: ProxyService.getPlacePhoto(photoRef, 800, 450),
-                      builder: (context, snapshot) {
-                        if (snapshot.hasData && snapshot.data!.isNotEmpty) {
+                    child: Builder(
+                      builder: (context) {
+                        final cachedUrl = RestaurantService.instance.getCachedPhotoUrl(photoRef ?? '');
+                        if (cachedUrl.isEmpty && photoRef != null) {
+                          RestaurantService.instance.prefetchHeaderPhotos([photoRef]);
+                        }
+                        if (cachedUrl.isNotEmpty) {
                           return Image.network(
-                            snapshot.data!,
+                            cachedUrl,
                             fit: BoxFit.cover,
                             width: double.infinity,
                             height: 240,
