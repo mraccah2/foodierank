@@ -31,6 +31,7 @@ class _RestaurantListScreenState extends State<RestaurantListScreen> {
   double? _currentLat;
   double? _currentLng;
   SortOption _sortOption = SortOption.rank;
+  bool _isScrolling = false;
 
   @override
   void initState() {
@@ -425,6 +426,27 @@ class _RestaurantListScreenState extends State<RestaurantListScreen> {
     });
   }
 
+  void _handleScroll(double delta) {
+    if (_isScrolling) return;
+    
+    if (delta.abs() > 20) {
+      _isScrolling = true;
+      int currentPage = _pageController.page!.round();
+      int nextPage = delta > 0 ? 
+          currentPage - 1 :  // Move up one page
+          currentPage + 1;   // Move down one page
+      
+      // Ensure we don't go out of bounds
+      nextPage = nextPage.clamp(0, _restaurants!.length - 1);
+      
+      _pageController.animateToPage(
+        nextPage,
+        duration: const Duration(milliseconds: 300),
+        curve: Curves.easeInOut,
+      ).then((_) => _isScrolling = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -437,7 +459,10 @@ class _RestaurantListScreenState extends State<RestaurantListScreen> {
         backgroundColor: Colors.grey[200],
         elevation: 0,
       ),
-      body: _buildBody(),
+      body: GestureDetector(
+        onVerticalDragUpdate: (details) => _handleScroll(details.delta.dy),
+        child: _buildBody(),
+      ),
     );
   }
 
@@ -577,6 +602,8 @@ class _RestaurantListScreenState extends State<RestaurantListScreen> {
             child: PageView.builder(
               controller: _pageController,
               scrollDirection: Axis.vertical,
+              pageSnapping: true,
+              physics: const PageScrollPhysics(),
               itemCount: _restaurants!.length,
               onPageChanged: (index) {
                 setState(() {});

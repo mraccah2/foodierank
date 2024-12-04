@@ -1,4 +1,4 @@
-import 'dart:math' show sin, cos, sqrt, atan2, pi, asin;
+import 'dart:math' show sin, cos, sqrt, atan2, pi;
 import 'package:intl/intl.dart';
 
 class Location {
