@@ -1,8 +1,2 @@
 #include? "Pods/Target Support Files/Pods-Runner/Pods-Runner.debug.xcconfig"
 #include "Generated.xcconfig"
-
-DEVELOPMENT_TEAM=V5LD929LG5
-CODE_SIGN_IDENTITY=Apple Development
-CODE_SIGN_STYLE=Automatic
-PRODUCT_BUNDLE_IDENTIFIER=com.foodierank.foodierank
-CODE_SIGN_ALLOW_ENTITLEMENTS_MODIFICATION=YES

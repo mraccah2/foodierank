@@ -48,13 +48,8 @@
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>This app needs access to location to find restaurants near you.</string>
 	<key>NSLocationAlwaysUsageDescription</key>
+	<string>This app needs access to location to find restaurants near you even when in background.</string>
+	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
 	<string>This app needs access to location to find restaurants near you.</string>
-	<key>NSAppTransportSecurity</key>
-	<dict>
-		<key>NSAllowsArbitraryLoads</key>
-		<true/>
-		<key>NSAllowsLocalNetworking</key>
-		<true/>
-	</dict>
 </dict>
 </plist>
