@@ -162,9 +162,9 @@ class _RestaurantListScreenState extends State<RestaurantListScreen> {
                     child: Container(
                       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
                       decoration: BoxDecoration(
-                        color: isSelected ? Colors.brown : Colors.white,
+                        color: isSelected ? Colors.grey : Colors.white,
                         borderRadius: BorderRadius.circular(20),
-                        border: Border.all(color: Colors.brown),
+                        border: Border.all(color: Colors.black),
                       ),
                       child: Text(
                         price,
@@ -227,8 +227,8 @@ class _RestaurantListScreenState extends State<RestaurantListScreen> {
                             },
                             style: OutlinedButton.styleFrom(
                               backgroundColor: isSelected 
-                                  ? Colors.blue.withOpacity(0.1)
-                                  : Colors.transparent,
+                                  ? Colors.grey
+                                  : Colors.white,
                               side: const BorderSide(color: Colors.black, width: 1),
                               padding: const EdgeInsets.symmetric(
                                 horizontal: 12,
@@ -400,19 +400,6 @@ class _RestaurantListScreenState extends State<RestaurantListScreen> {
     );
   }
 
-  String _getWeekday(int day) {
-    switch (day) {
-      case DateTime.monday: return 'Mon';
-      case DateTime.tuesday: return 'Tue';
-      case DateTime.wednesday: return 'Wed';
-      case DateTime.thursday: return 'Thu';
-      case DateTime.friday: return 'Fri';
-      case DateTime.saturday: return 'Sat';
-      case DateTime.sunday: return 'Sun';
-      default: return 'Mon';
-    }
-  }
-
   void _sortRestaurants() {
     if (_restaurants == null) return;
     
@@ -443,17 +430,12 @@ class _RestaurantListScreenState extends State<RestaurantListScreen> {
     return Scaffold(
       backgroundColor: Colors.grey[200],
       appBar: AppBar(
-        backgroundColor: Colors.grey[200],
-        surfaceTintColor: Colors.grey[200],
-        elevation: 0,
-        title: Text(
-          'Foodie Rank',
-          style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-            fontWeight: FontWeight.bold,
-            color: Colors.black,
-          ),
-        ),
         centerTitle: true,
+        title: Image.asset(
+          'assets/logo.png' // Adjust the height as needed
+        ),
+        backgroundColor: Colors.grey[200],
+        elevation: 0,
       ),
       body: _buildBody(),
     );
