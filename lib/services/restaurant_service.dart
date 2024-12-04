@@ -3,6 +3,9 @@ import 'package:foodierank/config.dart';
 import 'package:http/http.dart' as http;
 import 'dart:typed_data';
 import 'package:flutter/material.dart' show TimeOfDay;
+import 'package:cached_network_image/cached_network_image.dart';
+import '../services/navigation_service.dart';
+import 'package:flutter/widgets.dart';
 
 class RestaurantService {
   static final RestaurantService instance = RestaurantService._internal();
@@ -222,6 +225,19 @@ class RestaurantService {
         .where((r) => (r['photoRefs'] as List<dynamic>?)?.isNotEmpty ?? false)
         .map((r) => (r['photoRefs'] as List<dynamic>).first as String)
         .toList();
+        
+    // First get all URLs
     await prefetchHeaderPhotos(headerPhotoRefs);
+    
+    // Then preload images into memory
+    for (final photoRef in headerPhotoRefs) {
+      final url = getCachedPhotoUrl(photoRef);
+      if (url.isNotEmpty) {
+        await precacheImage(
+          CachedNetworkImageProvider(url),
+          NavigationService.navigatorKey.currentContext!,
+        );
+      }
+    }
   }
 } 
