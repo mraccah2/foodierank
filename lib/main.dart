@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import 'package:geolocator/geolocator.dart';
 import 'services/restaurant_service.dart';
 import 'dart:async';
+import 'services/navigation_service.dart';
 
 void main() {
   runZonedGuarded(() async {
@@ -59,6 +60,7 @@ class MyApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
+      navigatorKey: NavigationService.navigatorKey,
       title: 'FoodieRank',
       theme: ThemeData(
         scaffoldBackgroundColor: Colors.white,

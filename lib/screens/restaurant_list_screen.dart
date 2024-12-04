@@ -585,16 +585,13 @@ class _RestaurantListScreenState extends State<RestaurantListScreen> {
                 final restaurant = _restaurants![index];
                 return Column(
                   children: [
-                    const SizedBox(height: 20.0),  // Top edge padding
-                    
-                    if (index > 0)
-                      const Icon(Icons.keyboard_arrow_up, color: Colors.grey),
+                    const SizedBox(height: 20.0),  // Keep top padding
                     
                     Expanded(
                       child: Padding(
                         padding: const EdgeInsets.symmetric(horizontal: 16.0).copyWith(
-                          top: 8.0,    // Space between up arrow and card
-                          bottom: 8.0,  // Space between card and down arrow
+                          top: 8.0,
+                          bottom: 8.0,
                         ),
                         child: RestaurantCard(
                           restaurant: restaurant,
@@ -615,10 +612,7 @@ class _RestaurantListScreenState extends State<RestaurantListScreen> {
                       ),
                     ),
                     
-                    if (index < _restaurants!.length - 1)
-                      const Icon(Icons.keyboard_arrow_down, color: Colors.grey),
-                      
-                    const SizedBox(height: 30.0),  // Bottom edge padding
+                    const SizedBox(height: 30.0),  // Keep bottom padding
                   ],
                 );
               },
