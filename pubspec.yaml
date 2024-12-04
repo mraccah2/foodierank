@@ -101,6 +101,7 @@ flutter:
 
   assets:
     - assets/splash.png
+    - assets/logo.png
 
 # Move flutter_icons configuration to root level
 flutter_icons:
