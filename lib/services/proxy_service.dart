@@ -17,8 +17,6 @@ class ProxyService {
     int retryCount = 0;
     const int maxRetries = 3;
 
-    print('dBug/proxy_service: Calling Places API - Endpoint: $endpoint, Params: $params');
-
     while (retryCount < maxRetries) {
       try {
         final url = Uri.parse('$baseUrl/$endpoint');
@@ -56,8 +54,6 @@ class ProxyService {
       return _photoUrlCache[cacheKey]!;
     }
 
-    print('dBug/proxy_service: Fetching photo - PhotoName: $photoName, Width: $width, Height: $height');
-
     try {
       final url = Uri.parse('$baseUrl/$photoName/media');
       final headers = {
@@ -79,7 +75,6 @@ class ProxyService {
       _photoUrlCache[cacheKey] = photoUri;
       return photoUri;
     } catch (e) {
-      print('dBug/proxy_service: Error fetching photo: $e');
       return '';
     }
   }
