@@ -20,39 +20,12 @@ class RestaurantCard extends StatelessWidget {
     required this.currentLng,
   });
 
-  // Add method to launch Google Maps
-  void _openInGoogleMaps(BuildContext context, Restaurant restaurant) async {
-    // Get travel mode based on the already calculated distance
-    String travelMode = 'driving';
-    if (currentLat != null && currentLng != null) {
-      final distance = restaurant.location.calculateDistance(
-        currentLat!, 
-        currentLng!,
-        restaurant.location.latitude,
-        restaurant.location.longitude
-      );
-      // If distance is less than 1.5km, use walking mode
-      if (distance <= 1.5) {
-        travelMode = 'walking';
-      }
-    }
-
-    // Try to open in Google Maps app first
-    final mapsUrl = Uri.parse(
-      'comgooglemaps://?daddr=${restaurant.location.latitude},${restaurant.location.longitude}&directionsmode=$travelMode'
-    ).toString();
-
-    // Fallback to web URL if app isn't installed
-    final webUrl = Uri.parse(
-      'https://www.google.com/maps/dir/?api=1'
-      '&destination=${restaurant.location.latitude},${restaurant.location.longitude}'
-      '&travelmode=$travelMode'
-    ).toString();
+  // Add method to launch Google Maps using Place ID
+  void _openInGoogleMapsByPlaceId(BuildContext context, String placeId) async {
+    final mapsUrl = Uri.parse('https://www.google.com/maps/search/?api=1&query=Google&query_place_id=$placeId').toString();
 
     if (await canLaunchUrlString(mapsUrl)) {
-      await launchUrlString(mapsUrl);
-    } else if (await canLaunchUrlString(webUrl)) {
-      await launchUrlString(webUrl, mode: LaunchMode.externalApplication);
+      await launchUrlString(mapsUrl, mode: LaunchMode.externalApplication);
     } else {
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -232,7 +205,7 @@ class RestaurantCard extends StatelessWidget {
                 ],
                 // Address
                 GestureDetector(
-                  onTap: () => _openInGoogleMaps(context, restaurant),
+                  onTap: () => _openInGoogleMapsByPlaceId(context, restaurant.placeId),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
