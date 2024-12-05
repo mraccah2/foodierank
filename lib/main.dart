@@ -41,7 +41,7 @@ void main() {
       );
 
       // Removed debug prints
-      await RestaurantService.instance.fetchInitialRestaurants(
+      await RestaurantService.instance.fetchRestaurants(
         position.latitude,
         position.longitude,
       );

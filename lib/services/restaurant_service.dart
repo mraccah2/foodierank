@@ -20,13 +20,22 @@ class RestaurantService {
 
   List<Map<String, dynamic>>? get cachedRestaurants => _cachedRestaurants;
 
-  Future<List<Map<String, dynamic>>> fetchInitialRestaurants(double latitude, double longitude) async {
-    print('dBug/restaurant_service.dart: Fetching initial restaurants for lat: $latitude, lng: $longitude');
-    if (_cachedRestaurants != null) {
-      print('dBug/restaurant_service.dart: Returning cached restaurants');
-      return _cachedRestaurants!;
-    }
-    _cachedRestaurants = await getNearbyRestaurants(latitude, longitude);
+  Future<List<Map<String, dynamic>>> fetchRestaurants(
+    double latitude, 
+    double longitude,
+    {String? priceLevel, String? cuisineType, bool openNow = true}
+  ) async {
+    print('dBug/restaurant_service.dart: Fetching restaurants - lat: $latitude, lng: $longitude, cuisine: $cuisineType, price: $priceLevel');
+    
+    // Always perform a new search with the current parameters
+    _cachedRestaurants = await getNearbyRestaurants(
+      latitude, 
+      longitude,
+      priceLevel: priceLevel,
+      cuisineType: cuisineType != 'All' ? cuisineType : null,  // Only pass cuisine type if not 'All'
+      openNow: openNow,
+    );
+    
     print('dBug/restaurant_service.dart: Fetched ${_cachedRestaurants!.length} restaurants');
     return _cachedRestaurants!;
   }
@@ -68,6 +77,8 @@ class RestaurantService {
         priceLevel: priceLevel,
         openNow: openNow,
       );
+      
+      print('dBug/restaurant_service.dart: Search parameters: $params');
       
       try {
         final response = await ProxyService.placesApiGet(
@@ -122,7 +133,7 @@ class RestaurantService {
     double radius,
     {String? cuisineType, String? priceLevel, bool openNow = true}
   ) {
-    return {
+    final params = {
       'textQuery': cuisineType != null && cuisineType != 'Other' 
         ? '$cuisineType restaurant'
         : 'restaurant',
@@ -143,6 +154,9 @@ class RestaurantService {
         'priceLevels': [_convertPriceLevel(priceLevel)],
       },
     };
+    
+    print('dBug/restaurant_service.dart: Built search params - textQuery: ${params['textQuery']}, price: $priceLevel');
+    return params;
   }
 
   String _convertPriceLevel(String priceLevel) {
@@ -156,14 +170,6 @@ class RestaurantService {
   }
 
   Map<String, dynamic>? _mapPlace(Map<String, dynamic> place, String? targetPriceLevel) {
-    // First convert the API price level to our format ($, $$, etc)
-    final placePrice = getPriceLevel(place['priceLevel']);
-    
-    // If we have a target price level, only include exact matches
-    if (targetPriceLevel != null && placePrice != targetPriceLevel) {
-      return null;
-    }
-
     final photos = place['photos'] as List<dynamic>?;
     final photoRefs = photos?.map((photo) => photo['name'] as String).toList() ?? [];
     
@@ -238,7 +244,7 @@ class RestaurantService {
   Future<void> loadAndCacheRestaurants() async {
     if (_cachedRestaurants != null) return;
     
-    final restaurants = await fetchInitialRestaurants(37.785834, -122.406417);
+    final restaurants = await fetchRestaurants(37.785834, -122.406417);
     final headerPhotoRefs = restaurants
         .where((r) => (r['photoRefs'] as List<dynamic>?)?.isNotEmpty ?? false)
         .map((r) => (r['photoRefs'] as List<dynamic>).first as String)
