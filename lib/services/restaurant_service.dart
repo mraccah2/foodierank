@@ -25,18 +25,14 @@ class RestaurantService {
     double longitude,
     {String? priceLevel, String? cuisineType, bool openNow = true}
   ) async {
-    print('dBug/restaurant_service.dart: Fetching restaurants - lat: $latitude, lng: $longitude, cuisine: $cuisineType, price: $priceLevel');
-    
-    // Always perform a new search with the current parameters
     _cachedRestaurants = await getNearbyRestaurants(
       latitude, 
       longitude,
       priceLevel: priceLevel,
-      cuisineType: cuisineType != 'All' ? cuisineType : null,  // Only pass cuisine type if not 'All'
+      cuisineType: cuisineType != 'All' ? cuisineType : null,
       openNow: openNow,
     );
     
-    print('dBug/restaurant_service.dart: Fetched ${_cachedRestaurants!.length} restaurants');
     return _cachedRestaurants!;
   }
 
@@ -61,14 +57,12 @@ class RestaurantService {
     double longitude,
     {String? priceLevel, String? cuisineType, bool openNow = true}
   ) async {
-    print('dBug/restaurant_service.dart: Getting nearby restaurants');
     double radius = _initialRadius;
     double currentIncrement = _minIncrement;
     final Set<String> foundIds = {};
     List<Map<String, dynamic>> allRestaurants = [];
 
     while (allRestaurants.length < _targetCount && radius <= _maxRadius) {
-      print('dBug/restaurant_service.dart: Searching with radius: $radius');
       final params = _buildSearchParams(
         latitude,
         longitude,
@@ -77,8 +71,6 @@ class RestaurantService {
         priceLevel: priceLevel,
         openNow: openNow,
       );
-      
-      print('dBug/restaurant_service.dart: Search parameters: $params');
       
       try {
         final response = await ProxyService.placesApiGet(
@@ -89,7 +81,6 @@ class RestaurantService {
         
         if (response.containsKey('places')) {
           final List<dynamic> places = response['places'];
-          print('dBug/restaurant_service.dart: Found ${places.length} places');
           int newMatchingPlaces = 0;
 
           for (final place in places) {
@@ -104,7 +95,6 @@ class RestaurantService {
             }
           }
 
-          print('dBug/restaurant_service.dart: Added $newMatchingPlaces new places');
           if (newMatchingPlaces < _lowResultsThreshold) {
             currentIncrement = (currentIncrement * 1.5).clamp(_minIncrement, _maxIncrement);
             radius += currentIncrement;
@@ -113,17 +103,14 @@ class RestaurantService {
           }
         }
       } catch (e) {
-        print('dBug/restaurant_service.dart: Error fetching places - $e');
         rethrow;
       }
 
       if (radius >= _maxRadius) {
-        print('dBug/restaurant_service.dart: Reached max radius');
         break;
       }
     }
 
-    print('dBug/restaurant_service.dart: Returning ${allRestaurants.length} restaurants');
     return allRestaurants;
   }
 
@@ -155,7 +142,6 @@ class RestaurantService {
       },
     };
     
-    print('dBug/restaurant_service.dart: Built search params - textQuery: ${params['textQuery']}, price: $priceLevel');
     return params;
   }
 

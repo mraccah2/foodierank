@@ -35,7 +35,6 @@ class _RestaurantListScreenState extends State<RestaurantListScreen> {
   @override
   void initState() {
     super.initState();
-    print('dBug/restaurant_list_screen: initState called');
     _initializeAndLoad();
   }
 
@@ -49,12 +48,7 @@ class _RestaurantListScreenState extends State<RestaurantListScreen> {
   bool _isLoadingData = false;
 
   Future<void> _initializeAndLoad() async {
-    if (_isLoadingData) {
-      print('dBug/restaurant_list_screen: Skipping _initializeAndLoad - already loading');
-      return;
-    }
-    
-    print('dBug/restaurant_list_screen: Starting _initializeAndLoad with price: $_selectedPriceLevel, type: $_selectedType');
+    if (_isLoadingData) return;
     _isLoadingData = true;
     
     try {
@@ -63,7 +57,6 @@ class _RestaurantListScreenState extends State<RestaurantListScreen> {
         _error = null;
       });
 
-      // Get current position
       final position = await Geolocator.getCurrentPosition(
         desiredAccuracy: LocationAccuracy.best,
         timeLimit: const Duration(seconds: 5),
@@ -74,7 +67,6 @@ class _RestaurantListScreenState extends State<RestaurantListScreen> {
       _currentLat = position.latitude;
       _currentLng = position.longitude;
 
-      print('dBug/restaurant_list_screen: Fetching restaurants with price: $_selectedPriceLevel, type: $_selectedType');
       final rawRestaurants = await RestaurantService.instance.fetchRestaurants(
         position.latitude,
         position.longitude,
@@ -127,7 +119,6 @@ class _RestaurantListScreenState extends State<RestaurantListScreen> {
       }
     } finally {
       _isLoadingData = false;
-      print('dBug/restaurant_list_screen: Completed _initializeAndLoad');
     }
   }
 
@@ -143,7 +134,6 @@ class _RestaurantListScreenState extends State<RestaurantListScreen> {
   }
 
   void _showPriceRangeDialog() {
-    print('dBug/restaurant_list_screen: Opening price range dialog');
     showModalBottomSheet(
       context: context,
       builder: (BuildContext context) {
@@ -168,7 +158,6 @@ class _RestaurantListScreenState extends State<RestaurantListScreen> {
                   return InkWell(
                     onTap: () {
                       final newPrice = price == 'All' ? null : price;
-                      print('dBug/restaurant_list_screen: Price changed from $_selectedPriceLevel to $newPrice');
                       setState(() => _selectedPriceLevel = newPrice);
                       Navigator.pop(context);
                       _initializeAndLoad();
