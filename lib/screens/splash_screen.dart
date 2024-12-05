@@ -16,13 +16,12 @@ class _SplashScreenState extends State<SplashScreen> {
   }
 
   void _initRestaurantScreen() async {
-    final restaurantScreen = RestaurantListScreen();
-    await restaurantScreen.initialize();
+    await Future.delayed(const Duration(seconds: 1));
     
     if (!mounted) return;
 
     Navigator.of(context).pushReplacement(
-      MaterialPageRoute(builder: (context) => restaurantScreen),
+      MaterialPageRoute(builder: (context) => const RestaurantListScreen()),
     );
   }
 

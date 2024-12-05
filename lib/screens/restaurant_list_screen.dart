@@ -14,17 +14,6 @@ enum SortOption {
 class RestaurantListScreen extends StatefulWidget {
   const RestaurantListScreen({super.key});
 
-  Future<bool> initialize() async {
-    try {
-      // Load initial data
-      await RestaurantService.instance.loadAndCacheRestaurants();
-      return true;
-    } catch (e) {
-      print('dBug/restaurant_list_screen: Error initializing - $e');
-      return false;
-    }
-  }
-
   @override
   _RestaurantListScreenState createState() => _RestaurantListScreenState();
 }
@@ -46,6 +35,7 @@ class _RestaurantListScreenState extends State<RestaurantListScreen> {
   @override
   void initState() {
     super.initState();
+    print('dBug/restaurant_list_screen: initState called');
     _initializeAndLoad();
   }
 
@@ -56,24 +46,24 @@ class _RestaurantListScreenState extends State<RestaurantListScreen> {
     super.dispose();
   }
 
+  bool _isLoadingData = false;
+
   Future<void> _initializeAndLoad() async {
+    if (_isLoadingData) {
+      print('dBug/restaurant_list_screen: Skipping _initializeAndLoad - already loading');
+      return;
+    }
+    
+    print('dBug/restaurant_list_screen: Starting _initializeAndLoad with price: $_selectedPriceLevel, type: $_selectedType');
+    _isLoadingData = true;
+    
     try {
       setState(() {
         _isLoading = true;
         _error = null;
       });
 
-      // First initialize
-      final initialized = await widget.initialize();
-      if (!initialized) {
-        setState(() {
-          _error = 'Failed to initialize restaurant service';
-          _isLoading = false;
-        });
-        return;
-      }
-
-      // Then get current position
+      // Get current position
       final position = await Geolocator.getCurrentPosition(
         desiredAccuracy: LocationAccuracy.best,
         timeLimit: const Duration(seconds: 5),
@@ -84,8 +74,14 @@ class _RestaurantListScreenState extends State<RestaurantListScreen> {
       _currentLat = position.latitude;
       _currentLng = position.longitude;
 
-      // Use cached restaurants since we already initialized
-      final rawRestaurants = RestaurantService.instance.cachedRestaurants!;
+      print('dBug/restaurant_list_screen: Fetching restaurants with price: $_selectedPriceLevel, type: $_selectedType');
+      final rawRestaurants = await RestaurantService.instance.fetchRestaurants(
+        position.latitude,
+        position.longitude,
+        priceLevel: _selectedPriceLevel,
+        cuisineType: _selectedType,
+        openNow: _showOpenOnly,
+      );
 
       if (!mounted) return;
 
@@ -129,6 +125,9 @@ class _RestaurantListScreenState extends State<RestaurantListScreen> {
           _isLoading = false;
         });
       }
+    } finally {
+      _isLoadingData = false;
+      print('dBug/restaurant_list_screen: Completed _initializeAndLoad');
     }
   }
 
@@ -144,6 +143,7 @@ class _RestaurantListScreenState extends State<RestaurantListScreen> {
   }
 
   void _showPriceRangeDialog() {
+    print('dBug/restaurant_list_screen: Opening price range dialog');
     showModalBottomSheet(
       context: context,
       builder: (BuildContext context) {
@@ -167,7 +167,9 @@ class _RestaurantListScreenState extends State<RestaurantListScreen> {
                   final isSelected = _selectedPriceLevel == price || (price == 'All' && _selectedPriceLevel == null);
                   return InkWell(
                     onTap: () {
-                      setState(() => _selectedPriceLevel = price == 'All' ? null : price);
+                      final newPrice = price == 'All' ? null : price;
+                      print('dBug/restaurant_list_screen: Price changed from $_selectedPriceLevel to $newPrice');
+                      setState(() => _selectedPriceLevel = newPrice);
                       Navigator.pop(context);
                       _initializeAndLoad();
                     },
