@@ -5,6 +5,7 @@ import 'package:geolocator/geolocator.dart';
 import 'services/restaurant_service.dart';
 import 'dart:async';
 import 'services/navigation_service.dart';
+import 'screens/restaurant_list_screen.dart';
 
 void main() {
   runZonedGuarded(() async {
@@ -94,7 +95,10 @@ class MyApp extends StatelessWidget {
         ),
         useMaterial3: true,
       ),
-      // Add error handling for navigation/routing errors
+      routes: {
+        '/': (context) => const SplashScreen(),
+        '/restaurant_list': (context) => const RestaurantListScreen(),
+      },
       builder: (context, widget) {
         Widget error = const Text('...rendering error...');
         if (widget is Scaffold || widget is Navigator) {
@@ -105,7 +109,6 @@ class MyApp extends StatelessWidget {
         };
         return widget ?? error;
       },
-      home: const SplashScreen(),
     );
   }
 }

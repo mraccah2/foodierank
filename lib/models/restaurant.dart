@@ -34,6 +34,7 @@ class Restaurant {
   });
 
   factory Restaurant.fromJson(Map<String, dynamic> json) {
+    print('dBug/restaurant.dart: Raw JSON for ${json['displayName']?['text']}: $json');
     final name = json['displayName']?['text'] ?? '';
     
     // Extract description with proper null checking
@@ -82,8 +83,11 @@ class Restaurant {
       }
     }
 
+    // Safely extract the placeId
+    final placeId = json['id'] as String? ?? '';
+
     final restaurant = Restaurant(
-      id: json['id'] as String,
+      id: json['id'] as String? ?? '', // Ensure id is not null
       name: name,
       mainPhotoUrl: '',
       photoRefs: extractPhotoRefs(json['photos'] as List<dynamic>?),
@@ -94,13 +98,13 @@ class Restaurant {
       description: description,
       address: json['formattedAddress'] ?? '',
       location: Location(
-        latitude: json['location']['latitude'],
-        longitude: json['location']['longitude'],
-        formattedAddress: json['formattedAddress'],
+        latitude: json['location']?['latitude'] ?? 0.0,
+        longitude: json['location']?['longitude'] ?? 0.0,
+        formattedAddress: json['formattedAddress'] ?? '',
       ),
       photos: [],
       rank: json['rank'] as int?,
-      placeId: json['placeId'] as String,
+      placeId: placeId,
     );
     
     return restaurant;
