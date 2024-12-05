@@ -126,16 +126,38 @@ class _RestaurantListScreenState extends State<RestaurantListScreen> {
     }
   }
 
-  void _loadFromCache() {
+  void _loadFromCache() async {
     final rawRestaurants = RestaurantService.instance.cachedRestaurants;
     if (rawRestaurants != null && rawRestaurants.isNotEmpty) {
-      setState(() {
-        _restaurants = rawRestaurants
-            .map((place) => Restaurant.fromJson(place))
-            .toList();
-        _isLoading = false;
-        _sortRestaurants();
-      });
+      // Get current position first
+      try {
+        final position = await Geolocator.getCurrentPosition(
+          desiredAccuracy: LocationAccuracy.best,
+          timeLimit: const Duration(seconds: 5),
+        );
+
+        if (!mounted) return;
+
+        setState(() {
+          _currentLat = position.latitude;
+          _currentLng = position.longitude;
+          _restaurants = rawRestaurants
+              .map((place) => Restaurant.fromJson(place))
+              .toList();
+          _isLoading = false;
+          _sortRestaurants();
+        });
+      } catch (e) {
+        print('dBug/restaurant_list_screen: Location error in cache load - $e');
+        // Still show restaurants even if location fails
+        setState(() {
+          _restaurants = rawRestaurants
+              .map((place) => Restaurant.fromJson(place))
+              .toList();
+          _isLoading = false;
+          _sortRestaurants();
+        });
+      }
     } else {
       _initializeAndLoad();
     }
