@@ -243,7 +243,7 @@ class RestaurantService {
     for (final photoRef in headerPhotoRefs) {
       final url = getCachedPhotoUrl(photoRef);
       if (url.isNotEmpty) {
-        precacheImage(
+        await precacheImage(
           CachedNetworkImageProvider(url),
           NavigationService.navigatorKey.currentContext!,
         );
