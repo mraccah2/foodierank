@@ -12,8 +12,7 @@ void main() {
     WidgetsFlutterBinding.ensureInitialized();
     
     FlutterError.onError = (FlutterErrorDetails details) {
-      print('dBug/main: Flutter error: ${details.exception}');
-      print('dBug/main: Stack trace: ${details.stack}');
+      // Removed debug prints
     };
 
     SystemChrome.setPreferredOrientations([
@@ -22,52 +21,39 @@ void main() {
 
     // Start location and restaurant fetch before showing splash screen
     try {
+      // Removed debug print
       final permission = await Geolocator.checkPermission();
       if (permission == LocationPermission.denied) {
         await Geolocator.requestPermission();
       }
 
-      // Try to get location with lower accuracy first
       final position = await Geolocator.getCurrentPosition(
-        desiredAccuracy: LocationAccuracy.low,  // Changed from best to low
-        timeLimit: const Duration(seconds: 10),  // Increased from 5 to 10 seconds
+        desiredAccuracy: LocationAccuracy.low,
+        timeLimit: const Duration(seconds: 10),
       ).timeout(
-        const Duration(seconds: 10),  // Increased timeout
+        const Duration(seconds: 10),
         onTimeout: () async {
-          print('dBug/main: Location timeout, trying last known position');
+          // Removed debug print
           final lastKnown = await Geolocator.getLastKnownPosition();
           if (lastKnown != null) return lastKnown;
-          
-          // If no last known position, use a default location
-          return Position(
-            latitude: 0,
-            longitude: 0,
-            timestamp: DateTime.now(),
-            accuracy: 0,
-            altitude: 0,
-            altitudeAccuracy: 0,
-            heading: 0,
-            headingAccuracy: 0,
-            speed: 0,
-            speedAccuracy: 0,
-          );
+          throw TimeoutException('Could not get location');
         },
       );
 
-      // Start fetching restaurants
+      // Removed debug prints
       await RestaurantService.instance.fetchInitialRestaurants(
         position.latitude,
         position.longitude,
       );
+      // Removed debug print
+
     } catch (e) {
-      print('dBug/main: Error in initial fetch: $e');
-      // Handle error gracefully
+      // Removed debug print
     }
 
     runApp(const MyApp());
   }, (error, stack) {
-    print('dBug/main: Uncaught error: $error');
-    print('dBug/main: Stack trace: $stack');
+    // Removed debug prints
   });
 }
 
@@ -115,43 +101,40 @@ class MyApp extends StatelessWidget {
 
 Future<Position?> _getLocation() async {
   try {
-    // First check if location services are enabled
     bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
     if (!serviceEnabled) {
-      print('dBug/location: Location services are disabled');
+      // Removed debug print
       return null;
     }
 
-    // Check permissions
     LocationPermission permission = await Geolocator.checkPermission();
     if (permission == LocationPermission.denied) {
       permission = await Geolocator.requestPermission();
       if (permission == LocationPermission.denied) {
-        print('dBug/location: Location permissions are denied');
+        // Removed debug print
         return null;
       }
     }
     
     if (permission == LocationPermission.deniedForever) {
-      print('dBug/location: Location permissions are permanently denied');
+      // Removed debug print
       return null;
     }
 
-    // Get position with timeout
     return await Geolocator.getCurrentPosition(
-      desiredAccuracy: LocationAccuracy.medium,  // Lower accuracy, faster response
+      desiredAccuracy: LocationAccuracy.medium,
       timeLimit: const Duration(seconds: 5),
     ).timeout(
       const Duration(seconds: 5),
       onTimeout: () async {
-        print('dBug/location: Getting current position timed out, trying last known position');
+        // Removed debug print
         final lastKnown = await Geolocator.getLastKnownPosition();
         if (lastKnown != null) return lastKnown;
         throw TimeoutException('Could not get location');
       },
     );
   } catch (e) {
-    print('dBug/location: Error getting location: $e');
+    // Removed debug print
     return null;
   }
 }

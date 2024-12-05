@@ -34,7 +34,6 @@ class Restaurant {
   });
 
   factory Restaurant.fromJson(Map<String, dynamic> json) {
-    print('dBug/restaurant.dart: Raw JSON for ${json['displayName']?['text']}: $json');
     final name = json['displayName']?['text'] ?? '';
     
     // Extract description with proper null checking
