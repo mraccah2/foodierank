@@ -35,7 +35,11 @@ class _RestaurantListScreenState extends State<RestaurantListScreen> {
   @override
   void initState() {
     super.initState();
-    _initializeAndLoad();
+    if (RestaurantService.instance.cachedRestaurants == null) {
+      _initializeAndLoad();
+    } else {
+      _loadFromCache();
+    }
   }
 
   @override
@@ -119,6 +123,21 @@ class _RestaurantListScreenState extends State<RestaurantListScreen> {
       }
     } finally {
       _isLoadingData = false;
+    }
+  }
+
+  void _loadFromCache() {
+    final rawRestaurants = RestaurantService.instance.cachedRestaurants;
+    if (rawRestaurants != null && rawRestaurants.isNotEmpty) {
+      setState(() {
+        _restaurants = rawRestaurants
+            .map((place) => Restaurant.fromJson(place))
+            .toList();
+        _isLoading = false;
+        _sortRestaurants();
+      });
+    } else {
+      _initializeAndLoad();
     }
   }
 
