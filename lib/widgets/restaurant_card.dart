@@ -22,8 +22,6 @@ class RestaurantCard extends StatelessWidget {
 
   // Add method to launch Google Maps using Place ID
   void _openInGoogleMapsByPlaceId(BuildContext context, String placeId) async {
-    print('dBug/restaurant_card.dart: Opening maps with place ID: $placeId');
-    
     // Construct the URL with the correct place_id format
     final mapsUrl = 'https://www.google.com/maps/place/?q=place_id:$placeId';
 
@@ -67,30 +65,28 @@ class RestaurantCard extends StatelessWidget {
                       topLeft: Radius.circular(24),
                       topRight: Radius.circular(24),
                     ),
-                    child: SizedBox(
-                      width: double.infinity,
-                      height: 240,
-                      child: Builder(
-                        builder: (context) {
-                          final cachedUrl = RestaurantService.instance.getCachedPhotoUrl(restaurant.photoRefs.first);
-                          if (cachedUrl.isEmpty) {
-                            RestaurantService.instance.prefetchHeaderPhotos([restaurant.photoRefs.first]);
-                          }
-                          if (cachedUrl.isNotEmpty) {
-                            return CachedNetworkImage(
-                              imageUrl: cachedUrl,
-                              fit: BoxFit.cover,
-                              width: double.infinity,
-                              height: 240,
-                              placeholder: (context, url) => const SizedBox.shrink(),
-                              errorWidget: (context, url, error) => const Center(
-                                child: Icon(Icons.error_outline, size: 40),
-                              ),
-                            );
-                          }
+                    child: FutureBuilder<String>(
+                      future: _getPhotoUrl(restaurant.photoRefs.first),
+                      builder: (context, snapshot) {
+                        if (snapshot.connectionState == ConnectionState.waiting) {
                           return const Center(child: CircularProgressIndicator());
-                        },
-                      ),
+                        } else if (snapshot.hasError || !snapshot.hasData || snapshot.data!.isEmpty) {
+                          return const Center(
+                            child: Icon(Icons.error_outline, size: 40),
+                          );
+                        } else {
+                          return CachedNetworkImage(
+                            imageUrl: snapshot.data!,
+                            fit: BoxFit.cover,
+                            width: double.infinity,
+                            height: 240,
+                            placeholder: (context, url) => const SizedBox.shrink(),
+                            errorWidget: (context, url, error) => const Center(
+                              child: Icon(Icons.error_outline, size: 40),
+                            ),
+                          );
+                        }
+                      },
                     ),
                   ),
                 ),
@@ -240,5 +236,16 @@ class RestaurantCard extends StatelessWidget {
         ),
       ),
     );
+  }
+
+  Future<String> _getPhotoUrl(String photoRef) async {
+    // Check if the photo URL is already cached
+    String cachedUrl = RestaurantService.instance.getCachedPhotoUrl(photoRef);
+    if (cachedUrl.isEmpty) {
+      // If not cached, prefetch and then check again
+      await RestaurantService.instance.prefetchHeaderPhotos([photoRef]);
+      cachedUrl = RestaurantService.instance.getCachedPhotoUrl(photoRef);
+    }
+    return cachedUrl;
   }
 } 

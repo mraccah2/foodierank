@@ -21,10 +21,13 @@ class RestaurantService {
   List<Map<String, dynamic>>? get cachedRestaurants => _cachedRestaurants;
 
   Future<List<Map<String, dynamic>>> fetchInitialRestaurants(double latitude, double longitude) async {
+    print('dBug/restaurant_service.dart: Fetching initial restaurants for lat: $latitude, lng: $longitude');
     if (_cachedRestaurants != null) {
+      print('dBug/restaurant_service.dart: Returning cached restaurants');
       return _cachedRestaurants!;
     }
     _cachedRestaurants = await getNearbyRestaurants(latitude, longitude);
+    print('dBug/restaurant_service.dart: Fetched ${_cachedRestaurants!.length} restaurants');
     return _cachedRestaurants!;
   }
 
@@ -47,20 +50,23 @@ class RestaurantService {
   Future<List<Map<String, dynamic>>> getNearbyRestaurants(
     double latitude,
     double longitude,
-    {String? priceLevel, String? cuisineType, String? openDay, TimeOfDay? openTime}
+    {String? priceLevel, String? cuisineType, bool openNow = true}
   ) async {
+    print('dBug/restaurant_service.dart: Getting nearby restaurants');
     double radius = _initialRadius;
     double currentIncrement = _minIncrement;
     final Set<String> foundIds = {};
     List<Map<String, dynamic>> allRestaurants = [];
 
     while (allRestaurants.length < _targetCount && radius <= _maxRadius) {
+      print('dBug/restaurant_service.dart: Searching with radius: $radius');
       final params = _buildSearchParams(
         latitude,
         longitude,
         radius,
         cuisineType: cuisineType,
         priceLevel: priceLevel,
+        openNow: openNow,
       );
       
       try {
@@ -72,6 +78,7 @@ class RestaurantService {
         
         if (response.containsKey('places')) {
           final List<dynamic> places = response['places'];
+          print('dBug/restaurant_service.dart: Found ${places.length} places');
           int newMatchingPlaces = 0;
 
           for (final place in places) {
@@ -86,6 +93,7 @@ class RestaurantService {
             }
           }
 
+          print('dBug/restaurant_service.dart: Added $newMatchingPlaces new places');
           if (newMatchingPlaces < _lowResultsThreshold) {
             currentIncrement = (currentIncrement * 1.5).clamp(_minIncrement, _maxIncrement);
             radius += currentIncrement;
@@ -94,10 +102,17 @@ class RestaurantService {
           }
         }
       } catch (e) {
+        print('dBug/restaurant_service.dart: Error fetching places - $e');
         rethrow;
+      }
+
+      if (radius >= _maxRadius) {
+        print('dBug/restaurant_service.dart: Reached max radius');
+        break;
       }
     }
 
+    print('dBug/restaurant_service.dart: Returning ${allRestaurants.length} restaurants');
     return allRestaurants;
   }
 
@@ -105,7 +120,7 @@ class RestaurantService {
     double latitude,
     double longitude,
     double radius,
-    {String? cuisineType, String? priceLevel}
+    {String? cuisineType, String? priceLevel, bool openNow = true}
   ) {
     return {
       'textQuery': cuisineType != null && cuisineType != 'Other' 
@@ -123,6 +138,7 @@ class RestaurantService {
       'includedType': 'restaurant',
       'maxResultCount': _targetCount,
       'languageCode': 'en',
+      'openNow': openNow,
       if (priceLevel != null) ...{
         'priceLevels': [_convertPriceLevel(priceLevel)],
       },
@@ -220,20 +236,22 @@ class RestaurantService {
   }
 
   Future<void> loadAndCacheRestaurants() async {
-    final restaurants = await getNearbyRestaurants(37.785834, -122.406417);
+    if (_cachedRestaurants != null) return;
+    
+    final restaurants = await fetchInitialRestaurants(37.785834, -122.406417);
     final headerPhotoRefs = restaurants
         .where((r) => (r['photoRefs'] as List<dynamic>?)?.isNotEmpty ?? false)
         .map((r) => (r['photoRefs'] as List<dynamic>).first as String)
         .toList();
         
-    // First get all URLs
+    // Wait for photo URLs to be cached
     await prefetchHeaderPhotos(headerPhotoRefs);
     
-    // Then preload images into memory
+    // Preload images into memory
     for (final photoRef in headerPhotoRefs) {
       final url = getCachedPhotoUrl(photoRef);
       if (url.isNotEmpty) {
-        await precacheImage(
+        precacheImage(
           CachedNetworkImageProvider(url),
           NavigationService.navigatorKey.currentContext!,
         );

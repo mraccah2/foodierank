@@ -14,12 +14,22 @@ enum SortOption {
 class RestaurantListScreen extends StatefulWidget {
   const RestaurantListScreen({super.key});
 
+  Future<bool> initialize() async {
+    try {
+      // Load initial data
+      await RestaurantService.instance.loadAndCacheRestaurants();
+      return true;
+    } catch (e) {
+      print('dBug/restaurant_list_screen: Error initializing - $e');
+      return false;
+    }
+  }
+
   @override
-  State<RestaurantListScreen> createState() => _RestaurantListScreenState();
+  _RestaurantListScreenState createState() => _RestaurantListScreenState();
 }
 
 class _RestaurantListScreenState extends State<RestaurantListScreen> {
-  final RestaurantService _restaurantService = RestaurantService();
   List<Restaurant>? _restaurants;
   String? _error;
   bool _isLoading = true;
@@ -27,16 +37,16 @@ class _RestaurantListScreenState extends State<RestaurantListScreen> {
   String? _selectedPriceLevel;
   String? _selectedType = 'All';
   final TextEditingController _customTypeController = TextEditingController();
-  TimeOfDay? _selectedTime;
   double? _currentLat;
   double? _currentLng;
   SortOption _sortOption = SortOption.rank;
   bool _isScrolling = false;
+  bool _showOpenOnly = true;  // Default to showing only open restaurants
 
   @override
   void initState() {
     super.initState();
-    _loadRestaurants();
+    _initializeAndLoad();
   }
 
   @override
@@ -46,47 +56,59 @@ class _RestaurantListScreenState extends State<RestaurantListScreen> {
     super.dispose();
   }
 
-  Future<void> _loadRestaurants() async {
+  Future<void> _initializeAndLoad() async {
     try {
       setState(() {
         _isLoading = true;
         _error = null;
       });
 
-      // Get current position
+      // First initialize
+      final initialized = await widget.initialize();
+      if (!initialized) {
+        setState(() {
+          _error = 'Failed to initialize restaurant service';
+          _isLoading = false;
+        });
+        return;
+      }
+
+      // Then get current position
       final position = await Geolocator.getCurrentPosition(
         desiredAccuracy: LocationAccuracy.best,
         timeLimit: const Duration(seconds: 5),
       );
 
+      if (!mounted) return;
+
       _currentLat = position.latitude;
       _currentLng = position.longitude;
 
-      // Use cached results if available and no filters are applied
-      final bool noFilters = _selectedPriceLevel == null && 
-                            (_selectedType == 'All' || _selectedType == null) && 
-                            _selectedTime == null;
+      // Use cached restaurants since we already initialized
+      final rawRestaurants = RestaurantService.instance.cachedRestaurants!;
 
-      final rawRestaurants = noFilters && _restaurantService.cachedRestaurants != null
-          ? _restaurantService.cachedRestaurants!
-          : await _restaurantService.getNearbyRestaurants(
-              position.latitude,
-              position.longitude,
-              priceLevel: _selectedPriceLevel,
-              cuisineType: _selectedType == 'All' ? null : _selectedType,
-              openTime: _selectedTime,
-            );
+      if (!mounted) return;
+
+      if (rawRestaurants.isEmpty) {
+        setState(() {
+          _error = _showOpenOnly 
+              ? 'No restaurants currently open in this area'
+              : 'No restaurants found in this area';
+          _isLoading = false;
+        });
+        return;
+      }
 
       final restaurants = rawRestaurants
           .map((place) => Restaurant.fromJson(place))
-          .toList()
-        ..sort((a, b) {
-          final scoreA = a.calculateWilsonScore(a.rating, a.reviewCount);
-          final scoreB = b.calculateWilsonScore(b.rating, b.reviewCount);
-          return scoreB.compareTo(scoreA);
-        });
+          .toList();
       
-      // Assign ranks based on Wilson score
+      restaurants.sort((a, b) {
+        final scoreA = a.calculateWilsonScore(a.rating, a.reviewCount);
+        final scoreB = b.calculateWilsonScore(b.rating, b.reviewCount);
+        return scoreB.compareTo(scoreA);
+      });
+      
       for (var i = 0; i < restaurants.length; i++) {
         restaurants[i].rank = i + 1;
       }
@@ -99,22 +121,11 @@ class _RestaurantListScreenState extends State<RestaurantListScreen> {
         _sortRestaurants();
       }
 
-      // Wait for header photos to be cached before showing cards
-      final headerPhotoRefs = _restaurants!
-          .where((r) => r.photoRefs.isNotEmpty)
-          .map((r) => r.photoRefs.first)
-          .toList();
-      
-      await RestaurantService.instance.prefetchHeaderPhotos(headerPhotoRefs);
-
-      setState(() {
-        _isLoading = false;
-      });
-
     } catch (e) {
+      print('dBug/restaurant_list_screen: Exception - $e');
       if (mounted) {
         setState(() {
-          _error = e.toString();
+          _error = 'Unable to load restaurant data. Please try again.';
           _isLoading = false;
         });
       }
@@ -158,7 +169,7 @@ class _RestaurantListScreenState extends State<RestaurantListScreen> {
                     onTap: () {
                       setState(() => _selectedPriceLevel = price == 'All' ? null : price);
                       Navigator.pop(context);
-                      _loadRestaurants();
+                      _initializeAndLoad();
                     },
                     child: Container(
                       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
@@ -223,7 +234,7 @@ class _RestaurantListScreenState extends State<RestaurantListScreen> {
                                   _selectedType = type;
                                 });
                                 Navigator.pop(context);
-                                _loadRestaurants();
+                                _initializeAndLoad();
                               }
                             },
                             style: OutlinedButton.styleFrom(
@@ -293,109 +304,12 @@ class _RestaurantListScreenState extends State<RestaurantListScreen> {
                   });
                   Navigator.pop(context);
                   Navigator.pop(context);
-                  _loadRestaurants();
+                  _initializeAndLoad();
                 }
               },
               child: const Text('Search'),
             ),
           ],
-        );
-      },
-    );
-  }
-
-  void _showOpenTimeDialog() {
-    // Use current time as initial selection if none set
-
-    // Generate list of valid times (30-minute increments from current time until midnight)
-    final currentTime = TimeOfDay.now();
-    final times = <String>['Open Now']; // Add "Open Now" as the first option
-
-    // Start from current hour/minute (rounded up to next 30 min increment)
-    var hour = currentTime.hour;
-    var minute = currentTime.minute >= 30 ? 0 : 30;
-    if (currentTime.minute >= 30) {
-      hour = (hour + 1) % 24;
-    }
-
-    // Add times until midnight
-    while (hour < 24) {
-      final hourStr = (hour % 12 == 0 ? 12 : hour % 12).toString().padLeft(2, '0');
-      final minStr = minute.toString().padLeft(2, '0');
-      final amPm = hour < 12 ? 'AM' : 'PM';
-      times.add('$hourStr:$minStr $amPm');
-
-      minute += 30;
-      if (minute >= 60) {
-        minute = 0;
-        hour++;
-      }
-    }
-
-    showModalBottomSheet(
-      context: context,
-      builder: (BuildContext context) {
-        return Container(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(
-                'Select Time',
-                style: Theme.of(context).textTheme.titleLarge,
-              ),
-              const SizedBox(height: 16),
-              Expanded(
-                child: GridView.count(
-                  crossAxisCount: 3,
-                  mainAxisSpacing: 8,
-                  crossAxisSpacing: 8,
-                  childAspectRatio: 2.5,
-                  children: times.map((time) => 
-                    InkWell(
-                      onTap: () {
-                        if (time == 'Open Now') {
-                          setState(() => _selectedTime = null);
-                        } else {
-                          // Parse time string back to TimeOfDay
-                          final parts = time.split(' ');
-                          final timeParts = parts[0].split(':');
-                          var hour = int.parse(timeParts[0]);
-                          final minute = int.parse(timeParts[1]);
-                          final amPm = parts[1];
-
-                          if (amPm == 'PM' && hour != 12) hour += 12;
-                          if (amPm == 'AM' && hour == 12) hour = 0;
-
-                          setState(() {
-                            _selectedTime = TimeOfDay(hour: hour, minute: minute);
-                          });
-                        }
-                        Navigator.pop(context);
-                        _loadRestaurants();
-                      },
-                      child: Container(
-                        alignment: Alignment.center,
-                        decoration: BoxDecoration(
-                          border: Border.all(color: Colors.grey),
-                          borderRadius: BorderRadius.circular(4),
-                        ),
-                        child: Text(time),
-                      ),
-                    ),
-                  ).toList(),
-                ),
-              ),
-              TextButton(
-                onPressed: () {
-                  setState(() => _selectedTime = null);
-                  Navigator.pop(context);
-                  _loadRestaurants();
-                },
-                child: const Text('Clear Filter'),
-              ),
-            ],
-          ),
         );
       },
     );
@@ -490,7 +404,7 @@ class _RestaurantListScreenState extends State<RestaurantListScreen> {
               ),
               const SizedBox(height: 16),
               ElevatedButton(
-                onPressed: _loadRestaurants,
+                onPressed: _initializeAndLoad,
                 child: const Text('Retry'),
               ),
             ],
@@ -512,7 +426,7 @@ class _RestaurantListScreenState extends State<RestaurantListScreen> {
               ),
               const SizedBox(height: 16),
               ElevatedButton(
-                onPressed: _loadRestaurants,
+                onPressed: _initializeAndLoad,
                 child: const Text('Retry'),
               ),
             ],
@@ -547,18 +461,6 @@ class _RestaurantListScreenState extends State<RestaurantListScreen> {
                 style: buttonStyle,
                 child: Text(
                   _selectedType ?? 'All Types',
-                  style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                    color: Colors.black,
-                  ),
-                ),
-              ),
-              ElevatedButton(
-                onPressed: _showOpenTimeDialog,
-                style: buttonStyle,
-                child: Text(
-                  _selectedTime != null 
-                    ? _selectedTime!.format(context)
-                    : 'Open Now',
                   style: Theme.of(context).textTheme.bodyLarge?.copyWith(
                     color: Colors.black,
                   ),
