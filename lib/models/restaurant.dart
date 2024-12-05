@@ -14,6 +14,7 @@ class Restaurant {
   final Location location;
   final List<Photo> photos;
   int? rank;
+  final String placeId;
 
   Restaurant({
     required this.id,
@@ -29,6 +30,7 @@ class Restaurant {
     this.location = const Location(latitude: 0, longitude: 0, formattedAddress: ''),
     this.photos = const [],
     this.rank,
+    required this.placeId,
   });
 
   factory Restaurant.fromJson(Map<String, dynamic> json) {
@@ -98,6 +100,7 @@ class Restaurant {
       ),
       photos: [],
       rank: json['rank'] as int?,
+      placeId: json['placeId'] as String,
     );
     
     return restaurant;
