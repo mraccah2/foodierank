@@ -21,24 +21,21 @@ class RestaurantCard extends StatelessWidget {
   });
 
   // Modified method to handle place details and directions
-  void _openInGoogleMapsByPlaceId(BuildContext context, String placeId, {bool forDirections = false}) async {
-    String mapsUrl;
-    
-    if (forDirections && currentLat != null && currentLng != null) {
-      // URL for directions from current location
-      mapsUrl = 'https://www.google.com/maps/dir/?api=1'
-          '&origin=${currentLat},${currentLng}'
-          '&destination=place_id:$placeId'
-          '&travelmode=driving';
-    } else {
-      // URL for place details
-      mapsUrl = 'https://www.google.com/maps/place/?q=place_id:$placeId';
-    }
+  void _openInGoogleMapsByPlaceId(BuildContext context, String placeId) async {
+    // Construct the query using the restaurant's name and address
+    final query = Uri.encodeComponent('${restaurant.name}, ${restaurant.location.formattedAddress}');
+    String nativeMapsUrl = 'comgooglemaps://?q=$query';
 
-    if (await canLaunchUrlString(mapsUrl)) {
-      await launchUrlString(mapsUrl, mode: LaunchMode.externalApplication);
+    // Try to open in native Maps app first
+    if (await canLaunchUrlString(nativeMapsUrl)) {
+      await launchUrlString(nativeMapsUrl);
     } else {
-      if (context.mounted) {
+      // Fallback to browser using place ID if native app isn't installed
+      final webMapsUrl = 'https://www.google.com/maps/place/?q=place_id:$placeId';
+
+      if (await canLaunchUrlString(webMapsUrl)) {
+        await launchUrlString(webMapsUrl, mode: LaunchMode.externalApplication);
+      } else if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Could not open Google Maps')),
         );
