@@ -498,107 +498,110 @@ class _RestaurantListScreenState extends State<RestaurantListScreen> {
       tapTargetSize: MaterialTapTargetSize.shrinkWrap,
     );
 
-    return Column(
-      children: [
-        Container(
-          color: Colors.grey[200],
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-            children: [
-              ElevatedButton(
-                onPressed: _showTypeFilter,
-                style: buttonStyle,
-                child: Text(
-                  _selectedType ?? 'All Types',
-                  style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                    color: Colors.black,
-                  ),
-                ),
-              ),
-              ElevatedButton(
-                onPressed: _showPriceRangeDialog,
-                style: buttonStyle,
-                child: Text(
-                  _selectedPriceLevel ?? '\$-\$\$\$\$',
-                  style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                    color: Colors.black,
-                  ),
-                ),
-              ),
-              ElevatedButton(
-                onPressed: () {
-                  setState(() {
-                    _sortOption = _sortOption == SortOption.rank 
-                      ? SortOption.distance 
-                      : SortOption.rank;
-                    _sortRestaurants();
-                  });
-                },
-                style: buttonStyle,
-                child: Text(
-                  _sortOption == SortOption.rank ? 'Best first' : 'Closest first',
-                  style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                    color: Colors.black,
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-        
-        // Restaurant Cards with padding
-        Expanded(
-          child: Container(
+    return RefreshIndicator(
+      onRefresh: _initializeAndLoad,
+      child: Column(
+        children: [
+          Container(
             color: Colors.grey[200],
-            child: PageView.builder(
-              controller: _pageController,
-              scrollDirection: Axis.vertical,
-              pageSnapping: true,
-              physics: const PageScrollPhysics(),
-              itemCount: _restaurants!.length,
-              onPageChanged: (index) {
-                setState(() {});
-              },
-              itemBuilder: (context, index) {
-                final restaurant = _restaurants![index];
-                return Column(
-                  children: [
-                    const SizedBox(height: 20.0),  // Keep top padding
-                    
-                    Expanded(
-                      child: Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 16.0).copyWith(
-                          top: 8.0,
-                          bottom: 8.0,
-                        ),
-                        child: RestaurantCard(
-                          restaurant: restaurant,
-                          onPhotoTap: () {
-                            Navigator.of(context).push(
-                              MaterialPageRoute(
-                                builder: (context) => RestaurantPhotoViewer(
-                                  restaurant: restaurant,
-                                  initialIndex: 0,
-                                ),
-                              ),
-                            );
-                          },
-                          ranking: restaurant.rank ?? index + 1,
-                          currentLat: _currentLat,
-                          currentLng: _currentLng,
-                        ),
-                      ),
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+              children: [
+                ElevatedButton(
+                  onPressed: _showTypeFilter,
+                  style: buttonStyle,
+                  child: Text(
+                    _selectedType ?? 'All Types',
+                    style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                      color: Colors.black,
                     ),
-                    
-                    const SizedBox(height: 30.0),  // Keep bottom padding
-                  ],
-                );
-              },
+                  ),
+                ),
+                ElevatedButton(
+                  onPressed: _showPriceRangeDialog,
+                  style: buttonStyle,
+                  child: Text(
+                    _selectedPriceLevel ?? '\$-\$\$\$\$',
+                    style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                      color: Colors.black,
+                    ),
+                  ),
+                ),
+                ElevatedButton(
+                  onPressed: () {
+                    setState(() {
+                      _sortOption = _sortOption == SortOption.rank 
+                        ? SortOption.distance 
+                        : SortOption.rank;
+                      _sortRestaurants();
+                    });
+                  },
+                  style: buttonStyle,
+                  child: Text(
+                    _sortOption == SortOption.rank ? 'Best first' : 'Closest first',
+                    style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                      color: Colors.black,
+                    ),
+                  ),
+                ),
+              ],
             ),
           ),
-        ),
-      ],
+          
+          // Restaurant Cards with padding
+          Expanded(
+            child: Container(
+              color: Colors.grey[200],
+              child: PageView.builder(
+                controller: _pageController,
+                scrollDirection: Axis.vertical,
+                pageSnapping: true,
+                physics: const PageScrollPhysics(),
+                itemCount: _restaurants!.length,
+                onPageChanged: (index) {
+                  setState(() {});
+                },
+                itemBuilder: (context, index) {
+                  final restaurant = _restaurants![index];
+                  return Column(
+                    children: [
+                      const SizedBox(height: 20.0),  // Keep top padding
+                      
+                      Expanded(
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 16.0).copyWith(
+                            top: 8.0,
+                            bottom: 8.0,
+                          ),
+                          child: RestaurantCard(
+                            restaurant: restaurant,
+                            onPhotoTap: () {
+                              Navigator.of(context).push(
+                                MaterialPageRoute(
+                                  builder: (context) => RestaurantPhotoViewer(
+                                    restaurant: restaurant,
+                                    initialIndex: 0,
+                                  ),
+                                ),
+                              );
+                            },
+                            ranking: restaurant.rank ?? index + 1,
+                            currentLat: _currentLat,
+                            currentLng: _currentLng,
+                          ),
+                        ),
+                      ),
+                      
+                      const SizedBox(height: 30.0),  // Keep bottom padding
+                    ],
+                  );
+                },
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 } 
