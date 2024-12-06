@@ -282,7 +282,7 @@ class _RestaurantListScreenState extends State<RestaurantListScreen> {
                               tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                             ),
                             child: Text(
-                              type,
+                              type == 'All' ? 'All types' : type,
                               style: TextStyle(
                                 color: Colors.black,
                                 fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
@@ -512,7 +512,7 @@ class _RestaurantListScreenState extends State<RestaurantListScreen> {
                   onPressed: _showTypeFilter,
                   style: buttonStyle,
                   child: Text(
-                    _selectedType ?? 'All Types',
+                    _selectedType == 'All' ? 'All types' : _selectedType!,
                     style: Theme.of(context).textTheme.bodyLarge?.copyWith(
                       color: Colors.black,
                     ),
