@@ -348,7 +348,10 @@ class _RestaurantListScreenState extends State<RestaurantListScreen> {
   }
 
   void _sortRestaurants() {
-    if (_restaurants == null) return;
+    if (_restaurants == null || _restaurants!.isEmpty) {
+      print('dBug/restaurant_list_screen: No restaurants to sort.');
+      return;
+    }
     
     setState(() {
       switch (_sortOption) {
@@ -358,6 +361,13 @@ class _RestaurantListScreenState extends State<RestaurantListScreen> {
             final scoreB = b.calculateWilsonScore(b.rating, b.reviewCount);
             return scoreB.compareTo(scoreA);
           });
+          
+          // Assign ranks after sorting by rank
+          for (var i = 0; i < _restaurants!.length; i++) {
+            _restaurants![i].rank = i + 1;
+          }
+          break;
+          
         case SortOption.distance:
           if (_currentLat != null && _currentLng != null) {
             _restaurants!.sort((a, b) {
@@ -368,6 +378,14 @@ class _RestaurantListScreenState extends State<RestaurantListScreen> {
               return distA.compareTo(distB);
             });
           }
+          break;
+      }
+      
+      // Check if the PageController is attached before jumping
+      if (_pageController.hasClients) {
+        _pageController.jumpToPage(0);
+      } else {
+        print('dBug/restaurant_list_screen: PageController has no clients.');
       }
     });
   }
@@ -518,11 +536,11 @@ class _RestaurantListScreenState extends State<RestaurantListScreen> {
                   });
                 },
                 style: buttonStyle,
-                child: Icon(
-                  _sortOption == SortOption.rank 
-                    ? Icons.star_outline 
-                    : Icons.route,
-                  color: Colors.black,
+                child: Text(
+                  _sortOption == SortOption.rank ? 'Best first' : 'Closest first',
+                  style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                    color: Colors.black,
+                  ),
                 ),
               ),
             ],
