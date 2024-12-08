@@ -31,6 +31,7 @@ class _RestaurantListScreenState extends State<RestaurantListScreen> {
   SortOption _sortOption = SortOption.rank;
   bool _isScrolling = false;
   final bool _showOpenOnly = true;  // Default to showing only open restaurants
+  String? _searchStatus;
 
   @override
   void initState() {
@@ -59,6 +60,7 @@ class _RestaurantListScreenState extends State<RestaurantListScreen> {
       setState(() {
         _isLoading = true;
         _error = null;
+        _searchStatus = null;  // Reset search status
       });
 
       final position = await Geolocator.getCurrentPosition(
@@ -77,6 +79,14 @@ class _RestaurantListScreenState extends State<RestaurantListScreen> {
         priceLevel: _selectedPriceLevel,
         cuisineType: _selectedType,
         openNow: _showOpenOnly,
+        onSearchUpdate: (count, type, radius) {
+          if (mounted) {
+            setState(() {
+              _searchStatus = 'Found $count ${type.toLowerCase()} restaurants nearby and open now. '
+                            'Searching for more within ${radius.round()}m';
+            });
+          }
+        },
       );
 
       if (!mounted) return;
@@ -119,6 +129,7 @@ class _RestaurantListScreenState extends State<RestaurantListScreen> {
         setState(() {
           _error = 'Unable to load restaurant data. Please try again.';
           _isLoading = false;
+          _searchStatus = null;  // Clear search status on error
         });
       }
     } finally {
@@ -434,13 +445,43 @@ class _RestaurantListScreenState extends State<RestaurantListScreen> {
     if (_isLoading) {
       return Container(
         color: Colors.grey[200],
-        child: const Center(
-          child: CircularProgressIndicator(),
+        child: Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              const CircularProgressIndicator(),
+              if (_searchStatus != null) ...[
+                const SizedBox(height: 16),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 24),
+                  child: Text(
+                    _searchStatus!,
+                    textAlign: TextAlign.center,
+                    style: Theme.of(context).textTheme.bodyMedium,
+                  ),
+                ),
+              ],
+            ],
+          ),
         ),
       );
     }
 
+    // Helper function to get the appropriate message
+    String getErrorMessage() {
+      if (_selectedType == 'All' && _selectedPriceLevel == null) {
+        return "Couldn't find any restaurants currently open nearby. Please check back later";
+      } else if (_selectedType != 'All' && _selectedPriceLevel != null) {
+        return "Couldn't find any ${_selectedType!.toLowerCase()} restaurants with price level $_selectedPriceLevel currently open nearby";
+      } else if (_selectedType != 'All') {
+        return "Couldn't find any ${_selectedType!.toLowerCase()} restaurants currently open nearby";
+      } else {
+        return "Couldn't find any $_selectedPriceLevel restaurants currently open nearby";
+      }
+    }
+
     if (_error != null) {
+      bool isDefaultSearch = _selectedType == 'All' && _selectedPriceLevel == null;
       return Center(
         child: Padding(
           padding: const EdgeInsets.all(16),
@@ -448,14 +489,22 @@ class _RestaurantListScreenState extends State<RestaurantListScreen> {
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
               Text(
-                'Error loading restaurants:\n$_error',
+                getErrorMessage(),
                 textAlign: TextAlign.center,
                 style: Theme.of(context).textTheme.bodyLarge,
               ),
               const SizedBox(height: 16),
               ElevatedButton(
-                onPressed: _initializeAndLoad,
-                child: const Text('Retry'),
+                onPressed: () {
+                  if (!isDefaultSearch) {
+                    setState(() {
+                      _selectedPriceLevel = null;
+                      _selectedType = 'All';
+                    });
+                  }
+                  _initializeAndLoad();
+                },
+                child: Text(isDefaultSearch ? 'Try again' : 'Go back'),
               ),
             ],
           ),
@@ -471,7 +520,7 @@ class _RestaurantListScreenState extends State<RestaurantListScreen> {
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
               Text(
-                'No restaurants found nearby',
+                getErrorMessage(),
                 style: Theme.of(context).textTheme.headlineSmall,
               ),
               const SizedBox(height: 16),
