@@ -68,8 +68,6 @@ class RestaurantService {
     List<Map<String, dynamic>> allRestaurants = [];
 
     while (allRestaurants.length < _targetCount && radius <= _maxRadius) {
-      print('dBug/restaurant_service: Starting search with radius ${radius}m'); // Debug
-
       final params = _buildSearchParams(
         latitude,
         longitude,
@@ -88,7 +86,6 @@ class RestaurantService {
         
         if (response.containsKey('places')) {
           final List<dynamic> places = response['places'];
-          print('dBug/restaurant_service: Found ${places.length} places'); // Debug
           
           int newMatchingPlaces = 0;
           for (final place in places) {
@@ -110,22 +107,18 @@ class RestaurantService {
           );
 
           if (places.isEmpty || newMatchingPlaces == 0) {
-            print('dBug/restaurant_service: No new places found, increasing radius'); // Debug
             radius += currentIncrement;
             currentIncrement = (currentIncrement * 1.5).clamp(_minIncrement, _maxIncrement);
           }
         } else {
-          print('dBug/restaurant_service: No places in response, increasing radius'); // Debug
           radius += currentIncrement;
           currentIncrement = (currentIncrement * 1.5).clamp(_minIncrement, _maxIncrement);
         }
       } catch (e) {
-        print('dBug/restaurant_service: Error in search: $e'); // Debug
         rethrow;
       }
     }
 
-    print('dBug/restaurant_service: Search complete. Found ${allRestaurants.length} restaurants'); // Debug
     return allRestaurants;
   }
 
@@ -138,8 +131,6 @@ class RestaurantService {
     // Calculate half the radius in degrees (approximation)
     const double metersPerDegree = 111320.0;
     double halfRadiusDegrees = radius / metersPerDegree;
-
-    print('dBug/restaurant_service: Building search with radius ${radius}m'); // Debug radius
 
     final params = {
       'textQuery': cuisineType != null && cuisineType != 'Other' 
