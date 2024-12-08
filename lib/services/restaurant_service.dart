@@ -2,7 +2,6 @@ import 'package:foodierank/services/proxy_service.dart';
 import 'package:foodierank/config.dart';
 import 'package:http/http.dart' as http;
 import 'dart:typed_data';
-import 'package:flutter/material.dart' show TimeOfDay;
 import 'package:cached_network_image/cached_network_image.dart';
 import '../services/navigation_service.dart';
 import 'package:flutter/widgets.dart';
@@ -44,7 +43,7 @@ class RestaurantService {
   static const int _lowResultsThreshold = 3;
   static const List<String> cuisineTypes = [
     'All', 'American', 'Asian', 'Bakery', 'Bar', 'BBQ', 'Bistro', 'Brazilian', 'British',
-    'Brunch', 'Buffet', 'Burger', 'Cafe', 'Caribbean', 'Chinese', 'Deli', 'Diner',
+    'Brunch', 'Buffet', 'Burger', 'Coffee', 'Caribbean', 'Chinese', 'Deli', 'Diner',
     'French', 'Fusion', 'German', 'Greek', 'Hawaiian', 'Indian', 'Indonesian',
     'Italian', 'Japanese', 'Korean', 'Lebanese', 'Mediterranean', 'Mexican',
     'Moroccan', 'Noodles', 'Persian', 'Pizza', 'Pub', 'Ramen', 'Seafood',
@@ -117,31 +116,38 @@ class RestaurantService {
   Map<String, dynamic> _buildSearchParams(
     double latitude,
     double longitude,
-    double radius,
+    double side,
     {String? cuisineType, String? priceLevel, bool openNow = true}
   ) {
+    // Calculate half the side length in degrees (approximation)
+    const double metersPerDegree = 111320.0; // Approximate meters per degree latitude
+    double halfSideDegrees = (side / 2) / metersPerDegree;
+
     final params = {
       'textQuery': cuisineType != null && cuisineType != 'Other' 
         ? '$cuisineType restaurant'
         : 'restaurant',
-      'locationBias': {
-        'circle': {
-          'center': {
-            'latitude': latitude,
-            'longitude': longitude,
+      'locationRestriction': {
+        'rectangle': {
+          'low': {
+            'latitude': latitude - halfSideDegrees,
+            'longitude': longitude - halfSideDegrees,
           },
-          'radius': radius,
+          'high': {
+            'latitude': latitude + halfSideDegrees,
+            'longitude': longitude + halfSideDegrees,
+          },
         },
       },
-      'includedType': 'restaurant',
       'maxResultCount': _targetCount,
       'languageCode': 'en',
-      'openNow': openNow,
+      if (openNow) 'openNow': openNow,
       if (priceLevel != null) ...{
         'priceLevels': [_convertPriceLevel(priceLevel)],
       },
     };
     
+    print('dBug/restaurant_service: Search params: $params'); // Debug print
     return params;
   }
 
