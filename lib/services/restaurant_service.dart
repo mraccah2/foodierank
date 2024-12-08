@@ -20,9 +20,12 @@ class RestaurantService {
   List<Map<String, dynamic>>? get cachedRestaurants => _cachedRestaurants;
 
   Future<List<Map<String, dynamic>>> fetchRestaurants(
-    double latitude, 
+    double latitude,
     double longitude,
-    {String? priceLevel, String? cuisineType, bool openNow = true}
+    {String? priceLevel,
+    String? cuisineType,
+    bool openNow = true,
+    void Function(int count, String type, double radius)? onSearchUpdate}
   ) async {
     _cachedRestaurants = await getNearbyRestaurants(
       latitude, 
@@ -54,7 +57,10 @@ class RestaurantService {
   Future<List<Map<String, dynamic>>> getNearbyRestaurants(
     double latitude,
     double longitude,
-    {String? priceLevel, String? cuisineType, bool openNow = true}
+    {String? priceLevel, 
+    String? cuisineType, 
+    bool openNow = true,
+    void Function(int count, String type, double radius)? onSearchUpdate}
   ) async {
     double radius = _initialRadius;
     double currentIncrement = _minIncrement;
@@ -62,6 +68,8 @@ class RestaurantService {
     List<Map<String, dynamic>> allRestaurants = [];
 
     while (allRestaurants.length < _targetCount && radius <= _maxRadius) {
+      print('dBug/restaurant_service: Starting search with radius ${radius}m'); // Debug
+
       final params = _buildSearchParams(
         latitude,
         longitude,
@@ -80,8 +88,9 @@ class RestaurantService {
         
         if (response.containsKey('places')) {
           final List<dynamic> places = response['places'];
+          print('dBug/restaurant_service: Found ${places.length} places'); // Debug
+          
           int newMatchingPlaces = 0;
-
           for (final place in places) {
             final id = place['id'] as String;
             if (!foundIds.contains(id)) {
@@ -94,34 +103,43 @@ class RestaurantService {
             }
           }
 
-          if (newMatchingPlaces < _lowResultsThreshold) {
-            currentIncrement = (currentIncrement * 1.5).clamp(_minIncrement, _maxIncrement);
+          onSearchUpdate?.call(
+            allRestaurants.length,
+            cuisineType ?? 'restaurant',
+            radius
+          );
+
+          if (places.isEmpty || newMatchingPlaces == 0) {
+            print('dBug/restaurant_service: No new places found, increasing radius'); // Debug
             radius += currentIncrement;
-          } else if (allRestaurants.length < _targetCount) {
-            radius += _minIncrement;
+            currentIncrement = (currentIncrement * 1.5).clamp(_minIncrement, _maxIncrement);
           }
+        } else {
+          print('dBug/restaurant_service: No places in response, increasing radius'); // Debug
+          radius += currentIncrement;
+          currentIncrement = (currentIncrement * 1.5).clamp(_minIncrement, _maxIncrement);
         }
       } catch (e) {
+        print('dBug/restaurant_service: Error in search: $e'); // Debug
         rethrow;
-      }
-
-      if (radius >= _maxRadius) {
-        break;
       }
     }
 
+    print('dBug/restaurant_service: Search complete. Found ${allRestaurants.length} restaurants'); // Debug
     return allRestaurants;
   }
 
   Map<String, dynamic> _buildSearchParams(
     double latitude,
     double longitude,
-    double side,
+    double radius,
     {String? cuisineType, String? priceLevel, bool openNow = true}
   ) {
-    // Calculate half the side length in degrees (approximation)
-    const double metersPerDegree = 111320.0; // Approximate meters per degree latitude
-    double halfSideDegrees = (side / 2) / metersPerDegree;
+    // Calculate half the radius in degrees (approximation)
+    const double metersPerDegree = 111320.0;
+    double halfRadiusDegrees = radius / metersPerDegree;
+
+    print('dBug/restaurant_service: Building search with radius ${radius}m'); // Debug radius
 
     final params = {
       'textQuery': cuisineType != null && cuisineType != 'Other' 
@@ -130,12 +148,12 @@ class RestaurantService {
       'locationRestriction': {
         'rectangle': {
           'low': {
-            'latitude': latitude - halfSideDegrees,
-            'longitude': longitude - halfSideDegrees,
+            'latitude': latitude - halfRadiusDegrees,
+            'longitude': longitude - halfRadiusDegrees,
           },
           'high': {
-            'latitude': latitude + halfSideDegrees,
-            'longitude': longitude + halfSideDegrees,
+            'latitude': latitude + halfRadiusDegrees,
+            'longitude': longitude + halfRadiusDegrees,
           },
         },
       },
@@ -147,7 +165,6 @@ class RestaurantService {
       },
     };
     
-    print('dBug/restaurant_service: Search params: $params'); // Debug print
     return params;
   }
 
