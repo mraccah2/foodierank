@@ -2,12 +2,15 @@ import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'dart:math';
 import '../config.dart';
+import 'package:flutter/foundation.dart';
 
 class ProxyService {
   static final _client = http.Client();
   static const String baseUrl = 'https://places.googleapis.com/v1';
-  static const String _apiKey = Config.googleMapsApiKey;
+  static final String _apiKey = Config.googleMapsApiKey;
   static final Map<String, String> _photoUrlCache = {};
+  static const String _sha1 = '6F36B6864C200D65C27D924F60AD4BDDB2BC1FBE';
+  static const String _packageName = 'com.foodierank.foodierank';
 
   static Future<Map<String, dynamic>> placesApiGet(
     String endpoint,
@@ -20,11 +23,15 @@ class ProxyService {
     while (retryCount < maxRetries) {
       try {
         final url = Uri.parse('$baseUrl/$endpoint');
+        
         final headers = {
           'Content-Type': 'application/json',
           'X-Goog-Api-Key': _apiKey,
+          'X-Android-Package': _packageName,
+          'X-Android-Cert': _sha1,
           if (fieldMask != null) 'X-Goog-FieldMask': fieldMask,
         };
+        
         final body = jsonEncode(params);
 
         final response = await http.post(url, headers: headers, body: body);
@@ -59,6 +66,8 @@ class ProxyService {
       final headers = {
         'Content-Type': 'application/json',
         'X-Goog-Api-Key': _apiKey,
+        'X-Android-Package': _packageName,
+        'X-Android-Cert': _sha1,
       };
 
       final response = await _client.get(

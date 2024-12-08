@@ -12,7 +12,7 @@ void main() {
     WidgetsFlutterBinding.ensureInitialized();
     
     FlutterError.onError = (FlutterErrorDetails details) {
-      // Removed debug prints
+      // Already empty
     };
 
     SystemChrome.setPreferredOrientations([
@@ -21,7 +21,6 @@ void main() {
 
     // Start location and restaurant fetch before showing splash screen
     try {
-      // Removed debug print
       final permission = await Geolocator.checkPermission();
       if (permission == LocationPermission.denied) {
         await Geolocator.requestPermission();
@@ -33,27 +32,24 @@ void main() {
       ).timeout(
         const Duration(seconds: 10),
         onTimeout: () async {
-          // Removed debug print
           final lastKnown = await Geolocator.getLastKnownPosition();
           if (lastKnown != null) return lastKnown;
           throw TimeoutException('Could not get location');
         },
       );
 
-      // Removed debug prints
       await RestaurantService.instance.fetchRestaurants(
         position.latitude,
         position.longitude,
       );
-      // Removed debug print
 
     } catch (e) {
-      // Removed debug print
+      // Already empty
     }
 
     runApp(const MyApp());
   }, (error, stack) {
-    // Removed debug prints
+    // Already empty
   });
 }
 
@@ -103,7 +99,6 @@ Future<Position?> _getLocation() async {
   try {
     bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
     if (!serviceEnabled) {
-      // Removed debug print
       return null;
     }
 
@@ -111,13 +106,11 @@ Future<Position?> _getLocation() async {
     if (permission == LocationPermission.denied) {
       permission = await Geolocator.requestPermission();
       if (permission == LocationPermission.denied) {
-        // Removed debug print
         return null;
       }
     }
     
     if (permission == LocationPermission.deniedForever) {
-      // Removed debug print
       return null;
     }
 
@@ -127,14 +120,12 @@ Future<Position?> _getLocation() async {
     ).timeout(
       const Duration(seconds: 5),
       onTimeout: () async {
-        // Removed debug print
         final lastKnown = await Geolocator.getLastKnownPosition();
         if (lastKnown != null) return lastKnown;
         throw TimeoutException('Could not get location');
       },
     );
   } catch (e) {
-    // Removed debug print
     return null;
   }
 }

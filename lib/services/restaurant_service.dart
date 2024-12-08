@@ -170,8 +170,7 @@ class RestaurantService {
   }
 
   Map<String, dynamic>? _mapPlace(Map<String, dynamic> place, String? targetPriceLevel) {
-    final photos = place['photos'] as List<dynamic>?;
-    final photoRefs = photos?.map((photo) => photo['name'] as String).toList() ?? [];
+    final photos = place['photos'] as List<dynamic>?;    final photoRefs = photos?.map((photo) => photo['name'] as String).toList() ?? [];
     
     return {
       ...Map<String, dynamic>.from(place),
