@@ -124,7 +124,6 @@ class _RestaurantListScreenState extends State<RestaurantListScreen> {
       }
 
     } catch (e) {
-      print('dBug/restaurant_list_screen: Exception - $e');
       if (mounted) {
         setState(() {
           _error = 'Unable to load restaurant data. Please try again.';
@@ -159,15 +158,15 @@ class _RestaurantListScreenState extends State<RestaurantListScreen> {
           _sortRestaurants();
         });
       } catch (e) {
-        print('dBug/restaurant_list_screen: Location error in cache load - $e');
-        // Still show restaurants even if location fails
-        setState(() {
-          _restaurants = rawRestaurants
-              .map((place) => Restaurant.fromJson(place))
-              .toList();
-          _isLoading = false;
-          _sortRestaurants();
-        });
+        if (mounted) {
+          setState(() {
+            _restaurants = rawRestaurants
+                .map((place) => Restaurant.fromJson(place))
+                .toList();
+            _isLoading = false;
+            _sortRestaurants();
+          });
+        }
       }
     } else {
       _initializeAndLoad();
@@ -360,7 +359,6 @@ class _RestaurantListScreenState extends State<RestaurantListScreen> {
 
   void _sortRestaurants() {
     if (_restaurants == null || _restaurants!.isEmpty) {
-      print('dBug/restaurant_list_screen: No restaurants to sort.');
       return;
     }
     
@@ -395,8 +393,6 @@ class _RestaurantListScreenState extends State<RestaurantListScreen> {
       // Check if the PageController is attached before jumping
       if (_pageController.hasClients) {
         _pageController.jumpToPage(0);
-      } else {
-        print('dBug/restaurant_list_screen: PageController has no clients.');
       }
     });
   }
