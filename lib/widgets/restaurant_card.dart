@@ -117,7 +117,6 @@ class RestaurantCard extends StatelessWidget {
                           overflow: TextOverflow.visible,
                         ),
                       ),
-                      const SizedBox(width: 8),
                       Container(
                         padding: const EdgeInsets.all(8),
                         decoration: const BoxDecoration(
@@ -172,7 +171,7 @@ class RestaurantCard extends StatelessWidget {
                   spacing: 4,
                   runSpacing: 0,
                   children: restaurant.types
-                      .take(3)
+                      .take(2)
                       .map((type) {
                     return Container(
                       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
@@ -221,7 +220,7 @@ class RestaurantCard extends StatelessWidget {
                       final travelMode = distance <= 500 ? 'walking' : 'driving';
                       
                       final mapsUrl = 'https://www.google.com/maps/dir/?api=1'
-                          '&origin=${currentLat},${currentLng}'
+                          '&origin=$currentLat,$currentLng'
                           '&destination=$destLat,$destLng'
                           '&travelmode=$travelMode';
 

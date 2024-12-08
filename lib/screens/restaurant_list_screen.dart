@@ -30,7 +30,7 @@ class _RestaurantListScreenState extends State<RestaurantListScreen> {
   double? _currentLng;
   SortOption _sortOption = SortOption.rank;
   bool _isScrolling = false;
-  bool _showOpenOnly = true;  // Default to showing only open restaurants
+  final bool _showOpenOnly = true;  // Default to showing only open restaurants
 
   @override
   void initState() {
@@ -566,7 +566,7 @@ class _RestaurantListScreenState extends State<RestaurantListScreen> {
                   final restaurant = _restaurants![index];
                   return Column(
                     children: [
-                      const SizedBox(height: 20.0),  // Keep top padding
+                      const SizedBox(height: 5.0),  // Keep top padding
                       
                       Expanded(
                         child: Padding(

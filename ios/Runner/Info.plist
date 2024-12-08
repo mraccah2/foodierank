@@ -29,9 +29,9 @@
 	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
 	<string>This app needs access to location to find restaurants near you.</string>
 	<key>NSLocationAlwaysUsageDescription</key>
-	<string>This app needs access to location to find restaurants near you even when in background.</string>
+	<string>We need your location to show nearby restaurants even when the app is not in use.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
-	<string>This app needs access to location to find restaurants near you.</string>
+	<string>We need your location to show nearby restaurants.</string>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
 	<key>UILaunchStoryboardName</key>
