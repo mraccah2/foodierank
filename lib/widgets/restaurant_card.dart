@@ -43,8 +43,33 @@ class RestaurantCard extends StatelessWidget {
     }
   }
 
+  // Add this helper method at the top of the class
+  void _debugCheckCoordinates(String location, {
+    double? lat1, 
+    double? lng1, 
+    double? lat2, 
+    double? lng2
+  }) {
+    if ((lat1 != null && lat1.isNaN) || 
+        (lng1 != null && lng1.isNaN) || 
+        (lat2 != null && lat2.isNaN) || 
+        (lng2 != null && lng2.isNaN)) {
+      print('dBug/restaurant_card: NaN coordinates detected in $location');
+      print('dBug/restaurant_card: lat1: $lat1, lng1: $lng1');
+      print('dBug/restaurant_card: lat2: $lat2, lng2: $lng2');
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
+    // Debug check at start of build
+    _debugCheckCoordinates('build method',
+      lat1: currentLat,
+      lng1: currentLng,
+      lat2: restaurant.location.latitude,
+      lng2: restaurant.location.longitude
+    );
+
     return Card(
       margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
       shape: const RoundedRectangleBorder(
@@ -208,6 +233,14 @@ class RestaurantCard extends StatelessWidget {
                       final destLat = restaurant.location.latitude;
                       final destLng = restaurant.location.longitude;
                       
+                      // Debug check before distance calculation
+                      _debugCheckCoordinates('distance calculation',
+                        lat1: currentLat,
+                        lng1: currentLng,
+                        lat2: destLat,
+                        lng2: destLng
+                      );
+                      
                       // Calculate distance in meters
                       final distance = restaurant.location.calculateDistance(
                         currentLat!, 
@@ -215,6 +248,12 @@ class RestaurantCard extends StatelessWidget {
                         destLat, 
                         destLng
                       );
+                      
+                      // Debug check after distance calculation
+                      if (distance.isNaN) {
+                        print('dBug/restaurant_card: NaN distance calculated');
+                        print('dBug/restaurant_card: distance: $distance');
+                      }
                       
                       // Choose travel mode based on distance
                       final travelMode = distance <= 500 ? 'walking' : 'driving';

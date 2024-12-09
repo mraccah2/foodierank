@@ -600,41 +600,12 @@ class _RestaurantListScreenState extends State<RestaurantListScreen> {
                                     width: 24,
                                     height: 24,
                                     child: InkWell(
-                                      onTap: () async {
+                                      onTap: () {
                                         _searchController.clear();
                                         setState(() {
                                           _searchQuery = '';
                                         });
-                                        
-                                        // Perform new search with current filters
-                                        final position = await Geolocator.getCurrentPosition();
-                                        setState(() {
-                                          _isLoading = true;
-                                          _error = null;
-                                        });
-                                        
-                                        try {
-                                          final restaurants = await RestaurantService.instance.fetchRestaurants(
-                                            position.latitude,
-                                            position.longitude,
-                                            priceLevel: _selectedPriceLevel,
-                                            cuisineType: _selectedType,
-                                            openNow: _showOpenOnly,
-                                            searchQuery: '',
-                                          );
-                                          
-                                          setState(() {
-                                            _restaurants = restaurants.map((r) => Restaurant.fromJson(r)).toList();
-                                            _currentLat = position.latitude;
-                                            _currentLng = position.longitude;
-                                            _isLoading = false;
-                                          });
-                                        } catch (e) {
-                                          setState(() {
-                                            _error = e.toString();
-                                            _isLoading = false;
-                                          });
-                                        }
+                                        _initializeAndLoad();
                                       },
                                       child: const Padding(
                                         padding: EdgeInsets.all(4),

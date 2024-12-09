@@ -63,12 +63,26 @@ class RestaurantService {
     bool openNow = true,
     void Function(int count, String type, double radius)? onSearchUpdate}
   ) async {
+    if (latitude.isNaN || longitude.isNaN) {
+      print('dBug/restaurant_service: NaN detected in input coordinates:');
+      print('dBug/restaurant_service: latitude: $latitude');
+      print('dBug/restaurant_service: longitude: $longitude');
+      throw ArgumentError('Invalid coordinates provided');
+    }
+
     double radius = _initialRadius;
     double currentIncrement = _minIncrement;
     final Set<String> foundIds = {};
     List<Map<String, dynamic>> allRestaurants = [];
 
     while (allRestaurants.length < _targetCount && radius <= _maxRadius) {
+      if (radius.isNaN || currentIncrement.isNaN) {
+        print('dBug/restaurant_service: NaN detected in radius calculation:');
+        print('dBug/restaurant_service: radius: $radius');
+        print('dBug/restaurant_service: currentIncrement: $currentIncrement');
+        break;
+      }
+
       final params = _buildSearchParams(
         latitude,
         longitude,
@@ -118,6 +132,12 @@ class RestaurantService {
       } catch (e) {
         rethrow;
       }
+
+      if (currentIncrement.isNaN) {
+        print('dBug/restaurant_service: NaN detected after increment calculation:');
+        print('dBug/restaurant_service: currentIncrement: $currentIncrement');
+        break;
+      }
     }
 
     return allRestaurants;
@@ -131,6 +151,14 @@ class RestaurantService {
   ) {
     const double metersPerDegree = 111320.0;
     double halfRadiusDegrees = radius / metersPerDegree;
+
+    if (latitude.isNaN || longitude.isNaN || radius.isNaN || halfRadiusDegrees.isNaN) {
+      print('dBug/restaurant_service: NaN detected in _buildSearchParams:');
+      print('dBug/restaurant_service: latitude: $latitude');
+      print('dBug/restaurant_service: longitude: $longitude');
+      print('dBug/restaurant_service: radius: $radius');
+      print('dBug/restaurant_service: halfRadiusDegrees: $halfRadiusDegrees');
+    }
 
     final params = {
       'textQuery': searchQuery?.isNotEmpty == true
@@ -157,6 +185,19 @@ class RestaurantService {
         'priceLevels': [_convertPriceLevel(priceLevel)],
       },
     };
+    
+    final lowLat = latitude - halfRadiusDegrees;
+    final lowLng = longitude - halfRadiusDegrees;
+    final highLat = latitude + halfRadiusDegrees;
+    final highLng = longitude + halfRadiusDegrees;
+    
+    if (lowLat.isNaN || lowLng.isNaN || highLat.isNaN || highLng.isNaN) {
+      print('dBug/restaurant_service: NaN detected in final coordinates:');
+      print('dBug/restaurant_service: lowLat: $lowLat');
+      print('dBug/restaurant_service: lowLng: $lowLng');
+      print('dBug/restaurant_service: highLat: $highLat');
+      print('dBug/restaurant_service: highLng: $highLng');
+    }
     
     return params;
   }
