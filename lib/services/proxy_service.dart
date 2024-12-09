@@ -2,7 +2,6 @@ import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'dart:math';
 import '../config.dart';
-import 'package:flutter/foundation.dart';
 
 class ProxyService {
   static final _client = http.Client();

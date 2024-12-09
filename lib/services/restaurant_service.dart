@@ -25,6 +25,7 @@ class RestaurantService {
     {String? priceLevel,
     String? cuisineType,
     bool openNow = true,
+    String? searchQuery,
     void Function(int count, String type, double radius)? onSearchUpdate}
   ) async {
     _cachedRestaurants = await getNearbyRestaurants(
@@ -126,16 +127,17 @@ class RestaurantService {
     double latitude,
     double longitude,
     double radius,
-    {String? cuisineType, String? priceLevel, bool openNow = true}
+    {String? cuisineType, String? priceLevel, bool openNow = true, String? searchQuery}
   ) {
-    // Calculate half the radius in degrees (approximation)
     const double metersPerDegree = 111320.0;
     double halfRadiusDegrees = radius / metersPerDegree;
 
     final params = {
-      'textQuery': cuisineType != null && cuisineType != 'Other' 
-        ? '$cuisineType restaurant'
-        : 'restaurant',
+      'textQuery': searchQuery?.isNotEmpty == true
+          ? searchQuery
+          : cuisineType != null && cuisineType != 'Other' 
+            ? '$cuisineType restaurant'
+            : 'restaurant',
       'locationRestriction': {
         'rectangle': {
           'low': {

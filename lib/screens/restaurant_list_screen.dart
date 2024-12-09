@@ -32,10 +32,15 @@ class _RestaurantListScreenState extends State<RestaurantListScreen> {
   bool _isScrolling = false;
   final bool _showOpenOnly = true;  // Default to showing only open restaurants
   String? _searchStatus;
+  final TextEditingController _searchController = TextEditingController();
+  String _searchQuery = '';
 
   @override
   void initState() {
     super.initState();
+    _searchController.addListener(() {
+      _searchQuery = _searchController.text;  // Update query without setState
+    });
     if (RestaurantService.instance.cachedRestaurants == null) {
       _initializeAndLoad();
     } else {
@@ -47,6 +52,7 @@ class _RestaurantListScreenState extends State<RestaurantListScreen> {
   void dispose() {
     _pageController.dispose();
     _customTypeController.dispose();
+    _searchController.dispose();
     super.dispose();
   }
 
@@ -79,6 +85,7 @@ class _RestaurantListScreenState extends State<RestaurantListScreen> {
         priceLevel: _selectedPriceLevel,
         cuisineType: _selectedType,
         openNow: _showOpenOnly,
+        searchQuery: _searchQuery,
         onSearchUpdate: (count, type, radius) {
           if (mounted) {
             setState(() {
@@ -465,7 +472,9 @@ class _RestaurantListScreenState extends State<RestaurantListScreen> {
 
     // Helper function to get the appropriate message
     String getErrorMessage() {
-      if (_selectedType == 'All' && _selectedPriceLevel == null) {
+      if (_searchQuery.isNotEmpty) {
+        return "There are no restaurants currently open around here that match your search.";
+      } else if (_selectedType == 'All' && _selectedPriceLevel == null) {
         return "Couldn't find any restaurants currently open nearby. Please check back later";
       } else if (_selectedType != 'All' && _selectedPriceLevel != null) {
         return "Couldn't find any ${_selectedType!.toLowerCase()} restaurants with price level $_selectedPriceLevel currently open nearby";
@@ -477,7 +486,8 @@ class _RestaurantListScreenState extends State<RestaurantListScreen> {
     }
 
     if (_error != null) {
-      bool isDefaultSearch = _selectedType == 'All' && _selectedPriceLevel == null;
+      // Consider search query in default search check
+      bool isDefaultSearch = _selectedType == 'All' && _selectedPriceLevel == null && _searchQuery.isEmpty;
       return Center(
         child: Padding(
           padding: const EdgeInsets.all(16),
@@ -500,7 +510,7 @@ class _RestaurantListScreenState extends State<RestaurantListScreen> {
                   }
                   _initializeAndLoad();
                 },
-                child: Text(isDefaultSearch ? 'Try again' : 'Go back'),
+                child: const Text('Go back'),  // Always show "Go back"
               ),
             ],
           ),
@@ -550,44 +560,193 @@ class _RestaurantListScreenState extends State<RestaurantListScreen> {
           Container(
             color: Colors.grey[200],
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
               children: [
-                ElevatedButton(
-                  onPressed: _showTypeFilter,
-                  style: buttonStyle,
-                  child: Text(
-                    _selectedType == 'All' ? 'All types' : _selectedType!,
-                    style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                      color: Colors.black,
+                // Search Bar
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  child: SizedBox(
+                    height: 28,
+                    child: Container(
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(20),
+                        border: Border.all(
+                          color: Colors.black,
+                          width: 1,
+                        ),
+                      ),
+                      child: Center(
+                        child: TextField(
+                          controller: _searchController,
+                          textAlignVertical: TextAlignVertical.center,
+                          style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                            color: Colors.black,
+                          ),
+                          decoration: InputDecoration(
+                            isDense: true,
+                            prefixIcon: const Padding(
+                              padding: EdgeInsets.only(left: 12, right: 4),
+                              child: Icon(Icons.search, color: Colors.grey, size: 16),
+                            ),
+                            prefixIconConstraints: const BoxConstraints(
+                              minWidth: 30,
+                              minHeight: 28,
+                            ),
+                            suffixIcon: _searchQuery.isNotEmpty
+                                ? Container(
+                                    margin: const EdgeInsets.only(right: 6),
+                                    width: 24,
+                                    height: 24,
+                                    child: InkWell(
+                                      onTap: () async {
+                                        _searchController.clear();
+                                        setState(() {
+                                          _searchQuery = '';
+                                        });
+                                        
+                                        // Perform new search with current filters
+                                        final position = await Geolocator.getCurrentPosition();
+                                        setState(() {
+                                          _isLoading = true;
+                                          _error = null;
+                                        });
+                                        
+                                        try {
+                                          final restaurants = await RestaurantService.instance.fetchRestaurants(
+                                            position.latitude,
+                                            position.longitude,
+                                            priceLevel: _selectedPriceLevel,
+                                            cuisineType: _selectedType,
+                                            openNow: _showOpenOnly,
+                                            searchQuery: '',
+                                          );
+                                          
+                                          setState(() {
+                                            _restaurants = restaurants.map((r) => Restaurant.fromJson(r)).toList();
+                                            _currentLat = position.latitude;
+                                            _currentLng = position.longitude;
+                                            _isLoading = false;
+                                          });
+                                        } catch (e) {
+                                          setState(() {
+                                            _error = e.toString();
+                                            _isLoading = false;
+                                          });
+                                        }
+                                      },
+                                      child: const Padding(
+                                        padding: EdgeInsets.all(4),
+                                        child: Icon(
+                                          Icons.clear,
+                                          color: Colors.grey,
+                                          size: 16,
+                                        ),
+                                      ),
+                                    ),
+                                  )
+                                : null,
+                            suffixIconConstraints: const BoxConstraints(
+                              minWidth: 28,
+                              minHeight: 28,
+                            ),
+                            hintText: 'Search for...',
+                            hintStyle: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                              color: Colors.grey,
+                              fontStyle: FontStyle.italic,
+                            ),
+                            border: InputBorder.none,
+                            contentPadding: const EdgeInsets.symmetric(vertical: 0),
+                          ),
+                          onSubmitted: (value) async {
+                            setState(() {
+                              _isLoading = true;
+                              _error = null;
+                            });
+                            
+                            final position = await Geolocator.getCurrentPosition();
+                            try {
+                              final restaurants = await RestaurantService.instance.fetchRestaurants(
+                                position.latitude,
+                                position.longitude,
+                                priceLevel: _selectedPriceLevel,
+                                cuisineType: _selectedType,
+                                openNow: _showOpenOnly,
+                                searchQuery: value,
+                                onSearchUpdate: (count, type, radius) {
+                                  if (mounted) {
+                                    setState(() {
+                                      _searchStatus = 'Found $count ${type.toLowerCase()} restaurants nearby and open now. '
+                                                    'Searching for more within ${radius.round()}m';
+                                    });
+                                  }
+                                },
+                              );
+                              
+                              setState(() {
+                                _restaurants = restaurants.map((r) => Restaurant.fromJson(r)).toList();
+                                _currentLat = position.latitude;
+                                _currentLng = position.longitude;
+                                _isLoading = false;
+                              });
+                            } catch (e) {
+                              setState(() {
+                                _error = e.toString();
+                                _isLoading = false;
+                              });
+                            }
+                          },
+                        ),
+                      ),
                     ),
                   ),
                 ),
-                ElevatedButton(
-                  onPressed: _showPriceRangeDialog,
-                  style: buttonStyle,
-                  child: Text(
-                    _selectedPriceLevel ?? '\$-\$\$\$\$',
-                    style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                      color: Colors.black,
-                    ),
-                  ),
-                ),
-                ElevatedButton(
-                  onPressed: () {
-                    setState(() {
-                      _sortOption = _sortOption == SortOption.rank 
-                        ? SortOption.distance 
-                        : SortOption.rank;
-                      _sortRestaurants();
-                    });
-                  },
-                  style: buttonStyle,
-                  child: Text(
-                    _sortOption == SortOption.rank ? 'Best first' : 'Closest first',
-                    style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                      color: Colors.black,
-                    ),
+                const SizedBox(height: 8),
+                // Filter Buttons Row
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 18),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      ElevatedButton(
+                        onPressed: _showTypeFilter,
+                        style: buttonStyle,
+                        child: Text(
+                          _selectedType == 'All' ? 'All types' : _selectedType!,
+                          style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                            color: Colors.black,
+                          ),
+                        ),
+                      ),
+                      ElevatedButton(
+                        onPressed: _showPriceRangeDialog,
+                        style: buttonStyle,
+                        child: Text(
+                          _selectedPriceLevel ?? '\$-\$\$\$\$',
+                          style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                            color: Colors.black,
+                          ),
+                        ),
+                      ),
+                      ElevatedButton(
+                        onPressed: () {
+                          setState(() {
+                            _sortOption = _sortOption == SortOption.rank 
+                              ? SortOption.distance 
+                              : SortOption.rank;
+                            _sortRestaurants();
+                          });
+                        },
+                        style: buttonStyle,
+                        child: Text(
+                          _sortOption == SortOption.rank ? 'Best first' : 'Closest first',
+                          style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                            color: Colors.black,
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
                 ),
               ],
