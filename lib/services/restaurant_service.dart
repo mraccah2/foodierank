@@ -2,14 +2,13 @@ import 'package:foodierank/services/proxy_service.dart';
 import 'package:foodierank/config.dart';
 import 'package:http/http.dart' as http;
 import 'dart:typed_data';
-import 'package:cached_network_image/cached_network_image.dart';
 import '../services/navigation_service.dart';
 import 'package:flutter/widgets.dart';
 
 class RestaurantService {
   static final RestaurantService instance = RestaurantService._internal();
   List<Map<String, dynamic>>? _cachedRestaurants;
-  final Map<String, String> _photoCache = {};
+  final Map<String, Uint8List> _photoCache = {};
   
   factory RestaurantService() {
     return instance;
@@ -37,6 +36,16 @@ class RestaurantService {
       searchQuery: searchQuery,
       onSearchUpdate: onSearchUpdate,
     );
+    
+    // Immediately prefetch all primary photos
+    if (_cachedRestaurants != null) {
+      final headerPhotoRefs = _cachedRestaurants!
+          .expand((r) => (r['photoRefs'] as List<dynamic>?)?.take(1) ?? [])
+          .cast<String>()
+          .toList();
+      
+      await prefetchHeaderPhotos(headerPhotoRefs);
+    }
     
     return _cachedRestaurants!;
   }
@@ -66,9 +75,6 @@ class RestaurantService {
     void Function(int count, String type, double radius)? onSearchUpdate}
   ) async {
     if (latitude.isNaN || longitude.isNaN) {
-      print('dBug/restaurant_service: NaN detected in input coordinates:');
-      print('dBug/restaurant_service: latitude: $latitude');
-      print('dBug/restaurant_service: longitude: $longitude');
       throw ArgumentError('Invalid coordinates provided');
     }
 
@@ -79,9 +85,6 @@ class RestaurantService {
 
     while (allRestaurants.length < _targetCount && radius <= maxRadius) {
       if (radius.isNaN || currentIncrement.isNaN) {
-        print('dBug/restaurant_service: NaN detected in radius calculation:');
-        print('dBug/restaurant_service: radius: $radius');
-        print('dBug/restaurant_service: currentIncrement: $currentIncrement');
         break;
       }
 
@@ -137,8 +140,6 @@ class RestaurantService {
       }
 
       if (currentIncrement.isNaN) {
-        print('dBug/restaurant_service: NaN detected after increment calculation:');
-        print('dBug/restaurant_service: currentIncrement: $currentIncrement');
         break;
       }
     }
@@ -156,11 +157,7 @@ class RestaurantService {
     double halfRadiusDegrees = radius / metersPerDegree;
 
     if (latitude.isNaN || longitude.isNaN || radius.isNaN || halfRadiusDegrees.isNaN) {
-      print('dBug/restaurant_service: NaN detected in _buildSearchParams:');
-      print('dBug/restaurant_service: latitude: $latitude');
-      print('dBug/restaurant_service: longitude: $longitude');
-      print('dBug/restaurant_service: radius: $radius');
-      print('dBug/restaurant_service: halfRadiusDegrees: $halfRadiusDegrees');
+      throw ArgumentError('Invalid parameters for search');
     }
 
     final params = {
@@ -195,11 +192,7 @@ class RestaurantService {
     final highLng = longitude + halfRadiusDegrees;
     
     if (lowLat.isNaN || lowLng.isNaN || highLat.isNaN || highLng.isNaN) {
-      print('dBug/restaurant_service: NaN detected in final coordinates:');
-      print('dBug/restaurant_service: lowLat: $lowLat');
-      print('dBug/restaurant_service: lowLng: $lowLng');
-      print('dBug/restaurant_service: highLat: $highLat');
-      print('dBug/restaurant_service: highLng: $highLng');
+      throw ArgumentError('Invalid coordinate calculations');
     }
     
     return params;
@@ -270,20 +263,20 @@ class RestaurantService {
       photoRefs.map((photoRef) async {
         if (!_photoCache.containsKey(photoRef)) {
           try {
-            final photoUrl = await ProxyService.getPlacePhoto(photoRef, 800, 450);
-            if (photoUrl.isNotEmpty) {
-              _photoCache[photoRef] = photoUrl;
+            final photoBytes = await getPlacePhoto(photoRef);
+            if (photoBytes != null) {
+              _photoCache[photoRef] = photoBytes;
             }
           } catch (e) {
+            // Silently handle error
           }
         }
       })
     );
   }
 
-  String getCachedPhotoUrl(String photoRef) {
-    final url = _photoCache[photoRef] ?? '';
-    return url;
+  Uint8List? getCachedPhoto(String photoRef) {
+    return _photoCache[photoRef];
   }
 
   Future<void> loadAndCacheRestaurants() async {
@@ -291,8 +284,8 @@ class RestaurantService {
     
     final restaurants = await fetchRestaurants(37.785834, -122.406417);
     final headerPhotoRefs = restaurants
-        .where((r) => (r['photoRefs'] as List<dynamic>?)?.isNotEmpty ?? false)
-        .map((r) => (r['photoRefs'] as List<dynamic>).first as String)
+        .expand((r) => (r['photoRefs'] as List<dynamic>?)?.take(1) ?? [])
+        .cast<String>()
         .toList();
         
     // Wait for photo URLs to be cached
@@ -300,10 +293,10 @@ class RestaurantService {
     
     // Preload images into memory
     for (final photoRef in headerPhotoRefs) {
-      final url = getCachedPhotoUrl(photoRef);
-      if (url.isNotEmpty) {
+      final photoBytes = getCachedPhoto(photoRef);
+      if (photoBytes != null) {
         await precacheImage(
-          CachedNetworkImageProvider(url),
+          MemoryImage(photoBytes),
           NavigationService.navigatorKey.currentContext!,
         );
       }

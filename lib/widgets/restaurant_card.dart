@@ -2,9 +2,10 @@ import 'package:flutter/material.dart';
 import '../models/restaurant.dart';
 import 'package:url_launcher/url_launcher_string.dart';
 import '../services/restaurant_service.dart';
-import 'package:cached_network_image/cached_network_image.dart';
 
-class RestaurantCard extends StatelessWidget {
+class RestaurantCard extends StatefulWidget {
+  static final Map<String, int> _lastViewedIndices = {};
+  
   final Restaurant restaurant;
   final VoidCallback onPhotoTap;
   final int ranking;
@@ -20,10 +21,32 @@ class RestaurantCard extends StatelessWidget {
     this.currentLng,
   });
 
+  @override
+  _RestaurantCardState createState() => _RestaurantCardState();
+}
+
+class _RestaurantCardState extends State<RestaurantCard> {
+  late final PageController _pageController;
+  late int _currentPhotoIndex;
+
+  @override
+  void initState() {
+    super.initState();
+    _currentPhotoIndex = RestaurantCard._lastViewedIndices[widget.restaurant.id] ?? 0;
+    _pageController = PageController(initialPage: _currentPhotoIndex);
+  }
+
+  @override
+  void dispose() {
+    RestaurantCard._lastViewedIndices[widget.restaurant.id] = _currentPhotoIndex;
+    _pageController.dispose();
+    super.dispose();
+  }
+
   // Modified method to handle place details and directions
   void _openInGoogleMapsByPlaceId(BuildContext context, String placeId) async {
     // Construct the query using the restaurant's name and address
-    final query = Uri.encodeComponent('${restaurant.name}, ${restaurant.location.formattedAddress}');
+    final query = Uri.encodeComponent('${widget.restaurant.name}, ${widget.restaurant.location.formattedAddress}');
     String nativeMapsUrl = 'comgooglemaps://?q=$query';
 
     // Try to open in native Maps app first
@@ -54,32 +77,29 @@ class RestaurantCard extends StatelessWidget {
         (lng1 != null && lng1.isNaN) || 
         (lat2 != null && lat2.isNaN) || 
         (lng2 != null && lng2.isNaN)) {
-      print('dBug/restaurant_card: NaN coordinates detected in $location');
-      print('dBug/restaurant_card: lat1: $lat1, lng1: $lng1');
-      print('dBug/restaurant_card: lat2: $lat2, lng2: $lng2');
     }
   }
 
   void _getDirections(BuildContext context) async {
-    if (currentLat != null && currentLng != null) {
+    if (widget.currentLat != null && widget.currentLng != null) {
       try {
         // Calculate straight-line distance for travel mode decision
-        final distance = restaurant.location.calculateDistance(
-          currentLat!, 
-          currentLng!, 
-          restaurant.location.latitude, 
-          restaurant.location.longitude
+        final distance = widget.restaurant.location.calculateDistance(
+          widget.currentLat!, 
+          widget.currentLng!, 
+          widget.restaurant.location.latitude, 
+          widget.restaurant.location.longitude
         );
         
         // Choose travel mode based on distance
         final travelMode = distance <= 1 ? 'walking' : 'driving';
         
-        final origin = '$currentLat,$currentLng';
+        final origin = '${widget.currentLat},${widget.currentLng}';
         
         // Launch in Google Maps with the destination address
         final mapsUrl = 'https://www.google.com/maps/dir/?api=1'
             '&origin=$origin'
-            '&destination=${Uri.encodeComponent(restaurant.location.formattedAddress)}'
+            '&destination=${Uri.encodeComponent(widget.restaurant.location.formattedAddress)}'
             '&travelmode=$travelMode'
             '&dir_action=navigate';
 
@@ -100,14 +120,45 @@ class RestaurantCard extends StatelessWidget {
     }
   }
 
+  Widget _buildPhoto(String photoRef) {
+    final cachedPhoto = RestaurantService.instance.getCachedPhoto(photoRef);
+    if (cachedPhoto != null) {
+      return Image(
+        image: MemoryImage(cachedPhoto),
+        fit: BoxFit.cover,
+        width: double.infinity,
+        height: 240,
+      );
+    }
+    // Fallback to loading if somehow not cached
+    return FutureBuilder<ImageProvider>(
+      future: _getPhotoUrl(photoRef),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Center(child: CircularProgressIndicator());
+        } else if (snapshot.hasError || !snapshot.hasData) {
+          return const Center(
+            child: Icon(Icons.error_outline, size: 40),
+          );
+        }
+        return Image(
+          image: snapshot.data!,
+          fit: BoxFit.cover,
+          width: double.infinity,
+          height: 240,
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     // Debug check at start of build
     _debugCheckCoordinates('build method',
-      lat1: currentLat,
-      lng1: currentLng,
-      lat2: restaurant.location.latitude,
-      lng2: restaurant.location.longitude
+      lat1: widget.currentLat,
+      lng1: widget.currentLng,
+      lat2: widget.restaurant.location.latitude,
+      lng2: widget.restaurant.location.longitude
     );
 
     return Card(
@@ -125,41 +176,54 @@ class RestaurantCard extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           // Photo section remains unchanged
-          if (restaurant.photoRefs.isNotEmpty)
-            GestureDetector(
-              onTap: onPhotoTap,
-              child: Hero(
-                tag: 'restaurant_photo_${restaurant.id}',
-                child: ClipRRect(
-                  borderRadius: const BorderRadius.only(
-                    topLeft: Radius.circular(24),
-                    topRight: Radius.circular(24),
-                  ),
-                  child: FutureBuilder<String>(
-                    future: _getPhotoUrl(restaurant.photoRefs.first),
-                    builder: (context, snapshot) {
-                      if (snapshot.connectionState == ConnectionState.waiting) {
-                        return const Center(child: CircularProgressIndicator());
-                      } else if (snapshot.hasError || !snapshot.hasData || snapshot.data!.isEmpty) {
-                        return const Center(
-                          child: Icon(Icons.error_outline, size: 40),
-                        );
-                      } else {
-                        return CachedNetworkImage(
-                          imageUrl: snapshot.data!,
-                          fit: BoxFit.cover,
-                          width: double.infinity,
-                          height: 240,
-                          placeholder: (context, url) => const SizedBox.shrink(),
-                          errorWidget: (context, url, error) => const Center(
-                            child: Icon(Icons.error_outline, size: 40),
+          if (widget.restaurant.photoRefs.isNotEmpty)
+            Stack(
+              children: [
+                SizedBox(
+                  height: 240,
+                  child: PageView.builder(
+                    controller: _pageController,
+                    itemCount: widget.restaurant.photoRefs.length,
+                    onPageChanged: (index) {
+                      setState(() {
+                        _currentPhotoIndex = index;
+                      });
+                    },
+                    itemBuilder: (context, index) {
+                      return Hero(
+                        tag: 'restaurant_photo_${widget.restaurant.id}_$index',
+                        child: ClipRRect(
+                          borderRadius: const BorderRadius.only(
+                            topLeft: Radius.circular(24),
+                            topRight: Radius.circular(24),
                           ),
-                        );
-                      }
+                          child: _buildPhoto(widget.restaurant.photoRefs[index]),
+                        ),
+                      );
                     },
                   ),
                 ),
-              ),
+                Positioned(
+                  bottom: 8,
+                  left: 0,
+                  right: 0,
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: List.generate(widget.restaurant.photoRefs.length, (index) {
+                      return AnimatedContainer(
+                        duration: const Duration(milliseconds: 300),
+                        margin: const EdgeInsets.symmetric(horizontal: 4),
+                        width: _currentPhotoIndex == index ? 12 : 8,
+                        height: 8,
+                        decoration: BoxDecoration(
+                          color: _currentPhotoIndex == index ? Colors.white : Colors.grey,
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                      );
+                    }),
+                  ),
+                ),
+              ],
             ),
 
           Padding(
@@ -170,12 +234,12 @@ class RestaurantCard extends StatelessWidget {
                 // Fixed content starts here
                 // Restaurant Name and Ranking
                 GestureDetector(
-                  onTap: () => _openInGoogleMapsByPlaceId(context, restaurant.placeId),
+                  onTap: () => _openInGoogleMapsByPlaceId(context, widget.restaurant.placeId),
                   child: Row(
                     children: [
                       Expanded(
                         child: Text(
-                          restaurant.name,
+                          widget.restaurant.name,
                           style: Theme.of(context).textTheme.titleLarge?.copyWith(
                             fontWeight: FontWeight.bold,
                           ),
@@ -190,7 +254,7 @@ class RestaurantCard extends StatelessWidget {
                           shape: BoxShape.circle,
                         ),
                         child: Text(
-                          ranking.toString(),
+                          widget.ranking.toString(),
                           style: const TextStyle(
                             color: Colors.black,
                             fontWeight: FontWeight.bold,
@@ -206,16 +270,16 @@ class RestaurantCard extends StatelessWidget {
                 Row(
                   children: [
                     Text(
-                      restaurant.priceLevel,
+                      widget.restaurant.priceLevel,
                       style: Theme.of(context).textTheme.bodyMedium,
                     ),
                     const SizedBox(width: 16),
                     Row(
                       children: List.generate(5, (index) {
                         return Icon(
-                          index < restaurant.rating.floor()
+                          index < widget.restaurant.rating.floor()
                               ? Icons.star
-                              : index < restaurant.rating
+                              : index < widget.restaurant.rating
                                   ? Icons.star_half
                                   : Icons.star_outline,
                           color: Colors.amber,
@@ -225,7 +289,7 @@ class RestaurantCard extends StatelessWidget {
                     ),
                     const SizedBox(width: 8),
                     Text(
-                      '${restaurant.rating.toStringAsFixed(1)} (${restaurant.reviewCount})',
+                      '${widget.restaurant.rating.toStringAsFixed(1)} (${widget.restaurant.reviewCount})',
                       style: Theme.of(context).textTheme.bodyMedium,
                     ),
                   ],
@@ -236,7 +300,7 @@ class RestaurantCard extends StatelessWidget {
                 Wrap(
                   spacing: 4,
                   runSpacing: 0,
-                  children: restaurant.types
+                  children: widget.restaurant.types
                       .take(2)
                       .map((type) {
                     return Container(
@@ -260,9 +324,9 @@ class RestaurantCard extends StatelessWidget {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       // Description
-                      if (restaurant.description.isNotEmpty) ...[
+                      if (widget.restaurant.description.isNotEmpty) ...[
                         Text(
-                          restaurant.description,
+                          widget.restaurant.description,
                           style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                             fontWeight: FontWeight.bold,
                           ),
@@ -277,13 +341,13 @@ class RestaurantCard extends StatelessWidget {
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             // Single row for location icon and distance
-                            if (currentLat != null && currentLng != null) ...[
+                            if (widget.currentLat != null && widget.currentLng != null) ...[
                               Row(
                                 children: [
                                   const Icon(Icons.place, color: Colors.black, size: 20),
                                   const SizedBox(width: 4),
                                   Text(
-                                    'Distance: approx. ${restaurant.location.formatDistance(currentLat!, currentLng!)}',
+                                    'Distance: approx. ${widget.restaurant.location.formatDistance(widget.currentLat!, widget.currentLng!)}',
                                     style: Theme.of(context).textTheme.bodyMedium,
                                   ),
                                 ],
@@ -291,7 +355,7 @@ class RestaurantCard extends StatelessWidget {
                             ],
                             const SizedBox(height: 8),
                             Text(
-                              restaurant.location.formattedAddress,
+                              widget.restaurant.location.formattedAddress,
                               style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                                 color: Colors.blue,
                                 decoration: TextDecoration.underline,
@@ -313,14 +377,13 @@ class RestaurantCard extends StatelessWidget {
     );
   }
 
-  Future<String> _getPhotoUrl(String photoRef) async {
-    // Check if the photo URL is already cached
-    String cachedUrl = RestaurantService.instance.getCachedPhotoUrl(photoRef);
-    if (cachedUrl.isEmpty) {
-      // If not cached, prefetch and then check again
-      await RestaurantService.instance.prefetchHeaderPhotos([photoRef]);
-      cachedUrl = RestaurantService.instance.getCachedPhotoUrl(photoRef);
+  Future<ImageProvider> _getPhotoUrl(String photoRef) async {
+    final cachedPhoto = RestaurantService.instance.getCachedPhoto(photoRef);
+    if (cachedPhoto != null) {
+      return MemoryImage(cachedPhoto);
     }
-    return cachedUrl;
+    // If not in cache, fetch and cache it
+    await RestaurantService.instance.prefetchHeaderPhotos([photoRef]);
+    return MemoryImage(RestaurantService.instance.getCachedPhoto(photoRef)!);
   }
 } 

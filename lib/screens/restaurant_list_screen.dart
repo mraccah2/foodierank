@@ -149,7 +149,6 @@ class _RestaurantListScreenState extends State<RestaurantListScreen> {
   void _loadFromCache() async {
     final rawRestaurants = RestaurantService.instance.cachedRestaurants;
     if (rawRestaurants != null && rawRestaurants.isNotEmpty) {
-      // Get current position first
       try {
         final position = await Geolocator.getCurrentPosition(
           desiredAccuracy: LocationAccuracy.best,
@@ -158,24 +157,29 @@ class _RestaurantListScreenState extends State<RestaurantListScreen> {
 
         if (!mounted) return;
 
+        final restaurants = rawRestaurants
+            .map((place) => Restaurant.fromJson(place))
+            .toList();
+
         setState(() {
           _currentLat = position.latitude;
           _currentLng = position.longitude;
-          _restaurants = rawRestaurants
+          _restaurants = restaurants;
+          _isLoading = false;
+        });
+        _sortRestaurants();
+      } catch (e) {
+        // Even if location fails, still show restaurants
+        if (mounted) {
+          final restaurants = rawRestaurants
               .map((place) => Restaurant.fromJson(place))
               .toList();
-          _isLoading = false;
-          _sortRestaurants();
-        });
-      } catch (e) {
-        if (mounted) {
+              
           setState(() {
-            _restaurants = rawRestaurants
-                .map((place) => Restaurant.fromJson(place))
-                .toList();
+            _restaurants = restaurants;
             _isLoading = false;
-            _sortRestaurants();
           });
+          _sortRestaurants();
         }
       }
     } else {
