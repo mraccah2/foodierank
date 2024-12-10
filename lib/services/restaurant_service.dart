@@ -34,6 +34,8 @@ class RestaurantService {
       priceLevel: priceLevel,
       cuisineType: cuisineType != 'All' ? cuisineType : null,
       openNow: openNow,
+      searchQuery: searchQuery,
+      onSearchUpdate: onSearchUpdate,
     );
     
     return _cachedRestaurants!;
@@ -43,8 +45,7 @@ class RestaurantService {
   static const double _initialRadius = 500;
   static const double _minIncrement = 500;
   static const double _maxIncrement = 2000;
-  static const double _maxRadius = 5000;
-  static const int _lowResultsThreshold = 3;
+  static const double maxRadius = 5000;
   static const List<String> cuisineTypes = [
     'All', 'American', 'Asian', 'Bakery', 'Bar', 'BBQ', 'Bistro', 'Brazilian', 'British',
     'Brunch', 'Buffet', 'Burger', 'Coffee', 'Caribbean', 'Chinese', 'Deli', 'Diner',
@@ -61,6 +62,7 @@ class RestaurantService {
     {String? priceLevel, 
     String? cuisineType, 
     bool openNow = true,
+    String? searchQuery,
     void Function(int count, String type, double radius)? onSearchUpdate}
   ) async {
     if (latitude.isNaN || longitude.isNaN) {
@@ -75,7 +77,7 @@ class RestaurantService {
     final Set<String> foundIds = {};
     List<Map<String, dynamic>> allRestaurants = [];
 
-    while (allRestaurants.length < _targetCount && radius <= _maxRadius) {
+    while (allRestaurants.length < _targetCount && radius <= maxRadius) {
       if (radius.isNaN || currentIncrement.isNaN) {
         print('dBug/restaurant_service: NaN detected in radius calculation:');
         print('dBug/restaurant_service: radius: $radius');
@@ -90,6 +92,7 @@ class RestaurantService {
         cuisineType: cuisineType,
         priceLevel: priceLevel,
         openNow: openNow,
+        searchQuery: searchQuery,
       );
       
       try {
