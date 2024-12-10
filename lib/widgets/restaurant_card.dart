@@ -28,6 +28,7 @@ class RestaurantCard extends StatefulWidget {
 class _RestaurantCardState extends State<RestaurantCard> {
   late final PageController _pageController;
   late int _currentPhotoIndex;
+  bool _hasPreloadedPhotos = false;
 
   @override
   void initState() {
@@ -188,6 +189,20 @@ class _RestaurantCardState extends State<RestaurantCard> {
                       setState(() {
                         _currentPhotoIndex = index;
                       });
+                      
+                      // Prefetch remaining photos on first interaction
+                      if (!_hasPreloadedPhotos) {
+                        _hasPreloadedPhotos = true;
+                        // Get all photo refs except the ones we've already loaded
+                        final remainingPhotos = widget.restaurant.photoRefs
+                            .where((ref) => RestaurantService.instance.getCachedPhoto(ref) == null)
+                            .toList();
+                        
+                        if (remainingPhotos.isNotEmpty) {
+                          // Prefetch in the background
+                          RestaurantService.instance.prefetchHeaderPhotos(remainingPhotos);
+                        }
+                      }
                     },
                     itemBuilder: (context, index) {
                       return Hero(
