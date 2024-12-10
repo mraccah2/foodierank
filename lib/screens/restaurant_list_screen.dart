@@ -34,6 +34,9 @@ class _RestaurantListScreenState extends State<RestaurantListScreen> {
   String? _searchStatus;
   final TextEditingController _searchController = TextEditingController();
   String _searchQuery = '';
+  bool _isSearchVisible = false;
+  final FocusNode _searchFocusNode = FocusNode();
+  static const int _lowResultsThreshold = 3;
 
   @override
   void initState() {
@@ -53,6 +56,7 @@ class _RestaurantListScreenState extends State<RestaurantListScreen> {
     _pageController.dispose();
     _customTypeController.dispose();
     _searchController.dispose();
+    _searchFocusNode.dispose();
     super.dispose();
   }
 
@@ -87,10 +91,9 @@ class _RestaurantListScreenState extends State<RestaurantListScreen> {
         openNow: _showOpenOnly,
         searchQuery: _searchQuery,
         onSearchUpdate: (count, type, radius) {
-          if (mounted) {
+          if (mounted && count < _lowResultsThreshold && radius >= RestaurantService.maxRadius) {
             setState(() {
-              _searchStatus = 'Found $count ${type.toLowerCase()} restaurants nearby and open now. '
-                            'Searching for more within ${radius.round()}m';
+              _searchStatus = 'Found $count restaurants matching "$_searchQuery" nearby and open now.';
             });
           }
         },
@@ -425,14 +428,32 @@ class _RestaurantListScreenState extends State<RestaurantListScreen> {
     }
   }
 
+  void _toggleSearch() {
+    setState(() {
+      _isSearchVisible = !_isSearchVisible;
+    });
+    
+    if (_isSearchVisible) {
+      // Add a micro-delay to ensure the TextField is rendered
+      Future.delayed(const Duration(milliseconds: 50), () {
+        FocusScope.of(context).requestFocus(_searchFocusNode);
+      });
+    } else {
+      _searchController.clear();
+      _searchQuery = '';
+      _initializeAndLoad();
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      resizeToAvoidBottomInset: false,
       backgroundColor: Colors.grey[200],
       appBar: AppBar(
         centerTitle: true,
         title: Image.asset(
-          'assets/logo.png' // Adjust the height as needed
+          'assets/logo.png'
         ),
         backgroundColor: Colors.grey[200],
         elevation: 0,
@@ -544,12 +565,12 @@ class _RestaurantListScreenState extends State<RestaurantListScreen> {
     final buttonStyle = ElevatedButton.styleFrom(
       backgroundColor: Colors.white,
       elevation: 0,
-      padding: const EdgeInsets.symmetric(horizontal: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 8),  // Reduce horizontal padding
       side: const BorderSide(
         color: Colors.black,
         width: 1,
       ),
-      minimumSize: Size.zero,
+      minimumSize: const Size(0, 28),  // Only fix the height
       tapTargetSize: MaterialTapTargetSize.shrinkWrap,
     );
 
@@ -563,128 +584,26 @@ class _RestaurantListScreenState extends State<RestaurantListScreen> {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                // Search Bar
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 16),
-                  child: SizedBox(
-                    height: 28,
-                    child: Container(
-                      decoration: BoxDecoration(
-                        color: Colors.white,
-                        borderRadius: BorderRadius.circular(20),
-                        border: Border.all(
-                          color: Colors.black,
-                          width: 1,
-                        ),
-                      ),
-                      child: Center(
-                        child: TextField(
-                          controller: _searchController,
-                          textAlignVertical: TextAlignVertical.center,
-                          style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                            color: Colors.black,
-                            fontSize: 14,
-                          ),
-                          decoration: InputDecoration(
-                            isDense: true,
-                            prefixIcon: const SizedBox(
-                              width: 30,
-                              height: 28,
-                              child: Center(
-                                child: Icon(Icons.search, color: Colors.grey, size: 16),
-                              ),
-                            ),
-                            prefixIconConstraints: const BoxConstraints(
-                              minWidth: 30,
-                              minHeight: 28,
-                            ),
-                            suffixIcon: _searchQuery.isNotEmpty
-                                ? Container(
-                                    margin: const EdgeInsets.only(right: 6),
-                                    width: 24,
-                                    height: 24,
-                                    child: InkWell(
-                                      onTap: () {
-                                        _searchController.clear();
-                                        setState(() {
-                                          _searchQuery = '';
-                                        });
-                                        _initializeAndLoad();
-                                      },
-                                      child: const Padding(
-                                        padding: EdgeInsets.all(4),
-                                        child: Icon(
-                                          Icons.clear,
-                                          color: Colors.grey,
-                                          size: 16,
-                                        ),
-                                      ),
-                                    ),
-                                  )
-                                : null,
-                            suffixIconConstraints: const BoxConstraints(
-                              minWidth: 28,
-                              minHeight: 28,
-                            ),
-                            hintText: 'Search for...',
-                            hintStyle: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                              color: Colors.grey,
-                              fontStyle: FontStyle.italic,
-                              fontSize: 14,
-                            ),
-                            border: InputBorder.none,
-                            contentPadding: EdgeInsets.zero,
-                          ),
-                          onSubmitted: (value) async {
-                            setState(() {
-                              _isLoading = true;
-                              _error = null;
-                            });
-                            
-                            final position = await Geolocator.getCurrentPosition();
-                            try {
-                              final restaurants = await RestaurantService.instance.fetchRestaurants(
-                                position.latitude,
-                                position.longitude,
-                                priceLevel: _selectedPriceLevel,
-                                cuisineType: _selectedType,
-                                openNow: _showOpenOnly,
-                                searchQuery: value,
-                                onSearchUpdate: (count, type, radius) {
-                                  if (mounted) {
-                                    setState(() {
-                                      _searchStatus = 'Found $count ${type.toLowerCase()} restaurants nearby and open now. '
-                                                    'Searching for more within ${radius.round()}m';
-                                    });
-                                  }
-                                },
-                              );
-                              
-                              setState(() {
-                                _restaurants = restaurants.map((r) => Restaurant.fromJson(r)).toList();
-                                _currentLat = position.latitude;
-                                _currentLng = position.longitude;
-                                _isLoading = false;
-                              });
-                            } catch (e) {
-                              setState(() {
-                                _error = e.toString();
-                                _isLoading = false;
-                              });
-                            }
-                          },
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 8),
                 // Filter Buttons Row
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 18),
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
+                      // Search button with dynamic background
+                      ElevatedButton(
+                        onPressed: _toggleSearch,
+                        style: buttonStyle,
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 2),
+                          child: Icon(
+                            Icons.search,
+                            color: _isSearchVisible ? Colors.blue[900] : Colors.black,
+                            size: 20,
+                          ),
+                        ),
+                      ),
+                      // Type filter (always visible now)
                       ElevatedButton(
                         onPressed: _showTypeFilter,
                         style: buttonStyle,
@@ -725,6 +644,116 @@ class _RestaurantListScreenState extends State<RestaurantListScreen> {
                     ],
                   ),
                 ),
+                
+                // Search Bar (only visible when search is active)
+                if (_isSearchVisible) ...[
+                  const SizedBox(height: 8),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 16),
+                    child: SizedBox(
+                      height: 28,
+                      child: Container(
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(20),
+                          border: Border.all(
+                            color: Colors.black,
+                            width: 1,
+                          ),
+                        ),
+                        child: Center(
+                          child: TextField(
+                            controller: _searchController,
+                            focusNode: _searchFocusNode,
+                            textAlignVertical: TextAlignVertical.center,
+                            style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                              color: Colors.black,
+                              fontSize: 14,
+                            ),
+                            decoration: InputDecoration(
+                              isDense: true,
+                              hintText: 'Search for...',
+                              hintStyle: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                                color: Colors.grey,
+                                fontStyle: FontStyle.italic,
+                                fontSize: 14,
+                              ),
+                              suffixIcon: _searchQuery.isNotEmpty
+                                  ? InkWell(
+                                      onTap: () {
+                                        _searchController.clear();
+                                        setState(() {
+                                          _searchQuery = '';
+                                          _isSearchVisible = false;  // Hide search bar
+                                        });
+                                        _initializeAndLoad();
+                                      },
+                                      child: const Padding(
+                                        padding: EdgeInsets.all(6),
+                                        child: Icon(
+                                          Icons.clear,
+                                          color: Colors.grey,
+                                          size: 16,
+                                        ),
+                                      ),
+                                    )
+                                  : null,
+                              border: InputBorder.none,
+                              contentPadding: const EdgeInsets.symmetric(horizontal: 16),
+                            ),
+                            onSubmitted: (value) async {
+                              setState(() {
+                                _isLoading = true;
+                                _error = null;
+                              });
+                              
+                              try {
+                                final position = await Geolocator.getCurrentPosition(
+                                  desiredAccuracy: LocationAccuracy.best,
+                                  timeLimit: const Duration(seconds: 5),
+                                );
+
+                                if (!mounted) return;
+
+                                _currentLat = position.latitude;
+                                _currentLng = position.longitude;
+
+                                final rawRestaurants = await RestaurantService.instance.fetchRestaurants(
+                                  position.latitude,
+                                  position.longitude,
+                                  priceLevel: _selectedPriceLevel,
+                                  cuisineType: _selectedType,
+                                  openNow: _showOpenOnly,
+                                  searchQuery: value,
+                                  onSearchUpdate: (count, type, radius) {
+                                    if (mounted && count < _lowResultsThreshold && radius >= RestaurantService.maxRadius) {
+                                      setState(() {
+                                        _searchStatus = 'Found $count restaurants matching "$_searchQuery" nearby and open now.';
+                                      });
+                                    }
+                                  },
+                                );
+                                
+                                setState(() {
+                                  _restaurants = rawRestaurants.map((r) => Restaurant.fromJson(r)).toList();
+                                  _currentLat = position.latitude;
+                                  _currentLng = position.longitude;
+                                  _isLoading = false;
+                                });
+                                _sortRestaurants();
+                              } catch (e) {
+                                setState(() {
+                                  _error = e.toString();
+                                  _isLoading = false;
+                                });
+                              }
+                            },
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
               ],
             ),
           ),
