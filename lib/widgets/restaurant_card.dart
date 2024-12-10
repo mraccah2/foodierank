@@ -155,7 +155,7 @@ class _RestaurantCardState extends State<RestaurantCard> {
   @override
   Widget build(BuildContext context) {
     return Card(
-      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+      margin: const EdgeInsets.fromLTRB(16, 6, 16, 8),
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.only(
           topLeft: Radius.circular(24),
@@ -234,152 +234,147 @@ class _RestaurantCardState extends State<RestaurantCard> {
               ],
             ),
 
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                // Fixed header content
-                GestureDetector(
-                  onTap: () => _openInGoogleMapsByPlaceId(context, widget.restaurant.placeId),
-                  child: Row(
-                    children: [
-                      Expanded(
-                        child: Text(
-                          widget.restaurant.name,
-                          style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                            fontWeight: FontWeight.bold,
-                          ),
-                          softWrap: true,
-                          overflow: TextOverflow.visible,
-                        ),
-                      ),
-                      Container(
-                        padding: const EdgeInsets.all(8),
-                        decoration: const BoxDecoration(
-                          color: Colors.amber,
-                          shape: BoxShape.circle,
-                        ),
-                        child: Text(
-                          widget.ranking.toString(),
-                          style: const TextStyle(
-                            color: Colors.black,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 12),
-
-                // Rating and Review Count
-                Row(
+          Flexible(
+            child: SingleChildScrollView(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
                   children: [
-                    Text(
-                      widget.restaurant.priceLevel,
-                      style: Theme.of(context).textTheme.bodyMedium,
-                    ),
-                    const SizedBox(width: 16),
-                    Row(
-                      children: List.generate(5, (index) {
-                        return Icon(
-                          index < widget.restaurant.rating.floor()
-                              ? Icons.star
-                              : index < widget.restaurant.rating
-                                  ? Icons.star_half
-                                  : Icons.star_outline,
-                          color: Colors.amber,
-                          size: 20,
-                        );
-                      }),
-                    ),
-                    const SizedBox(width: 8),
-                    Text(
-                      '${widget.restaurant.rating.toStringAsFixed(1)} (${widget.restaurant.reviewCount})',
-                      style: Theme.of(context).textTheme.bodyMedium,
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 12),
-
-                // Restaurant Types
-                Wrap(
-                  spacing: 4,
-                  runSpacing: 0,
-                  children: widget.restaurant.types
-                      .take(2)
-                      .map((type) {
-                    return Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                      decoration: BoxDecoration(
-                        color: Colors.blue.withOpacity(0.1),
-                        borderRadius: BorderRadius.circular(4),
-                      ),
-                      child: Text(
-                        type.replaceAll('_', ' ').toLowerCase(),
-                        style: Theme.of(context).textTheme.bodyMedium,
-                      ),
-                    );
-                  }).toList(),
-                ),
-                const SizedBox(height: 12),
-
-                // Scrollable content with fixed height
-                SizedBox(
-                  height: 110,
-                  child: SingleChildScrollView(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        // Description
-                        if (widget.restaurant.description.isNotEmpty) ...[
-                          Text(
-                            widget.restaurant.description,
-                            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                              fontWeight: FontWeight.bold,
+                    // Fixed header content
+                    GestureDetector(
+                      onTap: () => _openInGoogleMapsByPlaceId(context, widget.restaurant.placeId),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              widget.restaurant.name,
+                              style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                                fontWeight: FontWeight.bold,
+                              ),
+                              softWrap: true,
+                              overflow: TextOverflow.visible,
                             ),
                           ),
-                          const SizedBox(height: 12),
-                        ],
-
-                        // Address section
-                        GestureDetector(
-                          onTap: () => _getDirections(context),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              // Single row for location icon and distance
-                              if (widget.currentLat != null && widget.currentLng != null) ...[
-                                Row(
-                                  children: [
-                                    const Icon(Icons.place, color: Colors.black, size: 20),
-                                    const SizedBox(width: 4),
-                                    Text(
-                                      'Distance: approx. ${widget.restaurant.location.formatDistance(widget.currentLat!, widget.currentLng!)}',
-                                      style: Theme.of(context).textTheme.bodyMedium,
-                                    ),
-                                  ],
-                                ),
-                              ],
-                              const SizedBox(height: 8),
-                              Text(
-                                widget.restaurant.location.formattedAddress,
-                                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                                  color: Colors.blue,
-                                  decoration: TextDecoration.underline,
-                                  decorationColor: Colors.blue,
-                                  decorationThickness: 1,
-                                ),
+                          Container(
+                            padding: const EdgeInsets.all(8),
+                            decoration: const BoxDecoration(
+                              color: Colors.amber,
+                              shape: BoxShape.circle,
+                            ),
+                            child: Text(
+                              widget.ranking.toString(),
+                              style: const TextStyle(
+                                color: Colors.black,
+                                fontWeight: FontWeight.bold,
                               ),
-                            ],
+                            ),
                           ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+
+                    // Rating and Review Count
+                    Row(
+                      children: [
+                        Text(
+                          widget.restaurant.priceLevel,
+                          style: Theme.of(context).textTheme.bodyMedium,
+                        ),
+                        const SizedBox(width: 16),
+                        Row(
+                          children: List.generate(5, (index) {
+                            return Icon(
+                              index < widget.restaurant.rating.floor()
+                                  ? Icons.star
+                                  : index < widget.restaurant.rating
+                                      ? Icons.star_half
+                                      : Icons.star_outline,
+                              color: Colors.amber,
+                              size: 20,
+                            );
+                          }),
+                        ),
+                        const SizedBox(width: 8),
+                        Text(
+                          '${widget.restaurant.rating.toStringAsFixed(1)} (${widget.restaurant.reviewCount})',
+                          style: Theme.of(context).textTheme.bodyMedium,
                         ),
                       ],
                     ),
-                  ),
+                    const SizedBox(height: 12),
+
+                    // Restaurant Types
+                    Wrap(
+                      spacing: 4,
+                      runSpacing: 0,
+                      children: widget.restaurant.types
+                          .take(2)
+                          .map((type) {
+                        return Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                          decoration: BoxDecoration(
+                            color: Colors.blue.withOpacity(0.1),
+                            borderRadius: BorderRadius.circular(4),
+                          ),
+                          child: Text(
+                            type.replaceAll('_', ' ').toLowerCase(),
+                            style: Theme.of(context).textTheme.bodyMedium,
+                          ),
+                        );
+                      }).toList(),
+                    ),
+                    const SizedBox(height: 12),
+
+                    // Description
+                    if (widget.restaurant.description.isNotEmpty) ...[
+                      Text(
+                        widget.restaurant.description,
+                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                    ],
+
+                    // Address section
+                    GestureDetector(
+                      onTap: () => _getDirections(context),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          // Single row for location icon and distance
+                          if (widget.currentLat != null && widget.currentLng != null) ...[
+                            Row(
+                              children: [
+                                const Icon(Icons.place, color: Colors.black, size: 20),
+                                const SizedBox(width: 4),
+                                Text(
+                                  'Distance: approx. ${widget.restaurant.location.formatDistance(widget.currentLat!, widget.currentLng!)}',
+                                  style: Theme.of(context).textTheme.bodyMedium,
+                                ),
+                              ],
+                            ),
+                          ],
+                          const SizedBox(height: 8),
+                          Text(
+                            widget.restaurant.location.formattedAddress,
+                            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                              color: Colors.blue,
+                              decoration: TextDecoration.underline,
+                              decorationColor: Colors.blue,
+                              decorationThickness: 1,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
                 ),
-              ],
+              ),
             ),
           ),
         ],
