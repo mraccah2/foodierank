@@ -3,6 +3,7 @@ import '../models/restaurant.dart';
 import 'package:url_launcher/url_launcher_string.dart';
 import '../services/restaurant_service.dart';
 import 'package:cached_network_image/cached_network_image.dart';
+import '../services/proxy_service.dart';
 
 class RestaurantCard extends StatelessWidget {
   final Restaurant restaurant;
@@ -57,6 +58,46 @@ class RestaurantCard extends StatelessWidget {
       print('dBug/restaurant_card: NaN coordinates detected in $location');
       print('dBug/restaurant_card: lat1: $lat1, lng1: $lng1');
       print('dBug/restaurant_card: lat2: $lat2, lng2: $lng2');
+    }
+  }
+
+  void _getDirections(BuildContext context) async {
+    if (currentLat != null && currentLng != null) {
+      try {
+        // Calculate straight-line distance for travel mode decision
+        final distance = restaurant.location.calculateDistance(
+          currentLat!, 
+          currentLng!, 
+          restaurant.location.latitude, 
+          restaurant.location.longitude
+        );
+        
+        // Choose travel mode based on distance
+        final travelMode = distance <= 1 ? 'walking' : 'driving';
+        
+        final origin = '$currentLat,$currentLng';
+        
+        // Launch in Google Maps with the destination address
+        final mapsUrl = 'https://www.google.com/maps/dir/?api=1'
+            '&origin=$origin'
+            '&destination=${Uri.encodeComponent(restaurant.location.formattedAddress)}'
+            '&travelmode=$travelMode'
+            '&dir_action=navigate';
+
+        if (await canLaunchUrlString(mapsUrl)) {
+          await launchUrlString(mapsUrl, mode: LaunchMode.externalApplication);
+        } else if (context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Could not open Google Maps')),
+          );
+        }
+      } catch (e) {
+        if (context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Error getting directions: ${e.toString()}')),
+          );
+        }
+      }
     }
   }
 
@@ -127,7 +168,8 @@ class RestaurantCard extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // Restaurant Name and Ranking with new tap behavior
+                // Fixed content starts here
+                // Restaurant Name and Ranking
                 GestureDetector(
                   onTap: () => _openInGoogleMapsByPlaceId(context, restaurant.placeId),
                   child: Row(
@@ -213,89 +255,52 @@ class RestaurantCard extends StatelessWidget {
                 ),
                 const SizedBox(height: 16),
 
-                // Description
-                if (restaurant.description.isNotEmpty) ...[
-                  Text(
-                    restaurant.description,
-                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                      fontWeight: FontWeight.bold,
-                    ),
-                    maxLines: 3,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                  const SizedBox(height: 16),
-                ],
-
-                // Address section with new tap behavior for directions
-                GestureDetector(
-                  onTap: () async {
-                    if (currentLat != null && currentLng != null) {
-                      final destLat = restaurant.location.latitude;
-                      final destLng = restaurant.location.longitude;
-                      
-                      // Debug check before distance calculation
-                      _debugCheckCoordinates('distance calculation',
-                        lat1: currentLat,
-                        lng1: currentLng,
-                        lat2: destLat,
-                        lng2: destLng
-                      );
-                      
-                      // Calculate distance in meters
-                      final distance = restaurant.location.calculateDistance(
-                        currentLat!, 
-                        currentLng!, 
-                        destLat, 
-                        destLng
-                      );
-                      
-                      // Debug check after distance calculation
-                      if (distance.isNaN) {
-                        print('dBug/restaurant_card: NaN distance calculated');
-                        print('dBug/restaurant_card: distance: $distance');
-                      }
-                      
-                      // Choose travel mode based on distance
-                      final travelMode = distance <= 500 ? 'walking' : 'driving';
-                      
-                      final mapsUrl = 'https://www.google.com/maps/dir/?api=1'
-                          '&origin=$currentLat,$currentLng'
-                          '&destination=$destLat,$destLng'
-                          '&travelmode=$travelMode';
-
-                      if (await canLaunchUrlString(mapsUrl)) {
-                        await launchUrlString(mapsUrl, mode: LaunchMode.externalApplication);
-                      } else if (context.mounted) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(content: Text('Could not open Google Maps')),
-                        );
-                      }
-                    }
-                  },
+                // Scrollable content starts here
+                SingleChildScrollView(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      // Single row for location icon and distance
-                      if (currentLat != null && currentLng != null) ...[
-                        Row(
+                      // Description
+                      if (restaurant.description.isNotEmpty) ...[
+                        Text(
+                          restaurant.description,
+                          style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        const SizedBox(height: 16),
+                      ],
+
+                      // Address section
+                      GestureDetector(
+                        onTap: () => _getDirections(context),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            const Icon(Icons.place, color: Colors.black, size: 20),
-                            const SizedBox(width: 4),
+                            // Single row for location icon and distance
+                            if (currentLat != null && currentLng != null) ...[
+                              Row(
+                                children: [
+                                  const Icon(Icons.place, color: Colors.black, size: 20),
+                                  const SizedBox(width: 4),
+                                  Text(
+                                    'Distance: approx. ${restaurant.location.formatDistance(currentLat!, currentLng!)}',
+                                    style: Theme.of(context).textTheme.bodyMedium,
+                                  ),
+                                ],
+                              ),
+                            ],
+                            const SizedBox(height: 8),
                             Text(
-                              'Distance: approx. ${restaurant.location.formatDistance(currentLat!, currentLng!)}',
-                              style: Theme.of(context).textTheme.bodyMedium,
+                              restaurant.location.formattedAddress,
+                              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                                color: Colors.blue,
+                                decoration: TextDecoration.underline,
+                                decorationColor: Colors.blue,
+                                decorationThickness: 1,
+                              ),
                             ),
                           ],
-                        ),
-                      ],
-                      const SizedBox(height: 8),
-                      Text(
-                        restaurant.location.formattedAddress,
-                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                          color: Colors.blue,
-                          decoration: TextDecoration.underline,
-                          decorationColor: Colors.blue,
-                          decorationThickness: 1,
                         ),
                       ),
                     ],

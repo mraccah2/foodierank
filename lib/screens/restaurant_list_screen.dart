@@ -583,12 +583,16 @@ class _RestaurantListScreenState extends State<RestaurantListScreen> {
                           textAlignVertical: TextAlignVertical.center,
                           style: Theme.of(context).textTheme.bodyLarge?.copyWith(
                             color: Colors.black,
+                            fontSize: 14,
                           ),
                           decoration: InputDecoration(
                             isDense: true,
-                            prefixIcon: const Padding(
-                              padding: EdgeInsets.only(left: 12, right: 4),
-                              child: Icon(Icons.search, color: Colors.grey, size: 16),
+                            prefixIcon: const SizedBox(
+                              width: 30,
+                              height: 28,
+                              child: Center(
+                                child: Icon(Icons.search, color: Colors.grey, size: 16),
+                              ),
                             ),
                             prefixIconConstraints: const BoxConstraints(
                               minWidth: 30,
@@ -626,9 +630,10 @@ class _RestaurantListScreenState extends State<RestaurantListScreen> {
                             hintStyle: Theme.of(context).textTheme.bodyLarge?.copyWith(
                               color: Colors.grey,
                               fontStyle: FontStyle.italic,
+                              fontSize: 14,
                             ),
                             border: InputBorder.none,
-                            contentPadding: const EdgeInsets.symmetric(vertical: 0),
+                            contentPadding: EdgeInsets.zero,
                           ),
                           onSubmitted: (value) async {
                             setState(() {
