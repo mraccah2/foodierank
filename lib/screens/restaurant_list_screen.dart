@@ -18,7 +18,7 @@ class RestaurantListScreen extends StatefulWidget {
   _RestaurantListScreenState createState() => _RestaurantListScreenState();
 }
 
-class _RestaurantListScreenState extends State<RestaurantListScreen> {
+class _RestaurantListScreenState extends State<RestaurantListScreen> with WidgetsBindingObserver {
   List<Restaurant>? _restaurants;
   String? _error;
   bool _isLoading = true;
@@ -37,10 +37,13 @@ class _RestaurantListScreenState extends State<RestaurantListScreen> {
   bool _isSearchVisible = false;
   final FocusNode _searchFocusNode = FocusNode();
   static const int _lowResultsThreshold = 3;
+  DateTime? _lastRefreshTime;
+  Position? _lastPosition;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);  // Add lifecycle observer
     _searchController.addListener(() {
       _searchQuery = _searchController.text;  // Update query without setState
     });
@@ -53,11 +56,50 @@ class _RestaurantListScreenState extends State<RestaurantListScreen> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);  // Remove lifecycle observer
     _pageController.dispose();
     _customTypeController.dispose();
     _searchController.dispose();
     _searchFocusNode.dispose();
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      print("dBug/restaurant_list_screen: App restored to foreground");
+      _checkAndRefreshIfNeeded();
+    }
+  }
+
+  Future<void> _checkAndRefreshIfNeeded() async {
+    try {
+      final currentPosition = await Geolocator.getCurrentPosition(
+        desiredAccuracy: LocationAccuracy.best,
+        timeLimit: const Duration(seconds: 5),
+      );
+
+      // Check if the hour has changed
+      final shouldRefreshTime = _lastRefreshTime == null || 
+          DateTime.now().hour != _lastRefreshTime!.hour;
+      
+      // Only check distance if we have a previous position
+      final shouldRefreshDistance = _lastPosition != null && 
+          Geolocator.distanceBetween(
+            _lastPosition!.latitude,
+            _lastPosition!.longitude,
+            currentPosition.latitude,
+            currentPosition.longitude,
+          ) > 300;
+
+      if (shouldRefreshTime || shouldRefreshDistance) {
+        _lastRefreshTime = DateTime.now();
+        _lastPosition = currentPosition;
+        await _initializeAndLoad();
+      }
+    } catch (e) {
+      // Silent fail - if we can't check conditions, we'll just wait for next attempt
+    }
   }
 
   bool _isLoadingData = false;
@@ -70,7 +112,7 @@ class _RestaurantListScreenState extends State<RestaurantListScreen> {
       setState(() {
         _isLoading = true;
         _error = null;
-        _searchStatus = null;  // Reset search status
+        _searchStatus = null;
       });
 
       final position = await Geolocator.getCurrentPosition(
@@ -79,6 +121,11 @@ class _RestaurantListScreenState extends State<RestaurantListScreen> {
       );
 
       if (!mounted) return;
+
+      // Update last position and refresh time
+      _lastPosition = position;
+      _lastRefreshTime = DateTime.now();
+      print("dBug/restaurant_list_screen: Updated position from initialize: ${position.latitude}, ${position.longitude}");
 
       _currentLat = position.latitude;
       _currentLng = position.longitude;
@@ -157,6 +204,11 @@ class _RestaurantListScreenState extends State<RestaurantListScreen> {
 
         if (!mounted) return;
 
+        // Update last position and refresh time when loading from cache
+        _lastPosition = position;
+        _lastRefreshTime = DateTime.now();
+        print("dBug/restaurant_list_screen: Updated position from cache load: ${position.latitude}, ${position.longitude}");
+
         // Check if we need to refresh the data
         if (RestaurantService.instance.shouldRefreshData(
           position.latitude,
@@ -180,6 +232,7 @@ class _RestaurantListScreenState extends State<RestaurantListScreen> {
       } catch (e) {
         // Even if location fails, still show restaurants
         if (mounted) {
+          print("dBug/restaurant_list_screen: Failed to get position in cache load: $e");
           final restaurants = rawRestaurants
               .map((place) => Restaurant.fromJson(place))
               .toList();
