@@ -157,6 +157,15 @@ class _RestaurantListScreenState extends State<RestaurantListScreen> {
 
         if (!mounted) return;
 
+        // Check if we need to refresh the data
+        if (RestaurantService.instance.shouldRefreshData(
+          position.latitude,
+          position.longitude
+        )) {
+          _initializeAndLoad();
+          return;
+        }
+
         final restaurants = rawRestaurants
             .map((place) => Restaurant.fromJson(place))
             .toList();

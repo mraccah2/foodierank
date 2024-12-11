@@ -4,11 +4,16 @@ import 'package:http/http.dart' as http;
 import 'dart:typed_data';
 import '../services/navigation_service.dart';
 import 'package:flutter/widgets.dart';
+import 'dart:async';
+import 'dart:math';
 
 class RestaurantService {
   static final RestaurantService instance = RestaurantService._internal();
   List<Map<String, dynamic>>? _cachedRestaurants;
   final Map<String, Uint8List> _photoCache = {};
+  DateTime? _lastFetchTime;
+  double? _lastFetchLatitude;
+  double? _lastFetchLongitude;
   
   factory RestaurantService() {
     return instance;
@@ -27,6 +32,10 @@ class RestaurantService {
     String? searchQuery,
     void Function(int count, String type, double radius)? onSearchUpdate}
   ) async {
+    _lastFetchTime = DateTime.now();
+    _lastFetchLatitude = latitude;
+    _lastFetchLongitude = longitude;
+    
     _cachedRestaurants = await getNearbyRestaurants(
       latitude, 
       longitude,
@@ -238,21 +247,28 @@ class RestaurantService {
     try {
       final uri = Uri.parse('${ProxyService.baseUrl}/$photoName/media');
       
-      final response = await http.get(
-        uri.replace(queryParameters: {
-          'maxWidthPx': maxWidth.toString(),
-          'maxHeightPx': maxHeight.toString(),
-        }),
-        headers: {
-          'X-Goog-Api-Key': Config.googleMapsApiKey,
-          'Accept': 'image/*',
-        },
-      );
+      final client = http.Client();
+      try {
+        final response = await client.get(
+          uri.replace(queryParameters: {
+            'maxWidthPx': maxWidth.toString(),
+            'maxHeightPx': maxHeight.toString(),
+            'key': Config.googleMapsApiKey,
+          }),
+          headers: {
+            'X-Goog-Api-Key': Config.googleMapsApiKey,
+            'X-Android-Package': 'com.foodierank.foodierank',
+            'X-Android-Cert': '6F36B6864C200D65C27D924F60AD4BDDB2BC1FBE',
+            'Accept': 'image/*',
+            'User-Agent': 'FoodieRank/1.0',
+          },
+        ).timeout(const Duration(seconds: 10));
 
-      if (response.statusCode == 200) {
-        return response.bodyBytes;
+        if (response.statusCode == 200) return response.bodyBytes;
+        return null;
+      } finally {
+        client.close();
       }
-      return null;
     } catch (e) {
       return null;
     }
@@ -301,5 +317,43 @@ class RestaurantService {
         );
       }
     }
+  }
+
+  bool shouldRefreshData(double currentLat, double currentLng) {
+    if (_lastFetchTime == null || _lastFetchLatitude == null || _lastFetchLongitude == null) {
+      return true;
+    }
+
+    // Check if more than an hour has passed
+    final timeDifference = DateTime.now().difference(_lastFetchTime!);
+    if (timeDifference.inHours >= 1) {
+      return true;
+    }
+
+    // Calculate distance from last fetch location
+    final distance = _calculateDistance(
+      _lastFetchLatitude!,
+      _lastFetchLongitude!,
+      currentLat,
+      currentLng
+    );
+
+    // Return true if more than 300m away
+    return distance > 300;
+  }
+
+  double _calculateDistance(double lat1, double lon1, double lat2, double lon2) {
+    const R = 6371e3; // Earth's radius in meters
+    final phi1 = lat1 * pi / 180;
+    final phi2 = lat2 * pi / 180;
+    final deltaPhi = (lat2 - lat1) * pi / 180;
+    final deltaLambda = (lon2 - lon1) * pi / 180;
+
+    final a = sin(deltaPhi/2) * sin(deltaPhi/2) +
+              cos(phi1) * cos(phi2) *
+              sin(deltaLambda/2) * sin(deltaLambda/2);
+    final c = 2 * atan2(sqrt(a), sqrt(1-a));
+
+    return R * c; // Distance in meters
   }
 } 
