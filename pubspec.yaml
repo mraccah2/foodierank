@@ -111,3 +111,8 @@ flutter_icons:
   image_path: "assets/app_icon.png"  # Make sure this path points to your icon file
   adaptive_icon_background: "#FFFFFF" # Optional: for Android adaptive icons
   adaptive_icon_foreground: "assets/app_icon_foreground.png" # Optional: for Android adaptive icons
+
+fonts:
+  - family: Material Symbols Outlined
+    fonts:
+      - asset: assets/fonts/MaterialSymbolsOutlined[FILL,GRAD,opsz,wght].ttf
