@@ -46,6 +46,9 @@ class _RestaurantListScreenState extends State<RestaurantListScreen> with Widget
   DateTime? _lastRefreshTime;
   Position? _lastPosition;
   ViewMode _viewMode = ViewMode.card;
+  bool _cardViewFromTap = false;
+  int? _lastTappedIndex;
+  final GlobalKey _scaffoldKey = GlobalKey();
 
   @override
   void initState() {
@@ -74,7 +77,6 @@ class _RestaurantListScreenState extends State<RestaurantListScreen> with Widget
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
-      print("dBug/restaurant_list_screen: App restored to foreground");
       _checkAndRefreshIfNeeded();
     }
   }
@@ -132,7 +134,6 @@ class _RestaurantListScreenState extends State<RestaurantListScreen> with Widget
       // Update last position and refresh time
       _lastPosition = position;
       _lastRefreshTime = DateTime.now();
-      print("dBug/restaurant_list_screen: Updated position from initialize: ${position.latitude}, ${position.longitude}");
 
       _currentLat = position.latitude;
       _currentLng = position.longitude;
@@ -214,7 +215,6 @@ class _RestaurantListScreenState extends State<RestaurantListScreen> with Widget
         // Update last position and refresh time when loading from cache
         _lastPosition = position;
         _lastRefreshTime = DateTime.now();
-        print("dBug/restaurant_list_screen: Updated position from cache load: ${position.latitude}, ${position.longitude}");
 
         // Check if we need to refresh the data
         if (RestaurantService.instance.shouldRefreshData(
@@ -239,7 +239,6 @@ class _RestaurantListScreenState extends State<RestaurantListScreen> with Widget
       } catch (e) {
         // Even if location fails, still show restaurants
         if (mounted) {
-          print("dBug/restaurant_list_screen: Failed to get position in cache load: $e");
           final restaurants = rawRestaurants
               .map((place) => Restaurant.fromJson(place))
               .toList();
@@ -524,9 +523,33 @@ class _RestaurantListScreenState extends State<RestaurantListScreen> with Widget
     });
   }
 
+  void _handleHorizontalDrag(DragUpdateDetails details) {
+    if (_cardViewFromTap && details.delta.dx > 20) {  // Right swipe
+      setState(() {
+        _viewMode = ViewMode.list;
+        _cardViewFromTap = false;
+      });
+      
+      // Flash the card that was being viewed
+      if (_lastTappedIndex != null) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          final context = _scaffoldKey.currentContext;
+          if (context != null) {
+            Scrollable.ensureVisible(
+              context,
+              alignment: 0.5,
+              duration: const Duration(milliseconds: 300),
+            );
+          }
+        });
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      key: _scaffoldKey,
       resizeToAvoidBottomInset: false,
       backgroundColor: Colors.grey[200],
       appBar: AppBar(
@@ -538,6 +561,7 @@ class _RestaurantListScreenState extends State<RestaurantListScreen> with Widget
         elevation: 0,
       ),
       body: GestureDetector(
+        onHorizontalDragUpdate: _cardViewFromTap ? _handleHorizontalDrag : null,
         onVerticalDragUpdate: (details) => _handleScroll(details.delta.dy),
         child: _buildBody(),
       ),
@@ -653,9 +677,6 @@ class _RestaurantListScreenState extends State<RestaurantListScreen> with Widget
       tapTargetSize: MaterialTapTargetSize.shrinkWrap,
     );
 
-    // Add debug print before returning the main content
-    print('dBug/restaurant_list_screen: Building body with view mode: $_viewMode');
-
     return RefreshIndicator(
       onRefresh: _initializeAndLoad,
       child: Column(
@@ -728,7 +749,7 @@ class _RestaurantListScreenState extends State<RestaurantListScreen> with Widget
                         onPressed: _toggleViewMode,
                         style: buttonStyle,
                         child: Icon(
-                          _viewMode == ViewMode.card ? Icons.view_list : Icons.view_agenda,
+                          _viewMode == ViewMode.card ? Icons.view_list_sharp : Icons.crop_portrait,  // Changed from view_agenda to crop_portrait
                           color: Colors.black,
                           size: 20,
                         ),
@@ -910,7 +931,11 @@ class _RestaurantListScreenState extends State<RestaurantListScreen> with Widget
                     onTap: () {
                       setState(() {
                         _viewMode = ViewMode.card;
-                        // Jump to the correct page immediately without animation
+                        _cardViewFromTap = true;
+                        _lastTappedIndex = index;
+                      });
+                      
+                      WidgetsBinding.instance.addPostFrameCallback((_) {
                         _pageController.jumpToPage(index);
                       });
                     },
