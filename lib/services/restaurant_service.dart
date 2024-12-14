@@ -367,9 +367,6 @@ class RestaurantService {
   }
 
   String? findPrimaryCuisine(List<String> types, {String? country}) {
-    // Debug print all types
-    print('dBug/restaurant_service: Restaurant types: ${types.join(', ')}');
-    
     // Common cuisine keywords that appear in Google Places types
     final cuisineKeywords = {
       'afghani', 'african', 'american', 'arabic', 'argentinian', 'asian', 'australian',
@@ -390,7 +387,6 @@ class RestaurantService {
       final normalizedType = type.toLowerCase();
       final baseCuisine = normalizedType.split('_').first;
       if (cuisineKeywords.contains(baseCuisine)) {
-        print('dBug/restaurant_service: Found compound cuisine: $baseCuisine');
         return baseCuisine;
       }
     }
@@ -399,7 +395,6 @@ class RestaurantService {
     for (var type in types) {
       final normalizedType = type.toLowerCase();
       if (cuisineKeywords.contains(normalizedType)) {
-        print('dBug/restaurant_service: Found primary cuisine: $type');
         return type;
       }
     }
@@ -409,7 +404,6 @@ class RestaurantService {
       return getDefaultCuisineByLocation(country);
     }
 
-    print('dBug/restaurant_service: No cuisine type found');
     return null;
   }
 

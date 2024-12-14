@@ -154,9 +154,6 @@ class _RestaurantCardState extends State<RestaurantCard> {
 
   // Add this method to _RestaurantCardState class
   String? _getDefaultCuisineByLocation(String country) {
-    // Debug print country
-    print('dBug/restaurant_card: Getting default cuisine for country: $country');
-    
     // Map of countries to their primary cuisine
     // Using the same cuisine keywords as in _findPrimaryCuisine
     final Map<String, String> countryCuisineMap = {
@@ -218,20 +215,11 @@ class _RestaurantCardState extends State<RestaurantCard> {
     };
 
     final defaultCuisine = countryCuisineMap[country];
-    if (defaultCuisine != null) {
-      print('dBug/restaurant_card: Found default cuisine for $country: $defaultCuisine');
-    } else {
-      print('dBug/restaurant_card: No default cuisine found for $country');
-    }
-    
     return defaultCuisine;
   }
 
   // Modify the _findPrimaryCuisine method to use the default cuisine as fallback
   String? _findPrimaryCuisine(List<String> types) {
-    // Debug print all types
-    print('dBug/restaurant_card: Restaurant ${widget.restaurant.name} types: ${types.join(', ')}');
-    
     // Common cuisine keywords that appear in Google Places types
     final cuisineKeywords = {
       'afghani', 'african', 'american', 'arabic', 'argentinian', 'asian', 'australian',
@@ -253,7 +241,6 @@ class _RestaurantCardState extends State<RestaurantCard> {
       // Extract the first part of compound types (before _restaurant, _food, etc.)
       final baseCuisine = normalizedType.split('_').first;
       if (cuisineKeywords.contains(baseCuisine)) {
-        print('dBug/restaurant_card: Found compound cuisine for ${widget.restaurant.name}: $baseCuisine');
         return baseCuisine;
       }
     }
@@ -262,7 +249,6 @@ class _RestaurantCardState extends State<RestaurantCard> {
     for (var type in types) {
       final normalizedType = type.toLowerCase();
       if (cuisineKeywords.contains(normalizedType)) {
-        print('dBug/restaurant_card: Found primary cuisine for ${widget.restaurant.name}: $type');
         return type;
       }
     }
@@ -270,11 +256,9 @@ class _RestaurantCardState extends State<RestaurantCard> {
     // If no cuisine type found, try to get default cuisine based on country
     final defaultCuisine = _getDefaultCuisineByLocation(widget.restaurant.location.country);
     if (defaultCuisine != null) {
-      print('dBug/restaurant_card: Using default cuisine for ${widget.restaurant.name}: $defaultCuisine');
       return defaultCuisine;
     }
 
-    print('dBug/restaurant_card: No cuisine type found for ${widget.restaurant.name}');
     return null;
   }
 
