@@ -5,10 +5,16 @@ import '../models/restaurant.dart';
 import '../services/restaurant_service.dart';
 import '../widgets/restaurant_card.dart';
 import '../widgets/restaurant_photo_viewer.dart';
+import '../widgets/minimal_restaurant_card.dart';
 
 enum SortOption {
   rank,
   distance
+}
+
+enum ViewMode {
+  card,
+  list
 }
 
 class RestaurantListScreen extends StatefulWidget {
@@ -39,6 +45,7 @@ class _RestaurantListScreenState extends State<RestaurantListScreen> with Widget
   static const int _lowResultsThreshold = 3;
   DateTime? _lastRefreshTime;
   Position? _lastPosition;
+  ViewMode _viewMode = ViewMode.card;
 
   @override
   void initState() {
@@ -511,6 +518,12 @@ class _RestaurantListScreenState extends State<RestaurantListScreen> with Widget
     }
   }
 
+  void _toggleViewMode() {
+    setState(() {
+      _viewMode = _viewMode == ViewMode.card ? ViewMode.list : ViewMode.card;
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -640,6 +653,9 @@ class _RestaurantListScreenState extends State<RestaurantListScreen> with Widget
       tapTargetSize: MaterialTapTargetSize.shrinkWrap,
     );
 
+    // Add debug print before returning the main content
+    print('dBug/restaurant_list_screen: Building body with view mode: $_viewMode');
+
     return RefreshIndicator(
       onRefresh: _initializeAndLoad,
       child: Column(
@@ -700,11 +716,21 @@ class _RestaurantListScreenState extends State<RestaurantListScreen> with Widget
                           });
                         },
                         style: buttonStyle,
-                        child: Text(
-                          _sortOption == SortOption.rank ? 'Best first' : 'Closest first',
-                          style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                            color: Colors.black,
-                          ),
+                        child: Icon(
+                          _sortOption == SortOption.rank 
+                            ? Icons.star_rounded  // Star icon for "Best first"
+                            : Icons.near_me,     // Location icon for "Closest first"
+                          color: Colors.black,
+                          size: 20,
+                        ),
+                      ),
+                      ElevatedButton(
+                        onPressed: _toggleViewMode,
+                        style: buttonStyle,
+                        child: Icon(
+                          _viewMode == ViewMode.card ? Icons.view_list : Icons.view_agenda,
+                          color: Colors.black,
+                          size: 20,
                         ),
                       ),
                     ],
@@ -828,7 +854,7 @@ class _RestaurantListScreenState extends State<RestaurantListScreen> with Widget
           Expanded(
             child: Container(
               color: Colors.grey[200],
-              child: PageView.builder(
+              child: _viewMode == ViewMode.card ? PageView.builder(
                 controller: _pageController,
                 scrollDirection: Axis.vertical,
                 pageSnapping: true,
@@ -870,6 +896,24 @@ class _RestaurantListScreenState extends State<RestaurantListScreen> with Widget
                       
                       const SizedBox(height: 30.0),  // Keep bottom padding
                     ],
+                  );
+                },
+              ) : ListView.builder(
+                itemCount: _restaurants!.length,
+                itemBuilder: (context, index) {
+                  final restaurant = _restaurants![index];
+                  return MinimalRestaurantCard(
+                    restaurant: restaurant,
+                    ranking: restaurant.rank ?? index + 1,
+                    currentLat: _currentLat,
+                    currentLng: _currentLng,
+                    onTap: () {
+                      setState(() {
+                        _viewMode = ViewMode.card;
+                        // Jump to the correct page immediately without animation
+                        _pageController.jumpToPage(index);
+                      });
+                    },
                   );
                 },
               ),
