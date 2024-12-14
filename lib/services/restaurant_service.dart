@@ -399,9 +399,12 @@ class RestaurantService {
       }
     }
 
-    // If no cuisine found in types, try country-based default
+    // Modified: If using country-based default, append a question mark
     if (country != null) {
-      return getDefaultCuisineByLocation(country);
+      final defaultCuisine = getDefaultCuisineByLocation(country);
+      if (defaultCuisine != null) {
+        return '$defaultCuisine?';  // Add question mark to indicate it's a guess
+      }
     }
 
     return null;

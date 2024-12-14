@@ -49,6 +49,7 @@ class MinimalRestaurantCard extends StatelessWidget {
                     style: const TextStyle(
                       color: Colors.black,
                       fontWeight: FontWeight.bold,
+                      fontSize: 11,
                     ),
                     textAlign: TextAlign.center,
                   ),

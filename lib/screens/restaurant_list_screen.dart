@@ -49,6 +49,7 @@ class _RestaurantListScreenState extends State<RestaurantListScreen> with Widget
   bool _cardViewFromTap = false;
   int? _lastTappedIndex;
   final GlobalKey _scaffoldKey = GlobalKey();
+  final double _sortIconRotation = 0.0;
 
   @override
   void initState() {
@@ -737,12 +738,26 @@ class _RestaurantListScreenState extends State<RestaurantListScreen> with Widget
                           });
                         },
                         style: buttonStyle,
-                        child: Icon(
-                          _sortOption == SortOption.rank 
-                            ? Icons.star_rounded  // Star icon for "Best first"
-                            : Icons.near_me,     // Location icon for "Closest first"
-                          color: Colors.black,
-                          size: 20,
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(
+                              _sortOption == SortOption.rank 
+                                ? Icons.star
+                                : Icons.directions_walk,
+                              color: Colors.black,
+                              size: 20,
+                            ),
+                            const SizedBox(width: 2),
+                            Transform.rotate(
+                              angle: _sortOption == SortOption.rank ? 0 : 3.14159,
+                              child: const Icon(
+                                Icons.sort,
+                                color: Colors.black,
+                                size: 20,
+                              ),
+                            ),
+                          ],
                         ),
                       ),
                       ElevatedButton(
