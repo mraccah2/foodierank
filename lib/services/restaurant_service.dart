@@ -218,11 +218,20 @@ class RestaurantService {
   }
 
   Map<String, dynamic>? _mapPlace(Map<String, dynamic> place, String? targetPriceLevel) {
-    final photos = place['photos'] as List<dynamic>?;    final photoRefs = photos?.map((photo) => photo['name'] as String).toList() ?? [];
+    final photos = place['photos'] as List<dynamic>?;
+    final photoRefs = photos?.map((photo) => photo['name'] as String).toList() ?? [];
+    
+    // Extract country from formatted address
+    final formattedAddress = place['formattedAddress'] as String;
+    final country = formattedAddress.split(',').last.trim();
     
     return {
       ...Map<String, dynamic>.from(place),
       'photoRefs': photoRefs,
+      'location': {
+        ...place['location'] as Map<String, dynamic>,
+        'country': country,
+      },
     };
   }
 
@@ -355,5 +364,72 @@ class RestaurantService {
     final c = 2 * atan2(sqrt(a), sqrt(1-a));
 
     return R * c; // Distance in meters
+  }
+
+  String? findPrimaryCuisine(List<String> types, {String? country}) {
+    // Debug print all types
+    print('dBug/restaurant_service: Restaurant types: ${types.join(', ')}');
+    
+    // Common cuisine keywords that appear in Google Places types
+    final cuisineKeywords = {
+      'afghani', 'african', 'american', 'arabic', 'argentinian', 'asian', 'australian',
+      'austrian', 'bbq', 'barbeque', 'belgian', 'brazilian', 'british', 'caribbean', 'chinese',
+      'colombian', 'croatian', 'cuban', 'czech', 'danish', 'ethiopian', 'filipino',
+      'finnish', 'french', 'georgian', 'german', 'greek', 'hungarian', 'indian',
+      'indonesian', 'irish', 'israeli', 'italian', 'jamaican', 'japanese', 'korean',
+      'latin', 'lebanese', 'malaysian', 'malay', 'mediterranean', 'mexican', 'middle_eastern',
+      'moroccan', 'nepalese', 'nigerian', 'norwegian', 'pakistani', 'peruvian',
+      'persian', 'pizza', 'polish', 'portuguese', 'romanian', 'russian', 'scandinavian',
+      'scottish', 'seafood', 'singaporean', 'south_african', 'sushi', 'spanish', 'swedish',
+      'swiss', 'taiwanese', 'thai', 'turkish', 'ukrainian', 'uruguayan', 'vegetarian',
+      'venezuelan', 'vietnamese', 'welsh'
+    };
+
+    // First pass: check for compound types
+    for (var type in types) {
+      final normalizedType = type.toLowerCase();
+      final baseCuisine = normalizedType.split('_').first;
+      if (cuisineKeywords.contains(baseCuisine)) {
+        print('dBug/restaurant_service: Found compound cuisine: $baseCuisine');
+        return baseCuisine;
+      }
+    }
+
+    // Second pass: direct match with cuisine keywords
+    for (var type in types) {
+      final normalizedType = type.toLowerCase();
+      if (cuisineKeywords.contains(normalizedType)) {
+        print('dBug/restaurant_service: Found primary cuisine: $type');
+        return type;
+      }
+    }
+
+    // If no cuisine found in types, try country-based default
+    if (country != null) {
+      return getDefaultCuisineByLocation(country);
+    }
+
+    print('dBug/restaurant_service: No cuisine type found');
+    return null;
+  }
+
+  String formatCuisineDisplay(String cuisine) {
+    return cuisine
+        .split('_')
+        .map((word) => word[0].toUpperCase() + word.substring(1).toLowerCase())
+        .join(' ');
+  }
+
+  String? getDefaultCuisineByLocation(String country) {
+    // Map of countries to their primary cuisine
+    final Map<String, String> countryCuisineMap = {
+      'Afghanistan': 'afghan',
+      'Argentina': 'argentinian',
+      // ... (keep all the existing country mappings)
+      'Spain': 'spanish',
+      // ... (keep all the remaining mappings)
+    };
+
+    return countryCuisineMap[country];
   }
 } 

@@ -152,6 +152,140 @@ class _RestaurantCardState extends State<RestaurantCard> {
     );
   }
 
+  // Add this method to _RestaurantCardState class
+  String? _getDefaultCuisineByLocation(String country) {
+    // Debug print country
+    print('dBug/restaurant_card: Getting default cuisine for country: $country');
+    
+    // Map of countries to their primary cuisine
+    // Using the same cuisine keywords as in _findPrimaryCuisine
+    final Map<String, String> countryCuisineMap = {
+      'Afghanistan': 'afghan',
+      'Argentina': 'argentinian',
+      'Australia': 'australian',
+      'Austria': 'austrian',
+      'Belgium': 'belgian',
+      'Brazil': 'brazilian',
+      'China': 'chinese',
+      'Colombia': 'colombian',
+      'Croatia': 'croatian',
+      'Cuba': 'cuban',
+      'Czech Republic': 'czech',
+      'Denmark': 'danish',
+      'Ethiopia': 'ethiopian',
+      'Philippines': 'filipino',
+      'Finland': 'finnish',
+      'France': 'french',
+      'Georgia': 'georgian',
+      'Germany': 'german',
+      'Greece': 'greek',
+      'Hungary': 'hungarian',
+      'India': 'indian',
+      'Indonesia': 'indonesian',
+      'Ireland': 'irish',
+      'Israel': 'israeli',
+      'Italy': 'italian',
+      'Jamaica': 'jamaican',
+      'Japan': 'japanese',
+      'Korea': 'korean',
+      'Lebanon': 'lebanese',
+      'Malaysia': 'malaysian',
+      'Mexico': 'mexican',
+      'Morocco': 'moroccan',
+      'Nepal': 'nepalese',
+      'Nigeria': 'nigerian',
+      'Norway': 'norwegian',
+      'Pakistan': 'pakistani',
+      'Peru': 'peruvian',
+      'Iran': 'persian',
+      'Poland': 'polish',
+      'Portugal': 'portuguese',
+      'Romania': 'romanian',
+      'Russia': 'russian',
+      'Singapore': 'singaporean',
+      'South Africa': 'south_african',
+      'Spain': 'spanish',
+      'Sweden': 'swedish',
+      'Switzerland': 'swiss',
+      'Taiwan': 'taiwanese',
+      'Thailand': 'thai',
+      'Turkey': 'turkish',
+      'Ukraine': 'ukrainian',
+      'Uruguay': 'uruguayan',
+      'Venezuela': 'venezuelan',
+      'Vietnam': 'vietnamese',
+      'Wales': 'welsh'
+    };
+
+    final defaultCuisine = countryCuisineMap[country];
+    if (defaultCuisine != null) {
+      print('dBug/restaurant_card: Found default cuisine for $country: $defaultCuisine');
+    } else {
+      print('dBug/restaurant_card: No default cuisine found for $country');
+    }
+    
+    return defaultCuisine;
+  }
+
+  // Modify the _findPrimaryCuisine method to use the default cuisine as fallback
+  String? _findPrimaryCuisine(List<String> types) {
+    // Debug print all types
+    print('dBug/restaurant_card: Restaurant ${widget.restaurant.name} types: ${types.join(', ')}');
+    
+    // Common cuisine keywords that appear in Google Places types
+    final cuisineKeywords = {
+      'afghani', 'african', 'american', 'arabic', 'argentinian', 'asian', 'australian',
+      'austrian', 'bbq', 'barbeque', 'belgian', 'brazilian', 'british', 'caribbean', 'chinese',
+      'colombian', 'croatian', 'cuban', 'czech', 'danish', 'ethiopian', 'filipino',
+      'finnish', 'french', 'georgian', 'german', 'greek', 'hungarian', 'indian',
+      'indonesian', 'irish', 'israeli', 'italian', 'jamaican', 'japanese', 'korean',
+      'latin', 'lebanese', 'malaysian', 'malay', 'mediterranean', 'mexican', 'middle_eastern',
+      'moroccan', 'nepalese', 'nigerian', 'norwegian', 'pakistani', 'peruvian',
+      'persian', 'pizza', 'polish', 'portuguese', 'romanian', 'russian', 'scandinavian',
+      'scottish', 'seafood', 'singaporean', 'south_african', 'sushi', 'spanish', 'swedish',
+      'swiss', 'taiwanese', 'thai', 'turkish', 'ukrainian', 'uruguayan', 'vegetarian',
+      'venezuelan', 'vietnamese', 'welsh'
+    };
+
+    // First pass: check for compound types (e.g., "vegetarian_restaurant")
+    for (var type in types) {
+      final normalizedType = type.toLowerCase();
+      // Extract the first part of compound types (before _restaurant, _food, etc.)
+      final baseCuisine = normalizedType.split('_').first;
+      if (cuisineKeywords.contains(baseCuisine)) {
+        print('dBug/restaurant_card: Found compound cuisine for ${widget.restaurant.name}: $baseCuisine');
+        return baseCuisine;
+      }
+    }
+
+    // Second pass: direct match with cuisine keywords
+    for (var type in types) {
+      final normalizedType = type.toLowerCase();
+      if (cuisineKeywords.contains(normalizedType)) {
+        print('dBug/restaurant_card: Found primary cuisine for ${widget.restaurant.name}: $type');
+        return type;
+      }
+    }
+
+    // If no cuisine type found, try to get default cuisine based on country
+    final defaultCuisine = _getDefaultCuisineByLocation(widget.restaurant.location.country);
+    if (defaultCuisine != null) {
+      print('dBug/restaurant_card: Using default cuisine for ${widget.restaurant.name}: $defaultCuisine');
+      return defaultCuisine;
+    }
+
+    print('dBug/restaurant_card: No cuisine type found for ${widget.restaurant.name}');
+    return null;
+  }
+
+  // Add this helper method to _RestaurantCardState
+  String _formatCuisineDisplay(String cuisine) {
+    return cuisine
+        .split(' ')
+        .map((word) => word[0].toUpperCase() + word.substring(1).toLowerCase())
+        .join(' ');
+  }
+
   @override
   Widget build(BuildContext context) {
     return Card(
@@ -310,21 +444,21 @@ class _RestaurantCardState extends State<RestaurantCard> {
                     Wrap(
                       spacing: 4,
                       runSpacing: 0,
-                      children: widget.restaurant.types
-                          .take(2)
-                          .map((type) {
-                        return Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                          decoration: BoxDecoration(
-                            color: Colors.blue.withOpacity(0.1),
-                            borderRadius: BorderRadius.circular(4),
+                      children: [
+                        // Try to find primary cuisine
+                        if (_findPrimaryCuisine(widget.restaurant.types) != null)
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                            decoration: BoxDecoration(
+                              color: Colors.blue.withOpacity(0.1),
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                            child: Text(
+                              _formatCuisineDisplay(_findPrimaryCuisine(widget.restaurant.types)!),
+                              style: Theme.of(context).textTheme.bodyMedium,
+                            ),
                           ),
-                          child: Text(
-                            type.replaceAll('_', ' ').toLowerCase(),
-                            style: Theme.of(context).textTheme.bodyMedium,
-                          ),
-                        );
-                      }).toList(),
+                      ],
                     ),
                     const SizedBox(height: 12),
 

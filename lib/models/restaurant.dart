@@ -27,7 +27,7 @@ class Restaurant {
     this.priceLevel = '',
     this.description = '',
     this.address = '',
-    this.location = const Location(latitude: 0, longitude: 0, formattedAddress: ''),
+    this.location = const Location(latitude: 0, longitude: 0, formattedAddress: '', country: ''),
     this.photos = const [],
     this.rank,
     required this.placeId,
@@ -112,6 +112,7 @@ class Restaurant {
         latitude: (json['location']?['latitude'] as num?)?.toDouble() ?? 0.0,
         longitude: (json['location']?['longitude'] as num?)?.toDouble() ?? 0.0,
         formattedAddress: json['formattedAddress'] ?? '',
+        country: json['location']?['country'] ?? '',
       ),
       photos: [],
       rank: json['rank'] as int?,
@@ -163,11 +164,13 @@ class Location {
   final double latitude;
   final double longitude;
   final String formattedAddress;
+  final String country;
 
   const Location({
     required this.latitude,
     required this.longitude,
     required this.formattedAddress,
+    required this.country,
   });
 
   String formatDistance(double currentLat, double currentLng) {

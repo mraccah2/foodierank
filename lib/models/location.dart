@@ -5,11 +5,13 @@ class Location {
   final double latitude;
   final double longitude;
   final String formattedAddress;
+  final String country;
 
   const Location({
     required this.latitude,
     required this.longitude,
     required this.formattedAddress,
+    required this.country,
   });
 
   String formatDistance(double currentLat, double currentLng) {
