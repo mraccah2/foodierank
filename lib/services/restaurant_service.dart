@@ -26,7 +26,7 @@ class RestaurantService {
   Future<List<Map<String, dynamic>>> fetchRestaurants(
     double latitude,
     double longitude,
-    {String? priceLevel,
+    {List<String>? priceLevels,
     String? cuisineType,
     bool openNow = true,
     String? searchQuery,
@@ -39,7 +39,7 @@ class RestaurantService {
     _cachedRestaurants = await getNearbyRestaurants(
       latitude, 
       longitude,
-      priceLevel: priceLevel,
+      priceLevels: priceLevels,
       cuisineType: cuisineType != 'All' ? cuisineType : null,
       openNow: openNow,
       searchQuery: searchQuery,
@@ -77,7 +77,7 @@ class RestaurantService {
   Future<List<Map<String, dynamic>>> getNearbyRestaurants(
     double latitude,
     double longitude,
-    {String? priceLevel, 
+    {List<String>? priceLevels, 
     String? cuisineType, 
     bool openNow = true,
     String? searchQuery,
@@ -102,7 +102,7 @@ class RestaurantService {
         longitude,
         radius,
         cuisineType: cuisineType,
-        priceLevel: priceLevel,
+        priceLevels: priceLevels,
         openNow: openNow,
         searchQuery: searchQuery,
       );
@@ -121,7 +121,7 @@ class RestaurantService {
           for (final place in places) {
             final id = place['id'] as String;
             if (!foundIds.contains(id)) {
-              final mappedPlace = _mapPlace(place, priceLevel);
+              final mappedPlace = _mapPlace(place, priceLevels);
               if (mappedPlace != null) {
                 foundIds.add(id);
                 allRestaurants.add(mappedPlace);
@@ -160,8 +160,10 @@ class RestaurantService {
     double latitude,
     double longitude,
     double radius,
-    {String? cuisineType, String? priceLevel, bool openNow = true, String? searchQuery}
+    {String? cuisineType, List<String>? priceLevels, bool openNow = true, String? searchQuery}
   ) {
+    print('dBug/restaurant_service.dart: Sending price levels to API: $priceLevels');
+    
     const double metersPerDegree = 111320.0;
     double halfRadiusDegrees = radius / metersPerDegree;
 
@@ -190,8 +192,8 @@ class RestaurantService {
       'maxResultCount': _targetCount,
       'languageCode': 'en',
       if (openNow) 'openNow': openNow,
-      if (priceLevel != null) ...{
-        'priceLevels': [_convertPriceLevel(priceLevel)],
+      if (priceLevels != null) ...{
+        'priceLevels': priceLevels,
       },
     };
     
@@ -217,7 +219,7 @@ class RestaurantService {
     }
   }
 
-  Map<String, dynamic>? _mapPlace(Map<String, dynamic> place, String? targetPriceLevel) {
+  Map<String, dynamic>? _mapPlace(Map<String, dynamic> place, List<String>? targetPriceLevels) {
     final photos = place['photos'] as List<dynamic>?;
     final photoRefs = photos?.map((photo) => photo['name'] as String).toList() ?? [];
     

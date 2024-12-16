@@ -45,11 +45,11 @@ class _RestaurantListScreenState extends State<RestaurantListScreen> with Widget
   static const int _lowResultsThreshold = 3;
   DateTime? _lastRefreshTime;
   Position? _lastPosition;
-  ViewMode _viewMode = ViewMode.card;
+  ViewMode _viewMode = ViewMode.list;
   bool _cardViewFromTap = false;
   int? _lastTappedIndex;
   final GlobalKey _scaffoldKey = GlobalKey();
-  final double _sortIconRotation = 0.0;
+  final Set<String> _selectedPriceLevels = {};
 
   @override
   void initState() {
@@ -142,7 +142,7 @@ class _RestaurantListScreenState extends State<RestaurantListScreen> with Widget
       final rawRestaurants = await RestaurantService.instance.fetchRestaurants(
         position.latitude,
         position.longitude,
-        priceLevel: _selectedPriceLevel,
+        priceLevels: _getEffectivePriceLevels(),
         cuisineType: _selectedType,
         openNow: _showOpenOnly,
         searchQuery: _searchQuery,
@@ -271,51 +271,90 @@ class _RestaurantListScreenState extends State<RestaurantListScreen> with Widget
     showModalBottomSheet(
       context: context,
       builder: (BuildContext context) {
-        return Container(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Text(
-                'Select Price Range',
-                style: TextStyle(
-                  fontSize: 20,
-                  fontWeight: FontWeight.bold,
-                  color: Colors.black,
-                ),
-              ),
-              const SizedBox(height: 16),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                children: ['All', '\$', '\$\$', '\$\$\$', '\$\$\$\$'].map((price) {
-                  final isSelected = _selectedPriceLevel == price || (price == 'All' && _selectedPriceLevel == null);
-                  return InkWell(
-                    onTap: () {
-                      final newPrice = price == 'All' ? null : price;
-                      setState(() => _selectedPriceLevel = newPrice);
+        return StatefulBuilder(
+          builder: (BuildContext context, StateSetter setModalState) {
+            void updatePriceRange() {
+              if (_selectedPriceLevels.isEmpty) return;
+              
+              // Get min and max selections
+              List<String> levels = _selectedPriceLevels.toList()
+                ..sort((a, b) => a.length.compareTo(b.length));
+              
+              // Find indices in the full price range
+              final priceRange = ['\$', '\$\$', '\$\$\$', '\$\$\$\$'];
+              int startIndex = priceRange.indexOf(levels.first);
+              int endIndex = priceRange.indexOf(levels.last);
+              
+              // Add all levels between min and max
+              setModalState(() {
+                _selectedPriceLevels.addAll(
+                  priceRange.sublist(startIndex, endIndex + 1)
+                );
+              });
+            }
+
+            return Container(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Text(
+                    'Select Price Range',
+                    style: TextStyle(
+                      fontSize: 20,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.black,
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                    children: ['\$', '\$\$', '\$\$\$', '\$\$\$\$'].map((price) {
+                      final isSelected = _selectedPriceLevels.contains(price);
+                      return InkWell(
+                        onTap: () {
+                          setModalState(() {
+                            if (isSelected) {
+                              _selectedPriceLevels.remove(price);
+                            } else {
+                              _selectedPriceLevels.add(price);
+                            }
+                            updatePriceRange(); // Auto-fill gaps after each selection
+                          });
+                        },
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 20,
+                            vertical: 10
+                          ),
+                          decoration: BoxDecoration(
+                            color: isSelected ? Colors.grey : Colors.white,
+                            borderRadius: BorderRadius.circular(20),
+                            border: Border.all(color: Colors.black),
+                          ),
+                          child: Text(
+                            price,
+                            style: TextStyle(
+                              color: isSelected ? Colors.white : Colors.black,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ),
+                      );
+                    }).toList(),
+                  ),
+                  const SizedBox(height: 16),
+                  ElevatedButton(
+                    onPressed: () {
                       Navigator.pop(context);
                       _initializeAndLoad();
                     },
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
-                      decoration: BoxDecoration(
-                        color: isSelected ? Colors.grey : Colors.white,
-                        borderRadius: BorderRadius.circular(20),
-                        border: Border.all(color: Colors.black),
-                      ),
-                      child: Text(
-                        price,
-                        style: TextStyle(
-                          color: isSelected ? Colors.white : Colors.black,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                    ),
-                  );
-                }).toList(),
+                    child: const Text('Apply'),
+                  ),
+                ],
               ),
-            ],
-          ),
+            );
+          },
         );
       },
     );
@@ -722,7 +761,7 @@ class _RestaurantListScreenState extends State<RestaurantListScreen> with Widget
                         onPressed: _showPriceRangeDialog,
                         style: buttonStyle,
                         child: Text(
-                          _selectedPriceLevel ?? '\$-\$\$\$\$',
+                          _getPriceLevelDisplay(),
                           style: Theme.of(context).textTheme.bodyLarge?.copyWith(
                             color: Colors.black,
                           ),
@@ -849,7 +888,7 @@ class _RestaurantListScreenState extends State<RestaurantListScreen> with Widget
                                 final rawRestaurants = await RestaurantService.instance.fetchRestaurants(
                                   position.latitude,
                                   position.longitude,
-                                  priceLevel: _selectedPriceLevel,
+                                  priceLevels: _getEffectivePriceLevels(),
                                   cuisineType: _selectedType,
                                   openNow: _showOpenOnly,
                                   searchQuery: value,
@@ -935,6 +974,7 @@ class _RestaurantListScreenState extends State<RestaurantListScreen> with Widget
                   );
                 },
               ) : ListView.builder(
+                padding: const EdgeInsets.only(top: 3),  // Added top padding
                 itemCount: _restaurants!.length,
                 itemBuilder: (context, index) {
                   final restaurant = _restaurants![index];
@@ -962,5 +1002,51 @@ class _RestaurantListScreenState extends State<RestaurantListScreen> with Widget
         ],
       ),
     );
+  }
+
+  String _getPriceLevelDisplay() {
+    if (_selectedPriceLevels.isEmpty) return '\$-\$\$\$\$';
+    
+    List<String> levels = _selectedPriceLevels.toList()
+      ..sort((a, b) => a.length.compareTo(b.length));
+      
+    if (levels.length == 1) return levels.first;
+    return '${levels.first}-${levels.last}';
+  }
+
+  List<String> _getEffectivePriceLevels() {
+    // Map of dollar signs to API enum values
+    final priceMap = {
+      '\$': 'PRICE_LEVEL_INEXPENSIVE',
+      '\$\$': 'PRICE_LEVEL_MODERATE',
+      '\$\$\$': 'PRICE_LEVEL_EXPENSIVE',
+      '\$\$\$\$': 'PRICE_LEVEL_VERY_EXPENSIVE',
+    };
+
+    if (_selectedPriceLevels.isEmpty) {
+      // Return all price levels plus UNSPECIFIED
+      return [
+        'PRICE_LEVEL_UNSPECIFIED',
+        'PRICE_LEVEL_INEXPENSIVE',
+        'PRICE_LEVEL_MODERATE',
+        'PRICE_LEVEL_EXPENSIVE',
+        'PRICE_LEVEL_VERY_EXPENSIVE'
+      ];
+    }
+
+    List<String> levels = _selectedPriceLevels.toList()
+      ..sort((a, b) => a.length.compareTo(b.length));
+    
+    int startIndex = ['\$', '\$\$', '\$\$\$', '\$\$\$\$']
+        .indexOf(levels.first);
+    int endIndex = ['\$', '\$\$', '\$\$\$', '\$\$\$\$']
+        .indexOf(levels.last);
+        
+    // Convert dollar signs to API enum values and include UNSPECIFIED
+    return ['PRICE_LEVEL_UNSPECIFIED'] + 
+      ['\$', '\$\$', '\$\$\$', '\$\$\$\$']
+        .sublist(startIndex, endIndex + 1)
+        .map((level) => priceMap[level]!)
+        .toList();
   }
 } 
