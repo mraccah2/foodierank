@@ -162,8 +162,6 @@ class RestaurantService {
     double radius,
     {String? cuisineType, List<String>? priceLevels, bool openNow = true, String? searchQuery}
   ) {
-    print('dBug/restaurant_service.dart: Sending price levels to API: $priceLevels');
-    
     const double metersPerDegree = 111320.0;
     double halfRadiusDegrees = radius / metersPerDegree;
 
