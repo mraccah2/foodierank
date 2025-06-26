@@ -6,6 +6,7 @@ import 'services/restaurant_service.dart';
 import 'dart:async';
 import 'services/navigation_service.dart';
 import 'screens/restaurant_list_screen.dart';
+import 'services/api_usage_tracker.dart';
 
 void main() {
   runZonedGuarded(() async {
@@ -53,8 +54,33 @@ void main() {
   });
 }
 
-class MyApp extends StatelessWidget {
+class MyApp extends StatefulWidget {
   const MyApp({super.key});
+
+  @override
+  _MyAppState createState() => _MyAppState();
+}
+
+class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.paused) {
+      // App is going to background, print stats
+      ApiUsageTracker.instance.printUsageStats();
+    }
+  }
 
   @override
   Widget build(BuildContext context) {

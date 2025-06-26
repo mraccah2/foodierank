@@ -6,6 +6,7 @@ import '../services/navigation_service.dart';
 import 'package:flutter/widgets.dart';
 import 'dart:async';
 import 'dart:math';
+import 'api_usage_tracker.dart';
 
 class RestaurantService {
   static final RestaurantService instance = RestaurantService._internal();
@@ -108,6 +109,7 @@ class RestaurantService {
       );
       
       try {
+        ApiUsageTracker.instance.incrementTextSearch();
         final response = await ProxyService.placesApiGet(
           'places:searchText',
           params,
@@ -253,6 +255,7 @@ class RestaurantService {
   }
 
   Future<Uint8List?> getPlacePhoto(String photoName, {int maxWidth = 800, int maxHeight = 450}) async {
+    ApiUsageTracker.instance.incrementPhoto();
     try {
       final uri = Uri.parse('${ProxyService.baseUrl}/$photoName/media');
       
