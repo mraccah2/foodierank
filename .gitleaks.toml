@@ -1,0 +1,21 @@
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Public-by-design keys (Firebase client config, Supabase anon/publishable JWTs, CocoaPods fingerprints). Real secrets are NOT allowlisted."
+
+paths = [
+  '''(^|/)firebase_options\.dart$''',
+  '''(^|/)google-services\.json$''',
+  '''(^|/)GoogleService-Info\.plist$''',
+  '''(^|/)firebase-messaging-sw\.js$''',
+  '''(^|/)Podfile\.lock$''',
+]
+
+regexes = [
+  '''sb_publishable_[A-Za-z0-9_-]+''',
+]
+
+stopwords = [
+  "cm9sZSI6ImFub24i",
+]
