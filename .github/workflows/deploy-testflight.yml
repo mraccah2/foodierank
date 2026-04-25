@@ -123,10 +123,22 @@ jobs:
       - name: Build Flutter framework (no codesign)
         run: flutter build ios --release --no-codesign
 
-      - name: Configure manual signing for CI
+      - name: Configure manual signing for CI (Runner target only)
         run: |
           PBXPROJ="ios/Runner.xcodeproj/project.pbxproj"
           sed -i '' 's/CODE_SIGN_STYLE = Automatic/CODE_SIGN_STYLE = Manual/g' "$PBXPROJ"
+          python3 -c "
+          text = open('$PBXPROJ').read()
+          text = text.replace(
+              'CODE_SIGN_STYLE = Manual;',
+              'CODE_SIGN_STYLE = Manual; \"CODE_SIGN_IDENTITY[sdk=iphoneos*]\" = \"Apple Distribution\";'
+          )
+          text = text.replace(
+              'PRODUCT_BUNDLE_IDENTIFIER = com.foodierank.foodierank;',
+              'PRODUCT_BUNDLE_IDENTIFIER = com.foodierank.foodierank; PROVISIONING_PROFILE_SPECIFIER = \"$app_profile_name\";'
+          )
+          open('$PBXPROJ', 'w').write(text)
+          "
 
       - name: Install ASC API key
         env:
@@ -174,10 +186,7 @@ jobs:
             -configuration Release \
             -archivePath $RUNNER_TEMP/Runner.xcarchive \
             -destination 'generic/platform=iOS' \
-            CODE_SIGN_STYLE=Manual \
             DEVELOPMENT_TEAM=XTWDQNWHQJ \
-            CODE_SIGN_IDENTITY="Apple Distribution" \
-            PROVISIONING_PROFILE_SPECIFIER="$app_profile_name" \
             OTHER_CODE_SIGN_FLAGS="--keychain $keychain_path" \
             COMPILER_INDEX_STORE_ENABLE=NO
 
