@@ -8,8 +8,6 @@ class ProxyService {
   static const String baseUrl = 'https://places.googleapis.com/v1';
   static final String _apiKey = Config.googleMapsApiKey;
   static final Map<String, String> _photoUrlCache = {};
-  static const String _sha1 = '6F36B6864C200D65C27D924F60AD4BDDB2BC1FBE';
-  static const String _packageName = 'com.foodierank.foodierank';
 
   static Future<Map<String, dynamic>> placesApiGet(
     String endpoint,
@@ -22,12 +20,11 @@ class ProxyService {
     while (retryCount < maxRetries) {
       try {
         final url = Uri.parse('$baseUrl/$endpoint');
-        
+
         final headers = {
           'Content-Type': 'application/json',
           'X-Goog-Api-Key': _apiKey,
-          'X-Android-Package': _packageName,
-          'X-Android-Cert': _sha1,
+          ...Config.appAttestationHeaders,
           if (fieldMask != null) 'X-Goog-FieldMask': fieldMask,
         };
         
@@ -65,8 +62,7 @@ class ProxyService {
       final headers = {
         'Content-Type': 'application/json',
         'X-Goog-Api-Key': _apiKey,
-        'X-Android-Package': _packageName,
-        'X-Android-Cert': _sha1,
+        ...Config.appAttestationHeaders,
       };
 
       final response = await _client.get(

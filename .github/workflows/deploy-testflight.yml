@@ -1,0 +1,213 @@
+name: iOS — Build & Upload to TestFlight
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "lib/**"
+      - "ios/**"
+      - "pubspec.yaml"
+      - "pubspec.lock"
+      - ".github/workflows/deploy-testflight.yml"
+  workflow_dispatch:
+
+permissions:
+  actions: write
+  contents: read
+
+concurrency:
+  group: testflight-deploy
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    name: Build & Upload to TestFlight
+    runs-on: [self-hosted, macos, ios]
+    timeout-minutes: 45
+
+    steps:
+      - name: Clean up old artifacts
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const artifacts = await github.rest.actions.listArtifactsForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              per_page: 100,
+            });
+            for (const artifact of artifacts.data.artifacts) {
+              if (artifact.name.startsWith('foodierank-ios-') && !artifact.expired) {
+                console.log(`Deleting ${artifact.name} (${(artifact.size_in_bytes / 1048576).toFixed(1)} MB)`);
+                await github.rest.actions.deleteArtifact({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  artifact_id: artifact.id,
+                });
+              }
+            }
+
+      - uses: actions/checkout@v4
+        with:
+          clean: true
+
+      - name: Verify Xcode
+        run: xcodebuild -version
+
+      - name: Set up Flutter
+        run: flutter --version
+
+      - name: Install signing certificate & provisioning profile
+        env:
+          IOS_CERTIFICATE_P12: ${{ secrets.IOS_CERTIFICATE_P12 }}
+          IOS_CERTIFICATE_PASSWORD: ${{ secrets.IOS_CERTIFICATE_PASSWORD }}
+          IOS_PROVISIONING_PROFILE: ${{ secrets.IOS_PROVISIONING_PROFILE }}
+        run: |
+          KEYCHAIN_PATH="$RUNNER_TEMP/app-signing.keychain-db"
+          KEYCHAIN_PASSWORD="$(openssl rand -hex 16)"
+
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+
+          CERT_PATH="$RUNNER_TEMP/certificate.p12"
+          echo "$IOS_CERTIFICATE_P12" | base64 --decode > "$CERT_PATH"
+          security import "$CERT_PATH" \
+            -P "$IOS_CERTIFICATE_PASSWORD" \
+            -A \
+            -t cert \
+            -f pkcs12 \
+            -k "$KEYCHAIN_PATH"
+          rm "$CERT_PATH"
+
+          security default-keychain -s "$KEYCHAIN_PATH"
+          security list-keychains -d user -s "$KEYCHAIN_PATH" $(security list-keychains -d user | tr -d '"')
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+
+          rm -f ~/Library/MobileDevice/Provisioning\ Profiles/*.mobileprovision
+          mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
+
+          PROFILE_PATH="$RUNNER_TEMP/profile.mobileprovision"
+          echo "$IOS_PROVISIONING_PROFILE" | base64 --decode > "$PROFILE_PATH"
+          PROFILE_PLIST=$(security cms -D -i "$PROFILE_PATH")
+          PROFILE_UUID=$(/usr/libexec/PlistBuddy -c "Print UUID" /dev/stdin <<< "$PROFILE_PLIST")
+          PROFILE_NAME=$(/usr/libexec/PlistBuddy -c "Print Name" /dev/stdin <<< "$PROFILE_PLIST")
+          cp "$PROFILE_PATH" ~/Library/MobileDevice/Provisioning\ Profiles/"$PROFILE_UUID".mobileprovision
+          rm "$PROFILE_PATH"
+
+          echo "keychain_path=$KEYCHAIN_PATH" >> "$GITHUB_ENV"
+          echo "keychain_password=$KEYCHAIN_PASSWORD" >> "$GITHUB_ENV"
+          echo "app_profile_uuid=$PROFILE_UUID" >> "$GITHUB_ENV"
+          echo "app_profile_name=$PROFILE_NAME" >> "$GITHUB_ENV"
+          echo "Installed profile: name=$PROFILE_NAME uuid=$PROFILE_UUID"
+
+      - name: Configure manual signing for CI
+        run: |
+          PBXPROJ="ios/Runner.xcodeproj/project.pbxproj"
+          sed -i '' 's/CODE_SIGN_STYLE = Automatic/CODE_SIGN_STYLE = Manual/g' "$PBXPROJ"
+          python3 -c "
+          import re
+          text = open('$PBXPROJ').read()
+          text = text.replace(
+              'CODE_SIGN_STYLE = Manual;',
+              'CODE_SIGN_STYLE = Manual; \"CODE_SIGN_IDENTITY[sdk=iphoneos*]\" = \"Apple Distribution\";'
+          )
+          text = text.replace(
+              'PRODUCT_BUNDLE_IDENTIFIER = com.foodierank.foodierank;',
+              'PRODUCT_BUNDLE_IDENTIFIER = com.foodierank.foodierank; PROVISIONING_PROFILE_SPECIFIER = \"$app_profile_name\";'
+          )
+          open('$PBXPROJ', 'w').write(text)
+          "
+
+      - name: Set build number
+        run: |
+          BUILD_NUMBER=${{ github.run_number }}
+          CURRENT_VERSION=$(grep '^version:' pubspec.yaml | sed 's/version: *//' | cut -d'+' -f1)
+          sed -i '' "s/^version:.*/version: ${CURRENT_VERSION}+${BUILD_NUMBER}/" pubspec.yaml
+          echo "Version: ${CURRENT_VERSION}+${BUILD_NUMBER}"
+
+      - name: Flutter pub get
+        run: flutter pub get
+
+      - name: Pod install
+        working-directory: ios
+        run: pod install --repo-update
+
+      - name: Clean build cache
+        run: |
+          flutter clean
+          flutter pub get
+          rm -rf ~/Library/Developer/Xcode/DerivedData/Runner-*
+
+      - name: Install ASC API key
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_PRIVATE_KEY: ${{ secrets.ASC_PRIVATE_KEY }}
+        run: |
+          mkdir -p ~/private_keys
+          echo "$ASC_PRIVATE_KEY" > ~/private_keys/AuthKey_${ASC_KEY_ID}.p8
+
+      - name: Write ExportOptions.plist
+        run: |
+          cat > $RUNNER_TEMP/ExportOptions.plist << EOF
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>method</key>
+            <string>app-store-connect</string>
+            <key>teamID</key>
+            <string>XTWDQNWHQJ</string>
+            <key>signingStyle</key>
+            <string>manual</string>
+            <key>signingCertificate</key>
+            <string>Apple Distribution</string>
+            <key>provisioningProfiles</key>
+            <dict>
+              <key>com.foodierank.foodierank</key>
+              <string>$app_profile_name</string>
+            </dict>
+            <key>destination</key>
+            <string>upload</string>
+            <key>uploadSymbols</key>
+            <true/>
+          </dict>
+          </plist>
+          EOF
+
+      - name: Build IPA
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+        run: |
+          security unlock-keychain -p "$keychain_password" "$keychain_path"
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$keychain_password" "$keychain_path"
+          flutter build ipa --release \
+            --export-options-plist=$RUNNER_TEMP/ExportOptions.plist
+
+      - name: Upload to TestFlight
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+        run: |
+          IPA=$(ls build/ios/ipa/*.ipa | head -1)
+          echo "Uploading $IPA"
+          xcrun altool --upload-app -f "$IPA" --type ios \
+            --apiKey "$ASC_KEY_ID" \
+            --apiIssuer "$ASC_ISSUER_ID" \
+            --show-progress
+
+      - name: Clean up signing & keys
+        if: always()
+        run: |
+          rm -f ~/private_keys/AuthKey_*.p8
+          if [ -n "$keychain_path" ]; then
+            security delete-keychain "$keychain_path" 2>/dev/null || true
+          fi
+
+      - name: Upload IPA artifact
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: foodierank-ios-${{ github.run_number }}
+          path: build/ios/ipa/*.ipa
+          retention-days: 3

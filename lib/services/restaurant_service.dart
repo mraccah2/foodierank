@@ -269,8 +269,7 @@ class RestaurantService {
           }),
           headers: {
             'X-Goog-Api-Key': Config.googleMapsApiKey,
-            'X-Android-Package': 'com.foodierank.foodierank',
-            'X-Android-Cert': '6F36B6864C200D65C27D924F60AD4BDDB2BC1FBE',
+            ...Config.appAttestationHeaders,
             'Accept': 'image/*',
             'User-Agent': 'FoodieRank/1.0',
           },
