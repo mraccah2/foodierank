@@ -79,8 +79,12 @@ jobs:
             -k "$KEYCHAIN_PATH"
           rm "$CERT_PATH"
 
+          ORIGINAL_DEFAULT_KEYCHAIN=$(security default-keychain | tr -d ' "')
+          ORIGINAL_KEYCHAIN_LIST=$(security list-keychains -d user | tr -d '"' | tr '\n' ' ')
+          echo "original_default_keychain=$ORIGINAL_DEFAULT_KEYCHAIN" >> "$GITHUB_ENV"
+          echo "original_keychain_list=$ORIGINAL_KEYCHAIN_LIST" >> "$GITHUB_ENV"
           security default-keychain -s "$KEYCHAIN_PATH"
-          security list-keychains -d user -s "$KEYCHAIN_PATH" $(security list-keychains -d user | tr -d '"')
+          security list-keychains -d user -s "$KEYCHAIN_PATH" $ORIGINAL_KEYCHAIN_LIST
           security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
 
           rm -f ~/Library/MobileDevice/Provisioning\ Profiles/*.mobileprovision
@@ -219,6 +223,12 @@ jobs:
         if: always()
         run: |
           rm -f ~/private_keys/AuthKey_*.p8
+          if [ -n "$original_default_keychain" ]; then
+            security default-keychain -s "$original_default_keychain" 2>/dev/null || true
+          fi
+          if [ -n "$original_keychain_list" ]; then
+            security list-keychains -d user -s $original_keychain_list 2>/dev/null || true
+          fi
           if [ -n "$keychain_path" ]; then
             security delete-keychain "$keychain_path" 2>/dev/null || true
           fi
