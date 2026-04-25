@@ -8,6 +8,7 @@ on:
       - "ios/**"
       - "pubspec.yaml"
       - "pubspec.lock"
+      - "scripts/**"
       - ".github/workflows/deploy-testflight.yml"
   workflow_dispatch:
 
