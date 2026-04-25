@@ -155,13 +155,15 @@ def main():
             waiting = v
 
     if waiting and not editable:
-        version_id = waiting["id"]
         attached_build_id = (waiting.get("relationships", {})
                              .get("build", {}).get("data", {}) or {}).get("id")
         if attached_build_id == build_id:
             print(f"Version {train_version} already submitted with this build (state=WAITING_FOR_REVIEW). Nothing to do.")
             return
-        sys.exit(f"Version {train_version} is in WAITING_FOR_REVIEW with a different build attached; cannot replace mid-flight")
+        print(f"⚠️  Version {train_version} is in WAITING_FOR_REVIEW with a different build attached.")
+        print("   This new build will sit in TestFlight; submit it manually after Apple finishes "
+              "reviewing the earlier build, or cancel that submission first.")
+        return
 
     if editable:
         version_id = editable["id"]
