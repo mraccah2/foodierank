@@ -206,6 +206,19 @@ jobs:
             -authenticationKeyID "$ASC_KEY_ID" \
             -authenticationKeyIssuerID "$ASC_ISSUER_ID"
 
+      - name: Submit for App Store review (auto-release after approval)
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_PRIVATE_KEY: ${{ secrets.ASC_PRIVATE_KEY }}
+          ASC_RELEASE_TYPE: AFTER_APPROVAL
+          ASC_BUILD_VERSION: ${{ github.run_number }}
+          ASC_WHATS_NEW: ${{ github.event.head_commit.message }}
+        run: |
+          python3 -m pip install --quiet --user --break-system-packages pyjwt cryptography || \
+            python3 -m pip install --quiet --user pyjwt cryptography
+          python3 scripts/asc_submit_for_review.py
+
       - name: Clean up signing, keys & build artifacts
         if: always()
         run: |
