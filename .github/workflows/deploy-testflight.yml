@@ -127,18 +127,17 @@ jobs:
         run: |
           PBXPROJ="ios/Runner.xcodeproj/project.pbxproj"
           sed -i '' 's/CODE_SIGN_STYLE = Automatic/CODE_SIGN_STYLE = Manual/g' "$PBXPROJ"
+          sed -i '' 's/"iPhone Developer"/"Apple Distribution"/g' "$PBXPROJ"
           python3 -c "
           text = open('$PBXPROJ').read()
-          text = text.replace(
-              'CODE_SIGN_STYLE = Manual;',
-              'CODE_SIGN_STYLE = Manual; \"CODE_SIGN_IDENTITY[sdk=iphoneos*]\" = \"Apple Distribution\";'
-          )
           text = text.replace(
               'PRODUCT_BUNDLE_IDENTIFIER = com.foodierank.foodierank;',
               'PRODUCT_BUNDLE_IDENTIFIER = com.foodierank.foodierank; PROVISIONING_PROFILE_SPECIFIER = \"$app_profile_name\";'
           )
           open('$PBXPROJ', 'w').write(text)
           "
+          echo '--- relevant Runner build settings ---'
+          grep -E 'CODE_SIGN|PROVISIONING|PRODUCT_BUNDLE_IDENTIFIER|DEVELOPMENT_TEAM' "$PBXPROJ" | head -30
 
       - name: Install ASC API key
         env:
