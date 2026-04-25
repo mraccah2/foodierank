@@ -87,7 +87,6 @@ jobs:
           security list-keychains -d user -s "$KEYCHAIN_PATH" $ORIGINAL_KEYCHAIN_LIST
           security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
 
-          rm -f ~/Library/MobileDevice/Provisioning\ Profiles/*.mobileprovision
           mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
 
           PROFILE_PATH="$RUNNER_TEMP/profile.mobileprovision"
@@ -97,6 +96,7 @@ jobs:
           PROFILE_NAME=$(/usr/libexec/PlistBuddy -c "Print Name" /dev/stdin <<< "$PROFILE_PLIST")
           cp "$PROFILE_PATH" ~/Library/MobileDevice/Provisioning\ Profiles/"$PROFILE_UUID".mobileprovision
           rm "$PROFILE_PATH"
+          echo "installed_profile_path=$HOME/Library/MobileDevice/Provisioning Profiles/$PROFILE_UUID.mobileprovision" >> "$GITHUB_ENV"
 
           echo "keychain_path=$KEYCHAIN_PATH" >> "$GITHUB_ENV"
           echo "keychain_password=$KEYCHAIN_PASSWORD" >> "$GITHUB_ENV"
@@ -116,13 +116,12 @@ jobs:
 
       - name: Pod install
         working-directory: ios
-        run: pod install --repo-update
-
-      - name: Clean build cache
         run: |
-          flutter clean
-          flutter pub get
-          rm -rf ~/Library/Developer/Xcode/DerivedData/Runner-*
+          # Try without --repo-update first; if it fails (missing pod), retry with refresh.
+          pod install || pod install --repo-update
+
+      - name: Clean DerivedData
+        run: rm -rf ~/Library/Developer/Xcode/DerivedData/Runner-*
 
       - name: Build Flutter framework (no codesign)
         run: flutter build ios --release --no-codesign
@@ -207,10 +206,13 @@ jobs:
             -authenticationKeyID "$ASC_KEY_ID" \
             -authenticationKeyIssuerID "$ASC_ISSUER_ID"
 
-      - name: Clean up signing & keys
+      - name: Clean up signing, keys & build artifacts
         if: always()
         run: |
           rm -f ~/private_keys/AuthKey_*.p8
+          if [ -n "$installed_profile_path" ] && [ -f "$installed_profile_path" ]; then
+            rm -f "$installed_profile_path" || true
+          fi
           if [ -n "$original_default_keychain" ]; then
             security default-keychain -s "$original_default_keychain" 2>/dev/null || true
           fi
@@ -220,4 +222,7 @@ jobs:
           if [ -n "$keychain_path" ]; then
             security delete-keychain "$keychain_path" 2>/dev/null || true
           fi
+          # Reclaim disk: archives can be GBs each.
+          rm -rf "$RUNNER_TEMP/Runner.xcarchive" "$RUNNER_TEMP/export" 2>/dev/null || true
+          rm -rf ~/Library/Developer/Xcode/DerivedData/Runner-* 2>/dev/null || true
 
