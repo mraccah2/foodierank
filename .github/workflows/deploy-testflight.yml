@@ -104,6 +104,26 @@ jobs:
           echo "app_profile_name=$PROFILE_NAME" >> "$GITHUB_ENV"
           echo "Installed profile: name=$PROFILE_NAME uuid=$PROFILE_UUID"
 
+      # Cross-check our GH-secret cert + profile against Apple before any
+      # expensive build steps. Catches the May 2026 failure mode (team-wide
+      # distribution cert revoked, profile silently INVALID) in seconds
+      # instead of 5 minutes deep into xcodebuild. Same script as
+      # mraccah2/listo's scripts/verify_ios_signing.py — keep them in sync
+      # when the contract changes.
+      - name: Verify signing state vs Apple
+        env:
+          IOS_CERTIFICATE: ${{ secrets.IOS_CERTIFICATE_P12 }}
+          IOS_CERTIFICATE_PASSWORD: ${{ secrets.IOS_CERTIFICATE_PASSWORD }}
+          IOS_PROFILE: ${{ secrets.IOS_PROVISIONING_PROFILE }}
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_PRIVATE_KEY: ${{ secrets.ASC_PRIVATE_KEY }}
+        run: |
+          python3 -m venv /tmp/verify-venv
+          /tmp/verify-venv/bin/pip install --quiet --timeout 30 PyJWT cryptography
+          /tmp/verify-venv/bin/python3 scripts/verify_ios_signing.py \
+            --bundle-id com.foodierank.foodierank
+
       - name: Set build number
         run: |
           BUILD_NUMBER=${{ github.run_number }}
