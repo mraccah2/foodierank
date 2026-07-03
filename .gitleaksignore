@@ -1,12 +1,6 @@
-# Google Maps JS/Android API keys that are public-by-design (restricted by
-# bundle ID / SHA-1 fingerprint / HTTP referer in GCP Console). Same policy as
-# Firebase client Web API keys.
-9936151c84d1dea58036933d608fac2742a31c62:android/app/src/main/AndroidManifest.xml:gcp-api-key:14
-9936151c84d1dea58036933d608fac2742a31c62:lib/config.dart:gcp-api-key:7
-9936151c84d1dea58036933d608fac2742a31c62:lib/config.dart:gcp-api-key:8
-62d73da6128f9acfecea567fdfbf91f0db9bcc04:lib/config.dart:gcp-api-key:4
-6c07561871fbdfea898e3e581c68082ffdeef0cd:lib/config.dart:gcp-api-key:4
-601bebd6438ab2d46cf6de37681ed8b61f5a61e5:lib/config.dart:gcp-api-key:3
-
-# Old iOS Google API key, ROTATED and DELETED in GCP on 2026-07-03 (dead credential).
-0070960d9ce8221f88e1786c62c5653a519a649d:lib/config.dart:gcp-api-key:8
+# Git history was scrubbed on 2026-07-03 (git filter-repo): all previously
+# committed Google API keys were rotated, deleted in GCP, and redacted from
+# every commit. No per-commit key fingerprints remain to allowlist.
+#
+# Add new entries here only for verified false positives, formatted as:
+#   <commit-sha>:<file>:<rule>:<line>

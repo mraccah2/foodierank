@@ -23,13 +23,13 @@ def mapsApiKey = System.getenv('MAPS_API_KEY') ?: localProperties.getProperty('M
 
 configurations.all {
     resolutionStrategy {
-        force 'org.jetbrains.kotlin:kotlin-stdlib-jdk8:1.8.0'
+        force 'org.jetbrains.kotlin:kotlin-stdlib-jdk8:1.9.22'
     }
 }
 
 android {
     namespace = "com.foodierank.foodierank"
-    compileSdk = 34
+    compileSdk = 36
     ndkVersion = flutter.ndkVersion
 
     compileOptions {
@@ -43,7 +43,7 @@ android {
 
     defaultConfig {
         applicationId = "com.foodierank.foodierank"
-        minSdkVersion = 21
+        minSdkVersion = flutter.minSdkVersion
         targetSdkVersion = 34
         versionCode = flutter.versionCode
         versionName = flutter.versionName
@@ -53,17 +53,24 @@ android {
     }
 
     signingConfigs {
-        release {
-            keyAlias keystoreProperties['keyAlias']
-            keyPassword keystoreProperties['keyPassword']
-            storeFile file(keystoreProperties['storeFile'])
-            storePassword keystoreProperties['storePassword']
+        // Only define a real release signing config when key.properties exists
+        // (i.e. you've set up your own upload keystore). Without it, release
+        // builds fall back to the debug key so CI and contributors can still
+        // produce an installable APK/AAB. A debug-signed build is NOT
+        // acceptable for the Play Store — see RELEASING.md.
+        if (keystorePropertiesFile.exists()) {
+            release {
+                keyAlias keystoreProperties['keyAlias']
+                keyPassword keystoreProperties['keyPassword']
+                storeFile file(keystoreProperties['storeFile'])
+                storePassword keystoreProperties['storePassword']
+            }
         }
     }
 
     buildTypes {
         release {
-            signingConfig signingConfigs.release
+            signingConfig keystorePropertiesFile.exists() ? signingConfigs.release : signingConfigs.debug
         }
     }
 }

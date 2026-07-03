@@ -1,0 +1,80 @@
+name: Android — Build APK & AAB
+
+# Builds an installable release APK and an App Bundle (AAB) carrying the
+# Google Maps/Places key, and uploads them as workflow artifacts.
+#
+# NOTE: Without a signing keystore (see below) the release build is signed
+# with the debug key — fine for sideloading/testing, NOT acceptable for the
+# Play Store. To publish, add an upload keystore and a Play deploy step; see
+# RELEASING.md ("Android").
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "lib/**"
+      - "android/**"
+      - "pubspec.yaml"
+      - "pubspec.lock"
+      - "assets/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: android-build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build Android (APK + AAB)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Flutter pub get
+        run: flutter pub get
+
+      - name: Build release APK & AAB
+        env:
+          # Runtime Places API key (baked into the Dart code).
+          ANDROID_MAPS_API_KEY: ${{ secrets.ANDROID_MAPS_API_KEY }}
+          # Same key for the native manifest meta-data (read by build.gradle).
+          MAPS_API_KEY: ${{ secrets.ANDROID_MAPS_API_KEY }}
+          # App-identity values the key is restricted to (public by design).
+          ANDROID_PACKAGE_NAME: ${{ vars.ANDROID_PACKAGE_NAME || 'com.foodierank.foodierank' }}
+          ANDROID_CERT_SHA1: ${{ vars.ANDROID_CERT_SHA1 || '6F36B6864C200D65C27D924F60AD4BDDB2BC1FBE' }}
+        run: |
+          DEFINES="--dart-define=ANDROID_MAPS_API_KEY=$ANDROID_MAPS_API_KEY"
+          DEFINES="$DEFINES --dart-define=ANDROID_PACKAGE_NAME=$ANDROID_PACKAGE_NAME"
+          DEFINES="$DEFINES --dart-define=ANDROID_CERT_SHA1=$ANDROID_CERT_SHA1"
+          flutter build apk --release $DEFINES
+          flutter build appbundle --release $DEFINES
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: foodierank-apk
+          path: build/app/outputs/flutter-apk/app-release.apk
+          if-no-files-found: error
+
+      - name: Upload AAB
+        uses: actions/upload-artifact@v4
+        with:
+          name: foodierank-aab
+          path: build/app/outputs/bundle/release/app-release.aab
+          if-no-files-found: error

@@ -70,7 +70,7 @@ The workflow sets the build number from the GitHub run number and reads the
 version name from `pubspec.yaml` (`version: X.Y.Z+build`). Bump the `X.Y.Z`
 version in `pubspec.yaml` for a new release.
 
-## Local release build
+## Local release build (iOS)
 
 To build a signed release locally instead of via CI:
 
@@ -82,3 +82,60 @@ flutter build ipa --release \
 
 See the [Flutter iOS deployment docs](https://docs.flutter.dev/deployment/ios)
 for details.
+
+---
+
+## Android
+
+`.github/workflows/build-android.yml` builds a release **APK** and **AAB** on
+every push to `main` (app-code paths) and uploads them as workflow artifacts.
+
+### Configuration
+
+| Name | Type | Purpose |
+|------|------|---------|
+| `ANDROID_MAPS_API_KEY` | secret | Places API key baked into the Android build (runtime + native manifest). |
+| `ANDROID_PACKAGE_NAME` | variable (optional) | Defaults to `com.foodierank.foodierank`. |
+| `ANDROID_CERT_SHA1` | variable (optional) | Signing-cert SHA-1 the key is restricted to (public by design). |
+
+### Signing
+
+The build only uses a real upload keystore when **`android/key.properties`**
+exists; otherwise it falls back to the **debug** key. A debug-signed
+APK/AAB is fine for sideloading and testing but **cannot** be uploaded to the
+Play Store.
+
+To produce a Play-uploadable build you need your own **upload keystore**:
+
+```bash
+keytool -genkey -v -keystore upload-keystore.jks \
+  -keyalg RSA -keysize 2048 -validity 10000 -alias upload
+```
+
+Then create `android/key.properties` (gitignored):
+
+```properties
+storeFile=/absolute/path/to/upload-keystore.jks
+storePassword=…
+keyAlias=upload
+keyPassword=…
+```
+
+Build locally:
+
+```bash
+flutter build appbundle --release --dart-define-from-file=dart_defines.json
+```
+
+### Publishing to the Play Store (not yet automated)
+
+FoodieRank does not currently have a Play Store CD pipeline. To add one:
+
+1. Register the app on the [Google Play Console](https://play.google.com/console/)
+   (one-time $25 developer account).
+2. Enable **Play App Signing** and keep your upload keystore safe.
+3. Create a **Google Play Developer API** service account, grant it release
+   permissions, and download its JSON key.
+4. Store the keystore (base64), `key.properties` values, and the service-account
+   JSON as GitHub secrets, then extend `build-android.yml` with a signed build
+   + an upload step (e.g. `r0adkll/upload-google-play`).
