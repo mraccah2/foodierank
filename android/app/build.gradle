@@ -23,7 +23,7 @@ def mapsApiKey = System.getenv('MAPS_API_KEY') ?: localProperties.getProperty('M
 
 configurations.all {
     resolutionStrategy {
-        force 'org.jetbrains.kotlin:kotlin-stdlib-jdk8:1.9.22'
+        force 'org.jetbrains.kotlin:kotlin-stdlib-jdk8:2.1.0'
     }
 }
 
