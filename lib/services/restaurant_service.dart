@@ -60,10 +60,9 @@ class RestaurantService {
   }
 
   static const int _targetCount = 20;
-  static const double _initialRadius = 500;
-  static const double _minIncrement = 500;
-  static const double _maxIncrement = 2000;
-  static const double maxRadius = 5000;
+  static const double _initialRadius = 1000; // start ~1km
+  static const double _radiusGrowth = 2.0; // double the search radius each round
+  static const double maxRadius = 100000; // safety cap (~100km) for remote areas
   static const List<String> cuisineTypes = [
     'All',
     'American',
@@ -126,14 +125,15 @@ class RestaurantService {
     }
 
     double radius = _initialRadius;
-    double currentIncrement = _minIncrement;
     final Set<String> foundIds = {};
-    List<Map<String, dynamic>> allRestaurants = [];
+    final List<Map<String, dynamic>> allRestaurants = [];
 
-    while (allRestaurants.length < _targetCount && radius <= maxRadius) {
-      if (radius.isNaN || currentIncrement.isNaN) {
-        break;
-      }
+    // Keep widening the search until we have enough places or we hit the
+    // safety cap. Dense areas are satisfied on the first (smallest) round;
+    // rural areas keep doubling the radius outward until they reach the
+    // nearest populated towns.
+    while (allRestaurants.length < _targetCount) {
+      if (radius.isNaN) break;
 
       final params = _buildSearchParams(
         latitude,
@@ -145,51 +145,38 @@ class RestaurantService {
         searchQuery: searchQuery,
       );
 
-      try {
-        ApiUsageTracker.instance.incrementTextSearch();
-        final response = await ProxyService.placesApiGet(
-          'places:searchText',
-          params,
-          fieldMask:
-              'places.id,places.displayName,places.rating,places.userRatingCount,places.photos,places.priceLevel,places.types,places.formattedAddress,places.location,places.editorialSummary',
-        );
+      ApiUsageTracker.instance.incrementTextSearch();
+      final response = await ProxyService.placesApiGet(
+        'places:searchText',
+        params,
+        fieldMask:
+            'places.id,places.displayName,places.rating,places.userRatingCount,places.photos,places.priceLevel,places.types,places.formattedAddress,places.location,places.editorialSummary',
+      );
 
-        if (response.containsKey('places')) {
-          final List<dynamic> places = response['places'];
-
-          int newMatchingPlaces = 0;
-          for (final place in places) {
-            final id = place['id'] as String;
-            if (!foundIds.contains(id)) {
-              final mappedPlace = _mapPlace(place, priceLevels);
-              if (mappedPlace != null) {
-                foundIds.add(id);
-                allRestaurants.add(mappedPlace);
-                newMatchingPlaces++;
-              }
-            }
+      final places = (response['places'] as List<dynamic>?) ?? const [];
+      for (final place in places) {
+        final id = place['id'] as String?;
+        if (id == null || foundIds.contains(id)) continue;
+        try {
+          final mappedPlace =
+              _mapPlace(place as Map<String, dynamic>, priceLevels);
+          if (mappedPlace != null) {
+            foundIds.add(id);
+            allRestaurants.add(mappedPlace);
           }
-
-          onSearchUpdate?.call(
-              allRestaurants.length, cuisineType ?? 'restaurant', radius);
-
-          if (places.isEmpty || newMatchingPlaces == 0) {
-            radius += currentIncrement;
-            currentIncrement =
-                (currentIncrement * 1.5).clamp(_minIncrement, _maxIncrement);
-          }
-        } else {
-          radius += currentIncrement;
-          currentIncrement =
-              (currentIncrement * 1.5).clamp(_minIncrement, _maxIncrement);
+        } catch (_) {
+          // Skip a place with unexpected/missing fields rather than aborting
+          // the whole search.
         }
-      } catch (e) {
-        rethrow;
       }
 
-      if (currentIncrement.isNaN) {
-        break;
-      }
+      onSearchUpdate?.call(
+          allRestaurants.length, cuisineType ?? 'restaurant', radius);
+
+      // Stop once we have enough, or once we've already searched at the
+      // maximum radius (truly remote — return whatever we found).
+      if (allRestaurants.length >= _targetCount || radius >= maxRadius) break;
+      radius = (radius * _radiusGrowth).clamp(_initialRadius, maxRadius);
     }
 
     return allRestaurants;
