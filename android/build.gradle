@@ -1,15 +1,6 @@
-buildscript {
-    ext.kotlin_version = '1.9.0'
-    repositories {
-        google()
-        mavenCentral()
-    }
-
-    dependencies {
-        classpath 'com.android.tools.build:gradle:8.1.0'
-        classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:$kotlin_version"
-    }
-}
+// AGP and Kotlin plugin versions are declared once in settings.gradle's
+// plugins block. Do NOT re-pin them here with a buildscript classpath — a
+// second, conflicting version is what silently overrode the toolchain.
 
 allprojects {
     repositories {
