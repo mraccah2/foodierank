@@ -58,7 +58,11 @@ def make_jwt():
     )
 
 
-def api(method, path, body=None):
+def api(method, path, body=None, tolerate=()):
+    """Call the ASC API. If the response status is in `tolerate`, return
+    {"__error__": code, "__body__": text} instead of raising — lets callers
+    handle expected conflicts (e.g. a transient 409 on a just-created resource)
+    without aborting the whole submission."""
     url = f"https://api.appstoreconnect.apple.com{path}"
     data = json.dumps(body).encode() if body is not None else None
     req = urllib.request.Request(url, method=method, data=data)
@@ -71,8 +75,31 @@ def api(method, path, body=None):
             return json.loads(raw) if raw else {}
     except urllib.error.HTTPError as e:
         err = e.read().decode()
+        if e.code in tolerate:
+            return {"__error__": e.code, "__body__": err}
         sys.stderr.write(f"HTTP {e.code} on {method} {path}\n  body={json.dumps(body) if body else '(none)'}\n  err={err}\n")
         raise
+
+
+def set_whats_new(loc_id, text, attempts=5):
+    """Set the release notes, tolerating the transient 409/423 that ASC returns
+    when the appStoreVersion localization was only just created. Retries with
+    backoff, then soft-skips so it never blocks the actual submission."""
+    for attempt in range(1, attempts + 1):
+        r = api("PATCH", f"/v1/appStoreVersionLocalizations/{loc_id}", {
+            "data": {
+                "type": "appStoreVersionLocalizations",
+                "id": loc_id,
+                "attributes": {"whatsNew": text},
+            }
+        }, tolerate=(409, 423))
+        if "__error__" not in r:
+            print(f"Set whatsNew on localization {loc_id}")
+            return
+        print(f"  whatsNew PATCH attempt {attempt}/{attempts} -> HTTP {r['__error__']} "
+              f"(version still materializing), retrying…")
+        time.sleep(5 * attempt)
+    print("  ⚠️  Could not set whatsNew after retries; continuing without updating release notes.")
 
 
 def find_app():
@@ -199,14 +226,7 @@ def main():
     locs = api("GET", f"/v1/appStoreVersions/{version_id}/appStoreVersionLocalizations")
     if locs["data"]:
         loc_id = locs["data"][0]["id"]
-        api("PATCH", f"/v1/appStoreVersionLocalizations/{loc_id}", {
-            "data": {
-                "type": "appStoreVersionLocalizations",
-                "id": loc_id,
-                "attributes": {"whatsNew": WHATS_NEW},
-            }
-        })
-        print(f"Set whatsNew on localization {loc_id}")
+        set_whats_new(loc_id, WHATS_NEW)
 
     submissions = api("GET", f"/v1/reviewSubmissions?filter[app]={app_id}&filter[state]=READY_FOR_REVIEW")
     if submissions["data"]:
