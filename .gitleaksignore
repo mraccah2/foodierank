@@ -7,3 +7,6 @@
 62d73da6128f9acfecea567fdfbf91f0db9bcc04:lib/config.dart:gcp-api-key:4
 6c07561871fbdfea898e3e581c68082ffdeef0cd:lib/config.dart:gcp-api-key:4
 601bebd6438ab2d46cf6de37681ed8b61f5a61e5:lib/config.dart:gcp-api-key:3
+
+# Old iOS Google API key, ROTATED and DELETED in GCP on 2026-07-03 (dead credential).
+0070960d9ce8221f88e1786c62c5653a519a649d:lib/config.dart:gcp-api-key:8
