@@ -2,7 +2,7 @@ import 'package:flutter/foundation.dart';
 
 class ApiUsageTracker {
   static final ApiUsageTracker instance = ApiUsageTracker._internal();
-  
+
   factory ApiUsageTracker() {
     return instance;
   }
@@ -27,16 +27,19 @@ class ApiUsageTracker {
   // Calculate total cost
   double get totalCost {
     return (_textSearchCalls * textSearchCost) +
-           (_photoCalls * photoCost) +
-           (_placeDetailsCalls * placeDetailsCost);
+        (_photoCalls * photoCost) +
+        (_placeDetailsCalls * placeDetailsCost);
   }
 
   // Print usage stats
   void printUsageStats() {
     debugPrint('dBug/api_usage: API Usage Statistics:');
-    debugPrint('dBug/api_usage: Text Search Calls: $_textSearchCalls (Cost: \$${(_textSearchCalls * textSearchCost).toStringAsFixed(3)})');
-    debugPrint('dBug/api_usage: Photo Calls: $_photoCalls (Cost: \$${(_photoCalls * photoCost).toStringAsFixed(3)})');
-    debugPrint('dBug/api_usage: Place Details Calls: $_placeDetailsCalls (Cost: \$${(_placeDetailsCalls * placeDetailsCost).toStringAsFixed(3)})');
+    debugPrint(
+        'dBug/api_usage: Text Search Calls: $_textSearchCalls (Cost: \$${(_textSearchCalls * textSearchCost).toStringAsFixed(3)})');
+    debugPrint(
+        'dBug/api_usage: Photo Calls: $_photoCalls (Cost: \$${(_photoCalls * photoCost).toStringAsFixed(3)})');
+    debugPrint(
+        'dBug/api_usage: Place Details Calls: $_placeDetailsCalls (Cost: \$${(_placeDetailsCalls * placeDetailsCost).toStringAsFixed(3)})');
     debugPrint('dBug/api_usage: Total Cost: \$${totalCost.toStringAsFixed(3)}');
   }
 
@@ -46,4 +49,4 @@ class ApiUsageTracker {
     _photoCalls = 0;
     _placeDetailsCalls = 0;
   }
-} 
+}

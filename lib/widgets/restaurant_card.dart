@@ -5,7 +5,7 @@ import '../services/restaurant_service.dart';
 
 class RestaurantCard extends StatefulWidget {
   static final Map<String, int> _lastViewedIndices = {};
-  
+
   final Restaurant restaurant;
   final VoidCallback onPhotoTap;
   final int ranking;
@@ -22,7 +22,7 @@ class RestaurantCard extends StatefulWidget {
   });
 
   @override
-  _RestaurantCardState createState() => _RestaurantCardState();
+  State<RestaurantCard> createState() => _RestaurantCardState();
 }
 
 class _RestaurantCardState extends State<RestaurantCard> {
@@ -33,13 +33,15 @@ class _RestaurantCardState extends State<RestaurantCard> {
   @override
   void initState() {
     super.initState();
-    _currentPhotoIndex = RestaurantCard._lastViewedIndices[widget.restaurant.id] ?? 0;
+    _currentPhotoIndex =
+        RestaurantCard._lastViewedIndices[widget.restaurant.id] ?? 0;
     _pageController = PageController(initialPage: _currentPhotoIndex);
   }
 
   @override
   void dispose() {
-    RestaurantCard._lastViewedIndices[widget.restaurant.id] = _currentPhotoIndex;
+    RestaurantCard._lastViewedIndices[widget.restaurant.id] =
+        _currentPhotoIndex;
     _pageController.dispose();
     super.dispose();
   }
@@ -47,7 +49,8 @@ class _RestaurantCardState extends State<RestaurantCard> {
   // Modified method to handle place details and directions
   void _openInGoogleMapsByPlaceId(BuildContext context, String placeId) async {
     // Construct the query using the restaurant's name and address
-    final query = Uri.encodeComponent('${widget.restaurant.name}, ${widget.restaurant.location.formattedAddress}');
+    final query = Uri.encodeComponent(
+        '${widget.restaurant.name}, ${widget.restaurant.location.formattedAddress}');
     String nativeMapsUrl = 'comgooglemaps://?q=$query';
 
     // Try to open in native Maps app first
@@ -55,7 +58,8 @@ class _RestaurantCardState extends State<RestaurantCard> {
       await launchUrlString(nativeMapsUrl);
     } else {
       // Fallback to browser using place ID if native app isn't installed
-      final webMapsUrl = 'https://www.google.com/maps/place/?q=place_id:$placeId';
+      final webMapsUrl =
+          'https://www.google.com/maps/place/?q=place_id:$placeId';
 
       if (await canLaunchUrlString(webMapsUrl)) {
         await launchUrlString(webMapsUrl, mode: LaunchMode.externalApplication);
@@ -67,36 +71,21 @@ class _RestaurantCardState extends State<RestaurantCard> {
     }
   }
 
-  // Add this helper method at the top of the class
-  void _debugCheckCoordinates(String location, {
-    double? lat1, 
-    double? lng1, 
-    double? lat2, 
-    double? lng2
-  }) {
-    if ((lat1 != null && lat1.isNaN) || 
-        (lng1 != null && lng1.isNaN) || 
-        (lat2 != null && lat2.isNaN) || 
-        (lng2 != null && lng2.isNaN)) {
-    }
-  }
-
   void _getDirections(BuildContext context) async {
     if (widget.currentLat != null && widget.currentLng != null) {
       try {
         // Calculate straight-line distance for travel mode decision
         final distance = widget.restaurant.location.calculateDistance(
-          widget.currentLat!, 
-          widget.currentLng!, 
-          widget.restaurant.location.latitude, 
-          widget.restaurant.location.longitude
-        );
-        
+            widget.currentLat!,
+            widget.currentLng!,
+            widget.restaurant.location.latitude,
+            widget.restaurant.location.longitude);
+
         // Choose travel mode based on distance
         final travelMode = distance <= 1 ? 'walking' : 'driving';
-        
+
         final origin = '${widget.currentLat},${widget.currentLng}';
-        
+
         // Launch in Google Maps with the destination address
         final mapsUrl = 'https://www.google.com/maps/dir/?api=1'
             '&origin=$origin'
@@ -114,7 +103,8 @@ class _RestaurantCardState extends State<RestaurantCard> {
       } catch (e) {
         if (context.mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Error getting directions: ${e.toString()}')),
+            SnackBar(
+                content: Text('Error getting directions: ${e.toString()}')),
           );
         }
       }
@@ -222,17 +212,79 @@ class _RestaurantCardState extends State<RestaurantCard> {
   String? _findPrimaryCuisine(List<String> types) {
     // Common cuisine keywords that appear in Google Places types
     final cuisineKeywords = {
-      'afghani', 'african', 'american', 'arabic', 'argentinian', 'asian', 'australian',
-      'austrian', 'bbq', 'barbeque', 'belgian', 'brazilian', 'british', 'caribbean', 'chinese',
-      'colombian', 'croatian', 'cuban', 'czech', 'danish', 'ethiopian', 'filipino',
-      'finnish', 'french', 'georgian', 'german', 'greek', 'hungarian', 'indian',
-      'indonesian', 'irish', 'israeli', 'italian', 'jamaican', 'japanese', 'korean',
-      'latin', 'lebanese', 'malaysian', 'malay', 'mediterranean', 'mexican', 'middle_eastern',
-      'moroccan', 'nepalese', 'nigerian', 'norwegian', 'pakistani', 'peruvian',
-      'persian', 'pizza', 'polish', 'portuguese', 'romanian', 'russian', 'scandinavian',
-      'scottish', 'seafood', 'singaporean', 'south_african', 'sushi', 'spanish', 'swedish',
-      'swiss', 'taiwanese', 'thai', 'turkish', 'ukrainian', 'uruguayan', 'vegetarian',
-      'venezuelan', 'vietnamese', 'welsh'
+      'afghani',
+      'african',
+      'american',
+      'arabic',
+      'argentinian',
+      'asian',
+      'australian',
+      'austrian',
+      'bbq',
+      'barbeque',
+      'belgian',
+      'brazilian',
+      'british',
+      'caribbean',
+      'chinese',
+      'colombian',
+      'croatian',
+      'cuban',
+      'czech',
+      'danish',
+      'ethiopian',
+      'filipino',
+      'finnish',
+      'french',
+      'georgian',
+      'german',
+      'greek',
+      'hungarian',
+      'indian',
+      'indonesian',
+      'irish',
+      'israeli',
+      'italian',
+      'jamaican',
+      'japanese',
+      'korean',
+      'latin',
+      'lebanese',
+      'malaysian',
+      'malay',
+      'mediterranean',
+      'mexican',
+      'middle_eastern',
+      'moroccan',
+      'nepalese',
+      'nigerian',
+      'norwegian',
+      'pakistani',
+      'peruvian',
+      'persian',
+      'pizza',
+      'polish',
+      'portuguese',
+      'romanian',
+      'russian',
+      'scandinavian',
+      'scottish',
+      'seafood',
+      'singaporean',
+      'south_african',
+      'sushi',
+      'spanish',
+      'swedish',
+      'swiss',
+      'taiwanese',
+      'thai',
+      'turkish',
+      'ukrainian',
+      'uruguayan',
+      'vegetarian',
+      'venezuelan',
+      'vietnamese',
+      'welsh'
     };
 
     // First pass: check for compound types (e.g., "vegetarian_restaurant")
@@ -254,7 +306,8 @@ class _RestaurantCardState extends State<RestaurantCard> {
     }
 
     // If no cuisine type found, try to get default cuisine based on country
-    final defaultCuisine = _getDefaultCuisineByLocation(widget.restaurant.location.country);
+    final defaultCuisine =
+        _getDefaultCuisineByLocation(widget.restaurant.location.country);
     if (defaultCuisine != null) {
       return defaultCuisine;
     }
@@ -300,18 +353,22 @@ class _RestaurantCardState extends State<RestaurantCard> {
                       setState(() {
                         _currentPhotoIndex = index;
                       });
-                      
+
                       // Prefetch remaining photos on first interaction
                       if (!_hasPreloadedPhotos) {
                         _hasPreloadedPhotos = true;
                         // Get all photo refs except the ones we've already loaded
                         final remainingPhotos = widget.restaurant.photoRefs
-                            .where((ref) => RestaurantService.instance.getCachedPhoto(ref) == null)
+                            .where((ref) =>
+                                RestaurantService.instance
+                                    .getCachedPhoto(ref) ==
+                                null)
                             .toList();
-                        
+
                         if (remainingPhotos.isNotEmpty) {
                           // Prefetch in the background
-                          RestaurantService.instance.prefetchHeaderPhotos(remainingPhotos);
+                          RestaurantService.instance
+                              .prefetchHeaderPhotos(remainingPhotos);
                         }
                       }
                     },
@@ -323,7 +380,8 @@ class _RestaurantCardState extends State<RestaurantCard> {
                             topLeft: Radius.circular(24),
                             topRight: Radius.circular(24),
                           ),
-                          child: _buildPhoto(widget.restaurant.photoRefs[index]),
+                          child:
+                              _buildPhoto(widget.restaurant.photoRefs[index]),
                         ),
                       );
                     },
@@ -335,14 +393,17 @@ class _RestaurantCardState extends State<RestaurantCard> {
                   right: 0,
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.center,
-                    children: List.generate(widget.restaurant.photoRefs.length, (index) {
+                    children: List.generate(widget.restaurant.photoRefs.length,
+                        (index) {
                       return AnimatedContainer(
                         duration: const Duration(milliseconds: 300),
                         margin: const EdgeInsets.symmetric(horizontal: 4),
                         width: _currentPhotoIndex == index ? 12 : 8,
                         height: 8,
                         decoration: BoxDecoration(
-                          color: _currentPhotoIndex == index ? Colors.white : Colors.grey,
+                          color: _currentPhotoIndex == index
+                              ? Colors.white
+                              : Colors.grey,
                           borderRadius: BorderRadius.circular(4),
                         ),
                       );
@@ -362,15 +423,19 @@ class _RestaurantCardState extends State<RestaurantCard> {
                   children: [
                     // Fixed header content
                     GestureDetector(
-                      onTap: () => _openInGoogleMapsByPlaceId(context, widget.restaurant.placeId),
+                      onTap: () => _openInGoogleMapsByPlaceId(
+                          context, widget.restaurant.placeId),
                       child: Row(
                         children: [
                           Expanded(
                             child: Text(
                               widget.restaurant.name,
-                              style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                                fontWeight: FontWeight.bold,
-                              ),
+                              style: Theme.of(context)
+                                  .textTheme
+                                  .titleLarge
+                                  ?.copyWith(
+                                    fontWeight: FontWeight.bold,
+                                  ),
                               softWrap: true,
                               overflow: TextOverflow.visible,
                             ),
@@ -430,15 +495,18 @@ class _RestaurantCardState extends State<RestaurantCard> {
                       runSpacing: 0,
                       children: [
                         // Try to find primary cuisine
-                        if (_findPrimaryCuisine(widget.restaurant.types) != null)
+                        if (_findPrimaryCuisine(widget.restaurant.types) !=
+                            null)
                           Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 8, vertical: 4),
                             decoration: BoxDecoration(
-                              color: Colors.blue.withOpacity(0.1),
+                              color: Colors.blue.withValues(alpha: 0.1),
                               borderRadius: BorderRadius.circular(4),
                             ),
                             child: Text(
-                              _formatCuisineDisplay(_findPrimaryCuisine(widget.restaurant.types)!),
+                              _formatCuisineDisplay(_findPrimaryCuisine(
+                                  widget.restaurant.types)!),
                               style: Theme.of(context).textTheme.bodyMedium,
                             ),
                           ),
@@ -451,8 +519,8 @@ class _RestaurantCardState extends State<RestaurantCard> {
                       Text(
                         widget.restaurant.description,
                         style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                          fontWeight: FontWeight.bold,
-                        ),
+                              fontWeight: FontWeight.bold,
+                            ),
                       ),
                       const SizedBox(height: 12),
                     ],
@@ -465,10 +533,12 @@ class _RestaurantCardState extends State<RestaurantCard> {
                         mainAxisSize: MainAxisSize.min,
                         children: [
                           // Single row for location icon and distance
-                          if (widget.currentLat != null && widget.currentLng != null) ...[
+                          if (widget.currentLat != null &&
+                              widget.currentLng != null) ...[
                             Row(
                               children: [
-                                const Icon(Icons.place, color: Colors.black, size: 20),
+                                const Icon(Icons.place,
+                                    color: Colors.black, size: 20),
                                 const SizedBox(width: 4),
                                 Text(
                                   'Distance: approx. ${widget.restaurant.location.formatDistance(widget.currentLat!, widget.currentLng!)}',
@@ -480,12 +550,15 @@ class _RestaurantCardState extends State<RestaurantCard> {
                           const SizedBox(height: 8),
                           Text(
                             widget.restaurant.location.formattedAddress,
-                            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                              color: Colors.blue,
-                              decoration: TextDecoration.underline,
-                              decorationColor: Colors.blue,
-                              decorationThickness: 1,
-                            ),
+                            style: Theme.of(context)
+                                .textTheme
+                                .bodyMedium
+                                ?.copyWith(
+                                  color: Colors.blue,
+                                  decoration: TextDecoration.underline,
+                                  decorationColor: Colors.blue,
+                                  decorationThickness: 1,
+                                ),
                           ),
                         ],
                       ),
@@ -509,4 +582,4 @@ class _RestaurantCardState extends State<RestaurantCard> {
     await RestaurantService.instance.prefetchHeaderPhotos([photoRef]);
     return MemoryImage(RestaurantService.instance.getCachedPhoto(photoRef)!);
   }
-} 
+}

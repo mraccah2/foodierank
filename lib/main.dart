@@ -11,7 +11,7 @@ import 'services/api_usage_tracker.dart';
 void main() {
   runZonedGuarded(() async {
     WidgetsFlutterBinding.ensureInitialized();
-    
+
     FlutterError.onError = (FlutterErrorDetails details) {
       // Already empty
     };
@@ -43,7 +43,6 @@ void main() {
         position.latitude,
         position.longitude,
       );
-
     } catch (e) {
       // Already empty
     }
@@ -58,7 +57,7 @@ class MyApp extends StatefulWidget {
   const MyApp({super.key});
 
   @override
-  _MyAppState createState() => _MyAppState();
+  State<MyApp> createState() => _MyAppState();
 }
 
 class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
@@ -119,40 +118,5 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
         return widget ?? error;
       },
     );
-  }
-}
-
-Future<Position?> _getLocation() async {
-  try {
-    bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
-    if (!serviceEnabled) {
-      return null;
-    }
-
-    LocationPermission permission = await Geolocator.checkPermission();
-    if (permission == LocationPermission.denied) {
-      permission = await Geolocator.requestPermission();
-      if (permission == LocationPermission.denied) {
-        return null;
-      }
-    }
-    
-    if (permission == LocationPermission.deniedForever) {
-      return null;
-    }
-
-    return await Geolocator.getCurrentPosition(
-      desiredAccuracy: LocationAccuracy.medium,
-      timeLimit: const Duration(seconds: 5),
-    ).timeout(
-      const Duration(seconds: 5),
-      onTimeout: () async {
-        final lastKnown = await Geolocator.getLastKnownPosition();
-        if (lastKnown != null) return lastKnown;
-        throw TimeoutException('Could not get location');
-      },
-    );
-  } catch (e) {
-    return null;
   }
 }

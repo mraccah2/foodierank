@@ -122,7 +122,7 @@ jobs:
           python3 -m venv /tmp/verify-venv
           /tmp/verify-venv/bin/pip install --quiet --timeout 30 PyJWT cryptography
           /tmp/verify-venv/bin/python3 scripts/verify_ios_signing.py \
-            --bundle-id com.foodierank.foodierank
+            --bundle-id ${{ vars.IOS_BUNDLE_ID || 'com.foodierank.foodierank' }}
 
       - name: Set build number
         run: |
@@ -144,18 +144,29 @@ jobs:
         run: rm -rf ~/Library/Developer/Xcode/DerivedData/Runner-*
 
       - name: Build Flutter framework (no codesign)
-        run: flutter build ios --release --no-codesign
+        env:
+          IOS_MAPS_API_KEY: ${{ secrets.IOS_MAPS_API_KEY }}
+          IOS_BUNDLE_ID: ${{ vars.IOS_BUNDLE_ID || 'com.foodierank.foodierank' }}
+        run: |
+          flutter build ios --release --no-codesign \
+            --dart-define=IOS_MAPS_API_KEY="$IOS_MAPS_API_KEY" \
+            --dart-define=IOS_BUNDLE_ID="$IOS_BUNDLE_ID"
 
       - name: Configure manual signing for CI (Runner target only)
+        env:
+          BUNDLE_ID: ${{ vars.IOS_BUNDLE_ID || 'com.foodierank.foodierank' }}
         run: |
           PBXPROJ="ios/Runner.xcodeproj/project.pbxproj"
           sed -i '' 's/CODE_SIGN_STYLE = Automatic/CODE_SIGN_STYLE = Manual/g' "$PBXPROJ"
           sed -i '' 's/"iPhone Developer"/"Apple Distribution"/g' "$PBXPROJ"
           python3 -c "
+          import os
+          bundle_id = os.environ['BUNDLE_ID']
+          profile_name = os.environ['app_profile_name']
           text = open('$PBXPROJ').read()
           text = text.replace(
-              'PRODUCT_BUNDLE_IDENTIFIER = com.foodierank.foodierank;',
-              'PRODUCT_BUNDLE_IDENTIFIER = com.foodierank.foodierank; PROVISIONING_PROFILE_SPECIFIER = \"$app_profile_name\";'
+              'PRODUCT_BUNDLE_IDENTIFIER = %s;' % bundle_id,
+              'PRODUCT_BUNDLE_IDENTIFIER = %s; PROVISIONING_PROFILE_SPECIFIER = \"%s\";' % (bundle_id, profile_name)
           )
           open('$PBXPROJ', 'w').write(text)
           "
@@ -180,14 +191,14 @@ jobs:
             <key>method</key>
             <string>app-store-connect</string>
             <key>teamID</key>
-            <string>XTWDQNWHQJ</string>
+            <string>${{ vars.APPLE_TEAM_ID || 'XTWDQNWHQJ' }}</string>
             <key>signingStyle</key>
             <string>manual</string>
             <key>signingCertificate</key>
             <string>Apple Distribution</string>
             <key>provisioningProfiles</key>
             <dict>
-              <key>com.foodierank.foodierank</key>
+              <key>${{ vars.IOS_BUNDLE_ID || 'com.foodierank.foodierank' }}</key>
               <string>$app_profile_name</string>
             </dict>
             <key>destination</key>
@@ -208,7 +219,7 @@ jobs:
             -configuration Release \
             -archivePath $RUNNER_TEMP/Runner.xcarchive \
             -destination 'generic/platform=iOS' \
-            DEVELOPMENT_TEAM=XTWDQNWHQJ \
+            DEVELOPMENT_TEAM=${{ vars.APPLE_TEAM_ID || 'XTWDQNWHQJ' }} \
             OTHER_CODE_SIGN_FLAGS="--keychain $keychain_path" \
             COMPILER_INDEX_STORE_ENABLE=NO
 

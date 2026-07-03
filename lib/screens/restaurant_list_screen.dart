@@ -7,24 +7,19 @@ import '../widgets/restaurant_card.dart';
 import '../widgets/restaurant_photo_viewer.dart';
 import '../widgets/minimal_restaurant_card.dart';
 
-enum SortOption {
-  rank,
-  distance
-}
+enum SortOption { rank, distance }
 
-enum ViewMode {
-  card,
-  list
-}
+enum ViewMode { card, list }
 
 class RestaurantListScreen extends StatefulWidget {
   const RestaurantListScreen({super.key});
 
   @override
-  _RestaurantListScreenState createState() => _RestaurantListScreenState();
+  State<RestaurantListScreen> createState() => _RestaurantListScreenState();
 }
 
-class _RestaurantListScreenState extends State<RestaurantListScreen> with WidgetsBindingObserver {
+class _RestaurantListScreenState extends State<RestaurantListScreen>
+    with WidgetsBindingObserver {
   List<Restaurant>? _restaurants;
   String? _error;
   bool _isLoading = true;
@@ -36,7 +31,7 @@ class _RestaurantListScreenState extends State<RestaurantListScreen> with Widget
   double? _currentLng;
   SortOption _sortOption = SortOption.rank;
   bool _isScrolling = false;
-  final bool _showOpenOnly = true;  // Default to showing only open restaurants
+  final bool _showOpenOnly = true; // Default to showing only open restaurants
   String? _searchStatus;
   final TextEditingController _searchController = TextEditingController();
   String _searchQuery = '';
@@ -54,9 +49,9 @@ class _RestaurantListScreenState extends State<RestaurantListScreen> with Widget
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addObserver(this);  // Add lifecycle observer
+    WidgetsBinding.instance.addObserver(this); // Add lifecycle observer
     _searchController.addListener(() {
-      _searchQuery = _searchController.text;  // Update query without setState
+      _searchQuery = _searchController.text; // Update query without setState
     });
     if (RestaurantService.instance.cachedRestaurants == null) {
       _initializeAndLoad();
@@ -67,7 +62,7 @@ class _RestaurantListScreenState extends State<RestaurantListScreen> with Widget
 
   @override
   void dispose() {
-    WidgetsBinding.instance.removeObserver(this);  // Remove lifecycle observer
+    WidgetsBinding.instance.removeObserver(this); // Remove lifecycle observer
     _pageController.dispose();
     _customTypeController.dispose();
     _searchController.dispose();
@@ -90,17 +85,18 @@ class _RestaurantListScreenState extends State<RestaurantListScreen> with Widget
       );
 
       // Check if the hour has changed
-      final shouldRefreshTime = _lastRefreshTime == null || 
+      final shouldRefreshTime = _lastRefreshTime == null ||
           DateTime.now().hour != _lastRefreshTime!.hour;
-      
+
       // Only check distance if we have a previous position
-      final shouldRefreshDistance = _lastPosition != null && 
+      final shouldRefreshDistance = _lastPosition != null &&
           Geolocator.distanceBetween(
-            _lastPosition!.latitude,
-            _lastPosition!.longitude,
-            currentPosition.latitude,
-            currentPosition.longitude,
-          ) > 300;
+                _lastPosition!.latitude,
+                _lastPosition!.longitude,
+                currentPosition.latitude,
+                currentPosition.longitude,
+              ) >
+              300;
 
       if (shouldRefreshTime || shouldRefreshDistance) {
         _lastRefreshTime = DateTime.now();
@@ -117,7 +113,7 @@ class _RestaurantListScreenState extends State<RestaurantListScreen> with Widget
   Future<void> _initializeAndLoad() async {
     if (_isLoadingData) return;
     _isLoadingData = true;
-    
+
     try {
       setState(() {
         _isLoading = true;
@@ -147,9 +143,12 @@ class _RestaurantListScreenState extends State<RestaurantListScreen> with Widget
         openNow: _showOpenOnly,
         searchQuery: _searchQuery,
         onSearchUpdate: (count, type, radius) {
-          if (mounted && count < _lowResultsThreshold && radius >= RestaurantService.maxRadius) {
+          if (mounted &&
+              count < _lowResultsThreshold &&
+              radius >= RestaurantService.maxRadius) {
             setState(() {
-              _searchStatus = 'Found $count restaurants matching "$_searchQuery" nearby and open now.';
+              _searchStatus =
+                  'Found $count restaurants matching "$_searchQuery" nearby and open now.';
             });
           }
         },
@@ -159,7 +158,7 @@ class _RestaurantListScreenState extends State<RestaurantListScreen> with Widget
 
       if (rawRestaurants.isEmpty) {
         setState(() {
-          _error = _showOpenOnly 
+          _error = _showOpenOnly
               ? 'No restaurants currently open in this area'
               : 'No restaurants found in this area';
           _isLoading = false;
@@ -167,20 +166,19 @@ class _RestaurantListScreenState extends State<RestaurantListScreen> with Widget
         return;
       }
 
-      final restaurants = rawRestaurants
-          .map((place) => Restaurant.fromJson(place))
-          .toList();
-      
+      final restaurants =
+          rawRestaurants.map((place) => Restaurant.fromJson(place)).toList();
+
       restaurants.sort((a, b) {
         final scoreA = a.calculateWilsonScore(a.rating, a.reviewCount);
         final scoreB = b.calculateWilsonScore(b.rating, b.reviewCount);
         return scoreB.compareTo(scoreA);
       });
-      
+
       for (var i = 0; i < restaurants.length; i++) {
         restaurants[i].rank = i + 1;
       }
-      
+
       if (mounted) {
         setState(() {
           _restaurants = restaurants;
@@ -188,13 +186,12 @@ class _RestaurantListScreenState extends State<RestaurantListScreen> with Widget
         });
         _sortRestaurants();
       }
-
     } catch (e) {
       if (mounted) {
         setState(() {
           _error = 'Unable to load restaurant data. Please try again.';
           _isLoading = false;
-          _searchStatus = null;  // Clear search status on error
+          _searchStatus = null; // Clear search status on error
         });
       }
     } finally {
@@ -218,17 +215,14 @@ class _RestaurantListScreenState extends State<RestaurantListScreen> with Widget
         _lastRefreshTime = DateTime.now();
 
         // Check if we need to refresh the data
-        if (RestaurantService.instance.shouldRefreshData(
-          position.latitude,
-          position.longitude
-        )) {
+        if (RestaurantService.instance
+            .shouldRefreshData(position.latitude, position.longitude)) {
           _initializeAndLoad();
           return;
         }
 
-        final restaurants = rawRestaurants
-            .map((place) => Restaurant.fromJson(place))
-            .toList();
+        final restaurants =
+            rawRestaurants.map((place) => Restaurant.fromJson(place)).toList();
 
         setState(() {
           _currentLat = position.latitude;
@@ -243,7 +237,7 @@ class _RestaurantListScreenState extends State<RestaurantListScreen> with Widget
           final restaurants = rawRestaurants
               .map((place) => Restaurant.fromJson(place))
               .toList();
-              
+
           setState(() {
             _restaurants = restaurants;
             _isLoading = false;
@@ -256,17 +250,6 @@ class _RestaurantListScreenState extends State<RestaurantListScreen> with Widget
     }
   }
 
-  void _showPhotoViewer(Restaurant restaurant) {
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (context) => RestaurantPhotoViewer(
-          restaurant: restaurant,
-        ),
-      ),
-    );
-  }
-
   void _showPriceRangeDialog() {
     showModalBottomSheet(
       context: context,
@@ -275,21 +258,20 @@ class _RestaurantListScreenState extends State<RestaurantListScreen> with Widget
           builder: (BuildContext context, StateSetter setModalState) {
             void updatePriceRange() {
               if (_selectedPriceLevels.isEmpty) return;
-              
+
               // Get min and max selections
               List<String> levels = _selectedPriceLevels.toList()
                 ..sort((a, b) => a.length.compareTo(b.length));
-              
+
               // Find indices in the full price range
               final priceRange = ['\$', '\$\$', '\$\$\$', '\$\$\$\$'];
               int startIndex = priceRange.indexOf(levels.first);
               int endIndex = priceRange.indexOf(levels.last);
-              
+
               // Add all levels between min and max
               setModalState(() {
-                _selectedPriceLevels.addAll(
-                  priceRange.sublist(startIndex, endIndex + 1)
-                );
+                _selectedPriceLevels
+                    .addAll(priceRange.sublist(startIndex, endIndex + 1));
               });
             }
 
@@ -324,9 +306,7 @@ class _RestaurantListScreenState extends State<RestaurantListScreen> with Widget
                         },
                         child: Container(
                           padding: const EdgeInsets.symmetric(
-                            horizontal: 20,
-                            vertical: 10
-                          ),
+                              horizontal: 20, vertical: 10),
                           decoration: BoxDecoration(
                             color: isSelected ? Colors.grey : Colors.white,
                             borderRadius: BorderRadius.circular(20),
@@ -402,10 +382,10 @@ class _RestaurantListScreenState extends State<RestaurantListScreen> with Widget
                               }
                             },
                             style: OutlinedButton.styleFrom(
-                              backgroundColor: isSelected 
-                                  ? Colors.grey
-                                  : Colors.white,
-                              side: const BorderSide(color: Colors.black, width: 1),
+                              backgroundColor:
+                                  isSelected ? Colors.grey : Colors.white,
+                              side: const BorderSide(
+                                  color: Colors.black, width: 1),
                               padding: const EdgeInsets.symmetric(
                                 horizontal: 12,
                                 vertical: 6,
@@ -417,7 +397,9 @@ class _RestaurantListScreenState extends State<RestaurantListScreen> with Widget
                               type == 'All' ? 'All types' : type,
                               style: TextStyle(
                                 color: Colors.black,
-                                fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                                fontWeight: isSelected
+                                    ? FontWeight.bold
+                                    : FontWeight.normal,
                               ),
                             ),
                           );
@@ -483,7 +465,7 @@ class _RestaurantListScreenState extends State<RestaurantListScreen> with Widget
     if (_restaurants == null || _restaurants!.isEmpty) {
       return;
     }
-    
+
     setState(() {
       switch (_sortOption) {
         case SortOption.rank:
@@ -492,26 +474,26 @@ class _RestaurantListScreenState extends State<RestaurantListScreen> with Widget
             final scoreB = b.calculateWilsonScore(b.rating, b.reviewCount);
             return scoreB.compareTo(scoreA);
           });
-          
+
           // Assign ranks after sorting by rank
           for (var i = 0; i < _restaurants!.length; i++) {
             _restaurants![i].rank = i + 1;
           }
           break;
-          
+
         case SortOption.distance:
           if (_currentLat != null && _currentLng != null) {
             _restaurants!.sort((a, b) {
-              final distA = a.location.calculateDistance(_currentLat!, _currentLng!, 
-                a.location.latitude, a.location.longitude);
-              final distB = b.location.calculateDistance(_currentLat!, _currentLng!,
-                b.location.latitude, b.location.longitude);
+              final distA = a.location.calculateDistance(_currentLat!,
+                  _currentLng!, a.location.latitude, a.location.longitude);
+              final distB = b.location.calculateDistance(_currentLat!,
+                  _currentLng!, b.location.latitude, b.location.longitude);
               return distA.compareTo(distB);
             });
           }
           break;
       }
-      
+
       // Check if the PageController is attached before jumping
       if (_pageController.hasClients) {
         _pageController.jumpToPage(0);
@@ -521,22 +503,25 @@ class _RestaurantListScreenState extends State<RestaurantListScreen> with Widget
 
   void _handleScroll(double delta) {
     if (_isScrolling) return;
-    
+
     if (delta.abs() > 20) {
       _isScrolling = true;
       int currentPage = _pageController.page!.round();
-      int nextPage = delta > 0 ? 
-          currentPage - 1 :  // Move up one page
-          currentPage + 1;   // Move down one page
-      
+      int nextPage = delta > 0
+          ? currentPage - 1
+          : // Move up one page
+          currentPage + 1; // Move down one page
+
       // Ensure we don't go out of bounds
       nextPage = nextPage.clamp(0, _restaurants!.length - 1);
-      
-      _pageController.animateToPage(
-        nextPage,
-        duration: const Duration(milliseconds: 300),
-        curve: Curves.easeInOut,
-      ).then((_) => _isScrolling = false);
+
+      _pageController
+          .animateToPage(
+            nextPage,
+            duration: const Duration(milliseconds: 300),
+            curve: Curves.easeInOut,
+          )
+          .then((_) => _isScrolling = false);
     }
   }
 
@@ -544,10 +529,11 @@ class _RestaurantListScreenState extends State<RestaurantListScreen> with Widget
     setState(() {
       _isSearchVisible = !_isSearchVisible;
     });
-    
+
     if (_isSearchVisible) {
       // Add a micro-delay to ensure the TextField is rendered
       Future.delayed(const Duration(milliseconds: 50), () {
+        if (!mounted) return;
         FocusScope.of(context).requestFocus(_searchFocusNode);
       });
     } else {
@@ -564,12 +550,13 @@ class _RestaurantListScreenState extends State<RestaurantListScreen> with Widget
   }
 
   void _handleHorizontalDrag(DragUpdateDetails details) {
-    if (_cardViewFromTap && details.delta.dx > 20) {  // Right swipe
+    if (_cardViewFromTap && details.delta.dx > 20) {
+      // Right swipe
       setState(() {
         _viewMode = ViewMode.list;
         _cardViewFromTap = false;
       });
-      
+
       // Flash the card that was being viewed
       if (_lastTappedIndex != null) {
         WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -594,9 +581,7 @@ class _RestaurantListScreenState extends State<RestaurantListScreen> with Widget
       backgroundColor: Colors.grey[200],
       appBar: AppBar(
         centerTitle: true,
-        title: Image.asset(
-          'assets/logo.png'
-        ),
+        title: Image.asset('assets/logo.png'),
         backgroundColor: Colors.grey[200],
         elevation: 0,
       ),
@@ -651,7 +636,9 @@ class _RestaurantListScreenState extends State<RestaurantListScreen> with Widget
 
     if (_error != null) {
       // Consider search query in default search check
-      bool isDefaultSearch = _selectedType == 'All' && _selectedPriceLevel == null && _searchQuery.isEmpty;
+      bool isDefaultSearch = _selectedType == 'All' &&
+          _selectedPriceLevel == null &&
+          _searchQuery.isEmpty;
       return Center(
         child: Padding(
           padding: const EdgeInsets.all(16),
@@ -674,7 +661,7 @@ class _RestaurantListScreenState extends State<RestaurantListScreen> with Widget
                   }
                   _initializeAndLoad();
                 },
-                child: const Text('Go back'),  // Always show "Go back"
+                child: const Text('Go back'), // Always show "Go back"
               ),
             ],
           ),
@@ -708,12 +695,13 @@ class _RestaurantListScreenState extends State<RestaurantListScreen> with Widget
     final buttonStyle = ElevatedButton.styleFrom(
       backgroundColor: Colors.white,
       elevation: 0,
-      padding: const EdgeInsets.symmetric(horizontal: 8),  // Reduce horizontal padding
+      padding: const EdgeInsets.symmetric(
+          horizontal: 8), // Reduce horizontal padding
       side: const BorderSide(
         color: Colors.black,
         width: 1,
       ),
-      minimumSize: const Size(0, 28),  // Only fix the height
+      minimumSize: const Size(0, 28), // Only fix the height
       tapTargetSize: MaterialTapTargetSize.shrinkWrap,
     );
 
@@ -741,7 +729,9 @@ class _RestaurantListScreenState extends State<RestaurantListScreen> with Widget
                           padding: const EdgeInsets.symmetric(vertical: 2),
                           child: Icon(
                             Icons.search,
-                            color: _isSearchVisible ? Colors.blue[900] : Colors.black,
+                            color: _isSearchVisible
+                                ? Colors.blue[900]
+                                : Colors.black,
                             size: 20,
                           ),
                         ),
@@ -752,9 +742,10 @@ class _RestaurantListScreenState extends State<RestaurantListScreen> with Widget
                         style: buttonStyle,
                         child: Text(
                           _selectedType == 'All' ? 'All types' : _selectedType!,
-                          style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                            color: Colors.black,
-                          ),
+                          style:
+                              Theme.of(context).textTheme.bodyLarge?.copyWith(
+                                    color: Colors.black,
+                                  ),
                         ),
                       ),
                       ElevatedButton(
@@ -762,17 +753,18 @@ class _RestaurantListScreenState extends State<RestaurantListScreen> with Widget
                         style: buttonStyle,
                         child: Text(
                           _getPriceLevelDisplay(),
-                          style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                            color: Colors.black,
-                          ),
+                          style:
+                              Theme.of(context).textTheme.bodyLarge?.copyWith(
+                                    color: Colors.black,
+                                  ),
                         ),
                       ),
                       ElevatedButton(
                         onPressed: () {
                           setState(() {
-                            _sortOption = _sortOption == SortOption.rank 
-                              ? SortOption.distance 
-                              : SortOption.rank;
+                            _sortOption = _sortOption == SortOption.rank
+                                ? SortOption.distance
+                                : SortOption.rank;
                             _sortRestaurants();
                           });
                         },
@@ -781,15 +773,16 @@ class _RestaurantListScreenState extends State<RestaurantListScreen> with Widget
                           mainAxisSize: MainAxisSize.min,
                           children: [
                             Icon(
-                              _sortOption == SortOption.rank 
-                                ? Icons.star
-                                : Icons.directions_walk,
+                              _sortOption == SortOption.rank
+                                  ? Icons.star
+                                  : Icons.directions_walk,
                               color: Colors.black,
                               size: 20,
                             ),
                             const SizedBox(width: 2),
                             Transform.rotate(
-                              angle: _sortOption == SortOption.rank ? 0 : 3.14159,
+                              angle:
+                                  _sortOption == SortOption.rank ? 0 : 3.14159,
                               child: const Icon(
                                 Icons.sort,
                                 color: Colors.black,
@@ -803,7 +796,10 @@ class _RestaurantListScreenState extends State<RestaurantListScreen> with Widget
                         onPressed: _toggleViewMode,
                         style: buttonStyle,
                         child: Icon(
-                          _viewMode == ViewMode.card ? Icons.view_list_sharp : Icons.crop_portrait,  // Changed from view_agenda to crop_portrait
+                          _viewMode == ViewMode.card
+                              ? Icons.view_list_sharp
+                              : Icons
+                                  .crop_portrait, // Changed from view_agenda to crop_portrait
                           color: Colors.black,
                           size: 20,
                         ),
@@ -811,7 +807,7 @@ class _RestaurantListScreenState extends State<RestaurantListScreen> with Widget
                     ],
                   ),
                 ),
-                
+
                 // Search Bar (only visible when search is active)
                 if (_isSearchVisible) ...[
                   const SizedBox(height: 8),
@@ -833,25 +829,30 @@ class _RestaurantListScreenState extends State<RestaurantListScreen> with Widget
                             controller: _searchController,
                             focusNode: _searchFocusNode,
                             textAlignVertical: TextAlignVertical.center,
-                            style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                              color: Colors.black,
-                              fontSize: 14,
-                            ),
+                            style:
+                                Theme.of(context).textTheme.bodyLarge?.copyWith(
+                                      color: Colors.black,
+                                      fontSize: 14,
+                                    ),
                             decoration: InputDecoration(
                               isDense: true,
                               hintText: 'Search for...',
-                              hintStyle: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                                color: Colors.grey,
-                                fontStyle: FontStyle.italic,
-                                fontSize: 14,
-                              ),
+                              hintStyle: Theme.of(context)
+                                  .textTheme
+                                  .bodyLarge
+                                  ?.copyWith(
+                                    color: Colors.grey,
+                                    fontStyle: FontStyle.italic,
+                                    fontSize: 14,
+                                  ),
                               suffixIcon: _searchQuery.isNotEmpty
                                   ? InkWell(
                                       onTap: () {
                                         _searchController.clear();
                                         setState(() {
                                           _searchQuery = '';
-                                          _isSearchVisible = false;  // Hide search bar
+                                          _isSearchVisible =
+                                              false; // Hide search bar
                                         });
                                         _initializeAndLoad();
                                       },
@@ -866,16 +867,18 @@ class _RestaurantListScreenState extends State<RestaurantListScreen> with Widget
                                     )
                                   : null,
                               border: InputBorder.none,
-                              contentPadding: const EdgeInsets.symmetric(horizontal: 16),
+                              contentPadding:
+                                  const EdgeInsets.symmetric(horizontal: 16),
                             ),
                             onSubmitted: (value) async {
                               setState(() {
                                 _isLoading = true;
                                 _error = null;
                               });
-                              
+
                               try {
-                                final position = await Geolocator.getCurrentPosition(
+                                final position =
+                                    await Geolocator.getCurrentPosition(
                                   desiredAccuracy: LocationAccuracy.best,
                                   timeLimit: const Duration(seconds: 5),
                                 );
@@ -885,7 +888,9 @@ class _RestaurantListScreenState extends State<RestaurantListScreen> with Widget
                                 _currentLat = position.latitude;
                                 _currentLng = position.longitude;
 
-                                final rawRestaurants = await RestaurantService.instance.fetchRestaurants(
+                                final rawRestaurants = await RestaurantService
+                                    .instance
+                                    .fetchRestaurants(
                                   position.latitude,
                                   position.longitude,
                                   priceLevels: _getEffectivePriceLevels(),
@@ -893,16 +898,21 @@ class _RestaurantListScreenState extends State<RestaurantListScreen> with Widget
                                   openNow: _showOpenOnly,
                                   searchQuery: value,
                                   onSearchUpdate: (count, type, radius) {
-                                    if (mounted && count < _lowResultsThreshold && radius >= RestaurantService.maxRadius) {
+                                    if (mounted &&
+                                        count < _lowResultsThreshold &&
+                                        radius >= RestaurantService.maxRadius) {
                                       setState(() {
-                                        _searchStatus = 'Found $count restaurants matching "$_searchQuery" nearby and open now.';
+                                        _searchStatus =
+                                            'Found $count restaurants matching "$_searchQuery" nearby and open now.';
                                       });
                                     }
                                   },
                                 );
-                                
+
                                 setState(() {
-                                  _restaurants = rawRestaurants.map((r) => Restaurant.fromJson(r)).toList();
+                                  _restaurants = rawRestaurants
+                                      .map((r) => Restaurant.fromJson(r))
+                                      .toList();
                                   _currentLat = position.latitude;
                                   _currentLng = position.longitude;
                                   _isLoading = false;
@@ -924,79 +934,85 @@ class _RestaurantListScreenState extends State<RestaurantListScreen> with Widget
               ],
             ),
           ),
-          
+
           // Restaurant Cards with padding
           Expanded(
             child: Container(
               color: Colors.grey[200],
-              child: _viewMode == ViewMode.card ? PageView.builder(
-                controller: _pageController,
-                scrollDirection: Axis.vertical,
-                pageSnapping: true,
-                physics: const PageScrollPhysics(),
-                itemCount: _restaurants!.length,
-                onPageChanged: (index) {
-                  setState(() {});
-                },
-                itemBuilder: (context, index) {
-                  final restaurant = _restaurants![index];
-                  return Column(
-                    children: [
-                      const SizedBox(height: 5.0),  // Keep top padding
-                      
-                      Expanded(
-                        child: Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 16.0).copyWith(
-                            top: 8.0,
-                            bottom: 8.0,
-                          ),
-                          child: RestaurantCard(
-                            restaurant: restaurant,
-                            onPhotoTap: () {
-                              Navigator.of(context).push(
-                                MaterialPageRoute(
-                                  builder: (context) => RestaurantPhotoViewer(
-                                    restaurant: restaurant,
-                                    initialIndex: 0,
-                                  ),
+              child: _viewMode == ViewMode.card
+                  ? PageView.builder(
+                      controller: _pageController,
+                      scrollDirection: Axis.vertical,
+                      pageSnapping: true,
+                      physics: const PageScrollPhysics(),
+                      itemCount: _restaurants!.length,
+                      onPageChanged: (index) {
+                        setState(() {});
+                      },
+                      itemBuilder: (context, index) {
+                        final restaurant = _restaurants![index];
+                        return Column(
+                          children: [
+                            const SizedBox(height: 5.0), // Keep top padding
+
+                            Expanded(
+                              child: Padding(
+                                padding:
+                                    const EdgeInsets.symmetric(horizontal: 16.0)
+                                        .copyWith(
+                                  top: 8.0,
+                                  bottom: 8.0,
                                 ),
-                              );
-                            },
-                            ranking: restaurant.rank ?? index + 1,
-                            currentLat: _currentLat,
-                            currentLng: _currentLng,
-                          ),
-                        ),
-                      ),
-                      
-                      const SizedBox(height: 30.0),  // Keep bottom padding
-                    ],
-                  );
-                },
-              ) : ListView.builder(
-                padding: const EdgeInsets.only(top: 3),  // Added top padding
-                itemCount: _restaurants!.length,
-                itemBuilder: (context, index) {
-                  final restaurant = _restaurants![index];
-                  return MinimalRestaurantCard(
-                    restaurant: restaurant,
-                    ranking: restaurant.rank ?? index + 1,
-                    currentLat: _currentLat,
-                    currentLng: _currentLng,
-                    onTap: () {
-                      setState(() {
-                        _viewMode = ViewMode.card;
-                        _cardViewFromTap = true;
-                        _lastTappedIndex = index;
-                      });
-                      
-                      WidgetsBinding.instance.addPostFrameCallback((_) {
-                        _pageController.jumpToPage(index);
-                      });
-                    },
-                  );
-                },
-              ),
+                                child: RestaurantCard(
+                                  restaurant: restaurant,
+                                  onPhotoTap: () {
+                                    Navigator.of(context).push(
+                                      MaterialPageRoute(
+                                        builder: (context) =>
+                                            RestaurantPhotoViewer(
+                                          restaurant: restaurant,
+                                          initialIndex: 0,
+                                        ),
+                                      ),
+                                    );
+                                  },
+                                  ranking: restaurant.rank ?? index + 1,
+                                  currentLat: _currentLat,
+                                  currentLng: _currentLng,
+                                ),
+                              ),
+                            ),
+
+                            const SizedBox(height: 30.0), // Keep bottom padding
+                          ],
+                        );
+                      },
+                    )
+                  : ListView.builder(
+                      padding:
+                          const EdgeInsets.only(top: 3), // Added top padding
+                      itemCount: _restaurants!.length,
+                      itemBuilder: (context, index) {
+                        final restaurant = _restaurants![index];
+                        return MinimalRestaurantCard(
+                          restaurant: restaurant,
+                          ranking: restaurant.rank ?? index + 1,
+                          currentLat: _currentLat,
+                          currentLng: _currentLng,
+                          onTap: () {
+                            setState(() {
+                              _viewMode = ViewMode.card;
+                              _cardViewFromTap = true;
+                              _lastTappedIndex = index;
+                            });
+
+                            WidgetsBinding.instance.addPostFrameCallback((_) {
+                              _pageController.jumpToPage(index);
+                            });
+                          },
+                        );
+                      },
+                    ),
             ),
           ),
         ],
@@ -1006,10 +1022,10 @@ class _RestaurantListScreenState extends State<RestaurantListScreen> with Widget
 
   String _getPriceLevelDisplay() {
     if (_selectedPriceLevels.isEmpty) return '\$-\$\$\$\$';
-    
+
     List<String> levels = _selectedPriceLevels.toList()
       ..sort((a, b) => a.length.compareTo(b.length));
-      
+
     if (levels.length == 1) return levels.first;
     return '${levels.first}-${levels.last}';
   }
@@ -1036,17 +1052,15 @@ class _RestaurantListScreenState extends State<RestaurantListScreen> with Widget
 
     List<String> levels = _selectedPriceLevels.toList()
       ..sort((a, b) => a.length.compareTo(b.length));
-    
-    int startIndex = ['\$', '\$\$', '\$\$\$', '\$\$\$\$']
-        .indexOf(levels.first);
-    int endIndex = ['\$', '\$\$', '\$\$\$', '\$\$\$\$']
-        .indexOf(levels.last);
-        
+
+    int startIndex = ['\$', '\$\$', '\$\$\$', '\$\$\$\$'].indexOf(levels.first);
+    int endIndex = ['\$', '\$\$', '\$\$\$', '\$\$\$\$'].indexOf(levels.last);
+
     // Convert dollar signs to API enum values and include UNSPECIFIED
-    return ['PRICE_LEVEL_UNSPECIFIED'] + 
-      ['\$', '\$\$', '\$\$\$', '\$\$\$\$']
-        .sublist(startIndex, endIndex + 1)
-        .map((level) => priceMap[level]!)
-        .toList();
+    return ['PRICE_LEVEL_UNSPECIFIED'] +
+        ['\$', '\$\$', '\$\$\$', '\$\$\$\$']
+            .sublist(startIndex, endIndex + 1)
+            .map((level) => priceMap[level]!)
+            .toList();
   }
-} 
+}

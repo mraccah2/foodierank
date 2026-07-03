@@ -27,7 +27,7 @@ class ProxyService {
           ...Config.appAttestationHeaders,
           if (fieldMask != null) 'X-Goog-FieldMask': fieldMask,
         };
-        
+
         final body = jsonEncode(params);
 
         final response = await http.post(url, headers: headers, body: body);
@@ -37,7 +37,6 @@ class ProxyService {
         }
 
         return json.decode(response.body);
-
       } catch (e) {
         retryCount++;
         if (retryCount < maxRetries) {
@@ -51,7 +50,8 @@ class ProxyService {
     throw Exception('Failed to get response after $maxRetries attempts');
   }
 
-  static Future<String> getPlacePhoto(String photoName, int width, int height) async {
+  static Future<String> getPlacePhoto(
+      String photoName, int width, int height) async {
     final cacheKey = '$photoName-$width-$height';
     if (_photoUrlCache.containsKey(cacheKey)) {
       return _photoUrlCache[cacheKey]!;

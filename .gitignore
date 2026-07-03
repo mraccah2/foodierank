@@ -45,7 +45,18 @@ app.*.map.json
 /android/app/release
 /android/key.properties
 
+# Build outputs anywhere in the tree (not just the repo root)
+**/build/
+
+# Editor/tooling backups
+*.backup
+
 # Never commit Firebase admin SDK / service-account keys
 *service-account*.json
 *-adminsdk-*.json
 *service_account*.json
+
+# Local build-time secrets (API keys injected via --dart-define-from-file).
+# The *.example templates ARE committed; the real files are not.
+/dart_defines.json
+/android/local.properties

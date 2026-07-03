@@ -104,7 +104,8 @@ class MinimalRestaurantCard extends StatelessWidget {
                           ),
                           Builder(
                             builder: (context) {
-                              final primaryCuisine = RestaurantService.instance.findPrimaryCuisine(
+                              final primaryCuisine =
+                                  RestaurantService.instance.findPrimaryCuisine(
                                 restaurant.types,
                                 country: restaurant.location.country,
                               );
@@ -115,11 +116,12 @@ class MinimalRestaurantCard extends StatelessWidget {
                                     vertical: 2,
                                   ),
                                   decoration: BoxDecoration(
-                                    color: Colors.blue.withOpacity(0.1),
+                                    color: Colors.blue.withValues(alpha: 0.1),
                                     borderRadius: BorderRadius.circular(4),
                                   ),
                                   child: Text(
-                                    RestaurantService.instance.formatCuisineDisplay(primaryCuisine),
+                                    RestaurantService.instance
+                                        .formatCuisineDisplay(primaryCuisine),
                                     style: const TextStyle(fontSize: 12),
                                   ),
                                 );
@@ -177,4 +179,4 @@ class MinimalRestaurantCard extends StatelessWidget {
       ),
     );
   }
-} 
+}

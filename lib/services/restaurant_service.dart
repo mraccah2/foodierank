@@ -15,7 +15,7 @@ class RestaurantService {
   DateTime? _lastFetchTime;
   double? _lastFetchLatitude;
   double? _lastFetchLongitude;
-  
+
   factory RestaurantService() {
     return instance;
   }
@@ -25,20 +25,19 @@ class RestaurantService {
   List<Map<String, dynamic>>? get cachedRestaurants => _cachedRestaurants;
 
   Future<List<Map<String, dynamic>>> fetchRestaurants(
-    double latitude,
-    double longitude,
-    {List<String>? priceLevels,
-    String? cuisineType,
-    bool openNow = true,
-    String? searchQuery,
-    void Function(int count, String type, double radius)? onSearchUpdate}
-  ) async {
+      double latitude, double longitude,
+      {List<String>? priceLevels,
+      String? cuisineType,
+      bool openNow = true,
+      String? searchQuery,
+      void Function(int count, String type, double radius)?
+          onSearchUpdate}) async {
     _lastFetchTime = DateTime.now();
     _lastFetchLatitude = latitude;
     _lastFetchLongitude = longitude;
-    
+
     _cachedRestaurants = await getNearbyRestaurants(
-      latitude, 
+      latitude,
       longitude,
       priceLevels: priceLevels,
       cuisineType: cuisineType != 'All' ? cuisineType : null,
@@ -46,17 +45,17 @@ class RestaurantService {
       searchQuery: searchQuery,
       onSearchUpdate: onSearchUpdate,
     );
-    
+
     // Immediately prefetch all primary photos
     if (_cachedRestaurants != null) {
       final headerPhotoRefs = _cachedRestaurants!
           .expand((r) => (r['photoRefs'] as List<dynamic>?)?.take(1) ?? [])
           .cast<String>()
           .toList();
-      
+
       await prefetchHeaderPhotos(headerPhotoRefs);
     }
-    
+
     return _cachedRestaurants!;
   }
 
@@ -66,24 +65,62 @@ class RestaurantService {
   static const double _maxIncrement = 2000;
   static const double maxRadius = 5000;
   static const List<String> cuisineTypes = [
-    'All', 'American', 'Asian', 'Bakery', 'Bar', 'BBQ', 'Bistro', 'Brazilian', 'British',
-    'Brunch', 'Buffet', 'Burger', 'Coffee', 'Caribbean', 'Chinese', 'Deli', 'Diner',
-    'French', 'Fusion', 'German', 'Greek', 'Hawaiian', 'Indian', 'Indonesian',
-    'Italian', 'Japanese', 'Korean', 'Lebanese', 'Mediterranean', 'Mexican',
-    'Moroccan', 'Noodles', 'Persian', 'Pizza', 'Pub', 'Ramen', 'Seafood',
-    'Spanish', 'Steakhouse', 'Sushi', 'Tapas', 'Thai', 'Vegan', 'Vegetarian',
-    'Vietnamese', 'Other'
+    'All',
+    'American',
+    'Asian',
+    'Bakery',
+    'Bar',
+    'BBQ',
+    'Bistro',
+    'Brazilian',
+    'British',
+    'Brunch',
+    'Buffet',
+    'Burger',
+    'Coffee',
+    'Caribbean',
+    'Chinese',
+    'Deli',
+    'Diner',
+    'French',
+    'Fusion',
+    'German',
+    'Greek',
+    'Hawaiian',
+    'Indian',
+    'Indonesian',
+    'Italian',
+    'Japanese',
+    'Korean',
+    'Lebanese',
+    'Mediterranean',
+    'Mexican',
+    'Moroccan',
+    'Noodles',
+    'Persian',
+    'Pizza',
+    'Pub',
+    'Ramen',
+    'Seafood',
+    'Spanish',
+    'Steakhouse',
+    'Sushi',
+    'Tapas',
+    'Thai',
+    'Vegan',
+    'Vegetarian',
+    'Vietnamese',
+    'Other'
   ];
 
   Future<List<Map<String, dynamic>>> getNearbyRestaurants(
-    double latitude,
-    double longitude,
-    {List<String>? priceLevels, 
-    String? cuisineType, 
-    bool openNow = true,
-    String? searchQuery,
-    void Function(int count, String type, double radius)? onSearchUpdate}
-  ) async {
+      double latitude, double longitude,
+      {List<String>? priceLevels,
+      String? cuisineType,
+      bool openNow = true,
+      String? searchQuery,
+      void Function(int count, String type, double radius)?
+          onSearchUpdate}) async {
     if (latitude.isNaN || longitude.isNaN) {
       throw ArgumentError('Invalid coordinates provided');
     }
@@ -107,18 +144,19 @@ class RestaurantService {
         openNow: openNow,
         searchQuery: searchQuery,
       );
-      
+
       try {
         ApiUsageTracker.instance.incrementTextSearch();
         final response = await ProxyService.placesApiGet(
           'places:searchText',
           params,
-          fieldMask: 'places.id,places.displayName,places.rating,places.userRatingCount,places.photos,places.priceLevel,places.types,places.formattedAddress,places.location,places.editorialSummary',
+          fieldMask:
+              'places.id,places.displayName,places.rating,places.userRatingCount,places.photos,places.priceLevel,places.types,places.formattedAddress,places.location,places.editorialSummary',
         );
-        
+
         if (response.containsKey('places')) {
           final List<dynamic> places = response['places'];
-          
+
           int newMatchingPlaces = 0;
           for (final place in places) {
             final id = place['id'] as String;
@@ -133,18 +171,17 @@ class RestaurantService {
           }
 
           onSearchUpdate?.call(
-            allRestaurants.length,
-            cuisineType ?? 'restaurant',
-            radius
-          );
+              allRestaurants.length, cuisineType ?? 'restaurant', radius);
 
           if (places.isEmpty || newMatchingPlaces == 0) {
             radius += currentIncrement;
-            currentIncrement = (currentIncrement * 1.5).clamp(_minIncrement, _maxIncrement);
+            currentIncrement =
+                (currentIncrement * 1.5).clamp(_minIncrement, _maxIncrement);
           }
         } else {
           radius += currentIncrement;
-          currentIncrement = (currentIncrement * 1.5).clamp(_minIncrement, _maxIncrement);
+          currentIncrement =
+              (currentIncrement * 1.5).clamp(_minIncrement, _maxIncrement);
         }
       } catch (e) {
         rethrow;
@@ -159,24 +196,27 @@ class RestaurantService {
   }
 
   Map<String, dynamic> _buildSearchParams(
-    double latitude,
-    double longitude,
-    double radius,
-    {String? cuisineType, List<String>? priceLevels, bool openNow = true, String? searchQuery}
-  ) {
+      double latitude, double longitude, double radius,
+      {String? cuisineType,
+      List<String>? priceLevels,
+      bool openNow = true,
+      String? searchQuery}) {
     const double metersPerDegree = 111320.0;
     double halfRadiusDegrees = radius / metersPerDegree;
 
-    if (latitude.isNaN || longitude.isNaN || radius.isNaN || halfRadiusDegrees.isNaN) {
+    if (latitude.isNaN ||
+        longitude.isNaN ||
+        radius.isNaN ||
+        halfRadiusDegrees.isNaN) {
       throw ArgumentError('Invalid parameters for search');
     }
 
     final params = {
       'textQuery': searchQuery?.isNotEmpty == true
           ? searchQuery
-          : cuisineType != null && cuisineType != 'Other' 
-            ? '$cuisineType restaurant'
-            : 'restaurant',
+          : cuisineType != null && cuisineType != 'Other'
+              ? '$cuisineType restaurant'
+              : 'restaurant',
       'locationRestriction': {
         'rectangle': {
           'low': {
@@ -196,37 +236,29 @@ class RestaurantService {
         'priceLevels': priceLevels,
       },
     };
-    
+
     final lowLat = latitude - halfRadiusDegrees;
     final lowLng = longitude - halfRadiusDegrees;
     final highLat = latitude + halfRadiusDegrees;
     final highLng = longitude + halfRadiusDegrees;
-    
+
     if (lowLat.isNaN || lowLng.isNaN || highLat.isNaN || highLng.isNaN) {
       throw ArgumentError('Invalid coordinate calculations');
     }
-    
+
     return params;
   }
 
-  String _convertPriceLevel(String priceLevel) {
-    switch (priceLevel) {
-      case '\$': return 'PRICE_LEVEL_INEXPENSIVE';
-      case '\$\$': return 'PRICE_LEVEL_MODERATE';
-      case '\$\$\$': return 'PRICE_LEVEL_EXPENSIVE';
-      case '\$\$\$\$': return 'PRICE_LEVEL_VERY_EXPENSIVE';
-      default: return '';
-    }
-  }
-
-  Map<String, dynamic>? _mapPlace(Map<String, dynamic> place, List<String>? targetPriceLevels) {
+  Map<String, dynamic>? _mapPlace(
+      Map<String, dynamic> place, List<String>? targetPriceLevels) {
     final photos = place['photos'] as List<dynamic>?;
-    final photoRefs = photos?.map((photo) => photo['name'] as String).toList() ?? [];
-    
+    final photoRefs =
+        photos?.map((photo) => photo['name'] as String).toList() ?? [];
+
     // Extract country from formatted address
     final formattedAddress = place['formattedAddress'] as String;
     final country = formattedAddress.split(',').last.trim();
-    
+
     return {
       ...Map<String, dynamic>.from(place),
       'photoRefs': photoRefs,
@@ -254,11 +286,12 @@ class RestaurantService {
     }
   }
 
-  Future<Uint8List?> getPlacePhoto(String photoName, {int maxWidth = 800, int maxHeight = 450}) async {
+  Future<Uint8List?> getPlacePhoto(String photoName,
+      {int maxWidth = 800, int maxHeight = 450}) async {
     ApiUsageTracker.instance.incrementPhoto();
     try {
       final uri = Uri.parse('${ProxyService.baseUrl}/$photoName/media');
-      
+
       final client = http.Client();
       try {
         final response = await client.get(
@@ -286,20 +319,18 @@ class RestaurantService {
   }
 
   Future<void> prefetchHeaderPhotos(List<String> photoRefs) async {
-    await Future.wait(
-      photoRefs.map((photoRef) async {
-        if (!_photoCache.containsKey(photoRef)) {
-          try {
-            final photoBytes = await getPlacePhoto(photoRef);
-            if (photoBytes != null) {
-              _photoCache[photoRef] = photoBytes;
-            }
-          } catch (e) {
-            // Silently handle error
+    await Future.wait(photoRefs.map((photoRef) async {
+      if (!_photoCache.containsKey(photoRef)) {
+        try {
+          final photoBytes = await getPlacePhoto(photoRef);
+          if (photoBytes != null) {
+            _photoCache[photoRef] = photoBytes;
           }
+        } catch (e) {
+          // Silently handle error
         }
-      })
-    );
+      }
+    }));
   }
 
   Uint8List? getCachedPhoto(String photoRef) {
@@ -308,16 +339,16 @@ class RestaurantService {
 
   Future<void> loadAndCacheRestaurants() async {
     if (_cachedRestaurants != null) return;
-    
+
     final restaurants = await fetchRestaurants(37.785834, -122.406417);
     final headerPhotoRefs = restaurants
         .expand((r) => (r['photoRefs'] as List<dynamic>?)?.take(1) ?? [])
         .cast<String>()
         .toList();
-        
+
     // Wait for photo URLs to be cached
     await prefetchHeaderPhotos(headerPhotoRefs);
-    
+
     // Preload images into memory
     for (final photoRef in headerPhotoRefs) {
       final photoBytes = getCachedPhoto(photoRef);
@@ -331,7 +362,9 @@ class RestaurantService {
   }
 
   bool shouldRefreshData(double currentLat, double currentLng) {
-    if (_lastFetchTime == null || _lastFetchLatitude == null || _lastFetchLongitude == null) {
+    if (_lastFetchTime == null ||
+        _lastFetchLatitude == null ||
+        _lastFetchLongitude == null) {
       return true;
     }
 
@@ -343,27 +376,23 @@ class RestaurantService {
 
     // Calculate distance from last fetch location
     final distance = _calculateDistance(
-      _lastFetchLatitude!,
-      _lastFetchLongitude!,
-      currentLat,
-      currentLng
-    );
+        _lastFetchLatitude!, _lastFetchLongitude!, currentLat, currentLng);
 
     // Return true if more than 300m away
     return distance > 300;
   }
 
-  double _calculateDistance(double lat1, double lon1, double lat2, double lon2) {
+  double _calculateDistance(
+      double lat1, double lon1, double lat2, double lon2) {
     const R = 6371e3; // Earth's radius in meters
     final phi1 = lat1 * pi / 180;
     final phi2 = lat2 * pi / 180;
     final deltaPhi = (lat2 - lat1) * pi / 180;
     final deltaLambda = (lon2 - lon1) * pi / 180;
 
-    final a = sin(deltaPhi/2) * sin(deltaPhi/2) +
-              cos(phi1) * cos(phi2) *
-              sin(deltaLambda/2) * sin(deltaLambda/2);
-    final c = 2 * atan2(sqrt(a), sqrt(1-a));
+    final a = sin(deltaPhi / 2) * sin(deltaPhi / 2) +
+        cos(phi1) * cos(phi2) * sin(deltaLambda / 2) * sin(deltaLambda / 2);
+    final c = 2 * atan2(sqrt(a), sqrt(1 - a));
 
     return R * c; // Distance in meters
   }
@@ -371,17 +400,79 @@ class RestaurantService {
   String? findPrimaryCuisine(List<String> types, {String? country}) {
     // Common cuisine keywords that appear in Google Places types
     final cuisineKeywords = {
-      'afghani', 'african', 'american', 'arabic', 'argentinian', 'asian', 'australian',
-      'austrian', 'bbq', 'barbeque', 'belgian', 'brazilian', 'british', 'caribbean', 'chinese',
-      'colombian', 'croatian', 'cuban', 'czech', 'danish', 'ethiopian', 'filipino',
-      'finnish', 'french', 'georgian', 'german', 'greek', 'hungarian', 'indian',
-      'indonesian', 'irish', 'israeli', 'italian', 'jamaican', 'japanese', 'korean',
-      'latin', 'lebanese', 'malaysian', 'malay', 'mediterranean', 'mexican', 'middle_eastern',
-      'moroccan', 'nepalese', 'nigerian', 'norwegian', 'pakistani', 'peruvian',
-      'persian', 'pizza', 'polish', 'portuguese', 'romanian', 'russian', 'scandinavian',
-      'scottish', 'seafood', 'singaporean', 'south_african', 'sushi', 'spanish', 'swedish',
-      'swiss', 'taiwanese', 'thai', 'turkish', 'ukrainian', 'uruguayan', 'vegetarian',
-      'venezuelan', 'vietnamese', 'welsh'
+      'afghani',
+      'african',
+      'american',
+      'arabic',
+      'argentinian',
+      'asian',
+      'australian',
+      'austrian',
+      'bbq',
+      'barbeque',
+      'belgian',
+      'brazilian',
+      'british',
+      'caribbean',
+      'chinese',
+      'colombian',
+      'croatian',
+      'cuban',
+      'czech',
+      'danish',
+      'ethiopian',
+      'filipino',
+      'finnish',
+      'french',
+      'georgian',
+      'german',
+      'greek',
+      'hungarian',
+      'indian',
+      'indonesian',
+      'irish',
+      'israeli',
+      'italian',
+      'jamaican',
+      'japanese',
+      'korean',
+      'latin',
+      'lebanese',
+      'malaysian',
+      'malay',
+      'mediterranean',
+      'mexican',
+      'middle_eastern',
+      'moroccan',
+      'nepalese',
+      'nigerian',
+      'norwegian',
+      'pakistani',
+      'peruvian',
+      'persian',
+      'pizza',
+      'polish',
+      'portuguese',
+      'romanian',
+      'russian',
+      'scandinavian',
+      'scottish',
+      'seafood',
+      'singaporean',
+      'south_african',
+      'sushi',
+      'spanish',
+      'swedish',
+      'swiss',
+      'taiwanese',
+      'thai',
+      'turkish',
+      'ukrainian',
+      'uruguayan',
+      'vegetarian',
+      'venezuelan',
+      'vietnamese',
+      'welsh'
     };
 
     // First pass: check for compound types
@@ -405,7 +496,7 @@ class RestaurantService {
     if (country != null) {
       final defaultCuisine = getDefaultCuisineByLocation(country);
       if (defaultCuisine != null) {
-        return '$defaultCuisine?';  // Add question mark to indicate it's a guess
+        return '$defaultCuisine?'; // Add question mark to indicate it's a guess
       }
     }
 
@@ -431,4 +522,4 @@ class RestaurantService {
 
     return countryCuisineMap[country];
   }
-} 
+}

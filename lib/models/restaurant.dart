@@ -1,4 +1,5 @@
 import 'dart:math' show sqrt, sin, atan2, cos, pi;
+import 'package:flutter/foundation.dart' show debugPrint;
 
 class Restaurant {
   final String id;
@@ -27,7 +28,8 @@ class Restaurant {
     this.priceLevel = '',
     this.description = '',
     this.address = '',
-    this.location = const Location(latitude: 0, longitude: 0, formattedAddress: '', country: ''),
+    this.location = const Location(
+        latitude: 0, longitude: 0, formattedAddress: '', country: ''),
     this.photos = const [],
     this.rank,
     required this.placeId,
@@ -39,15 +41,20 @@ class Restaurant {
     if (locationData != null) {
       final lat = locationData['latitude'];
       final lng = locationData['longitude'];
-      if (lat == null || lng == null || lat is! double || lng is! double || lat.isNaN || lng.isNaN) {
-        print('dBug/restaurant: Invalid location data');
-        print('dBug/restaurant: latitude: $lat (${lat.runtimeType})');
-        print('dBug/restaurant: longitude: $lng (${lng.runtimeType})');
+      if (lat == null ||
+          lng == null ||
+          lat is! double ||
+          lng is! double ||
+          lat.isNaN ||
+          lng.isNaN) {
+        debugPrint('dBug/restaurant: Invalid location data');
+        debugPrint('dBug/restaurant: latitude: $lat (${lat.runtimeType})');
+        debugPrint('dBug/restaurant: longitude: $lng (${lng.runtimeType})');
       }
     }
 
     final name = json['displayName']?['text'] ?? '';
-    
+
     // Extract description with proper null checking
     String extractDescription(dynamic editorialSummary) {
       if (editorialSummary == null) return '';
@@ -118,44 +125,48 @@ class Restaurant {
       rank: json['rank'] as int?,
       placeId: placeId,
     );
-    
+
     // Debug check final location values
-    if (restaurant.location.latitude.isNaN || restaurant.location.longitude.isNaN) {
-      print('dBug/restaurant: NaN coordinates in final restaurant object');
-      print('dBug/restaurant: ${restaurant.name}');
-      print('dBug/restaurant: lat: ${restaurant.location.latitude}, lng: ${restaurant.location.longitude}');
+    if (restaurant.location.latitude.isNaN ||
+        restaurant.location.longitude.isNaN) {
+      debugPrint('dBug/restaurant: NaN coordinates in final restaurant object');
+      debugPrint('dBug/restaurant: ${restaurant.name}');
+      debugPrint(
+          'dBug/restaurant: lat: ${restaurant.location.latitude}, lng: ${restaurant.location.longitude}');
     }
-    
+
     return restaurant;
   }
 
   double calculateWilsonScore(double rating, int reviewCount) {
     if (reviewCount == 0) return 0;
-    
+
     // Debug check input values
     if (rating.isNaN) {
-      print('dBug/restaurant: NaN rating in Wilson score calculation');
-      print('dBug/restaurant: rating: $rating, reviewCount: $reviewCount');
+      debugPrint('dBug/restaurant: NaN rating in Wilson score calculation');
+      debugPrint('dBug/restaurant: rating: $rating, reviewCount: $reviewCount');
       return 0;
     }
-    
+
     const z = 1.96;
     final p = rating / 5.0;
     final n = reviewCount.toDouble();
-    
-    final numerator = p + z * z / (2 * n) - z * sqrt((p * (1 - p) + z * z / (4 * n)) / n);
+
+    final numerator =
+        p + z * z / (2 * n) - z * sqrt((p * (1 - p) + z * z / (4 * n)) / n);
     final denominator = 1 + z * z / n;
-    
+
     final score = numerator / denominator;
-    
+
     // Debug check final score
     if (score.isNaN) {
-      print('dBug/restaurant: NaN Wilson score calculated');
-      print('dBug/restaurant: rating: $rating, reviewCount: $reviewCount');
-      print('dBug/restaurant: numerator: $numerator, denominator: $denominator');
+      debugPrint('dBug/restaurant: NaN Wilson score calculated');
+      debugPrint('dBug/restaurant: rating: $rating, reviewCount: $reviewCount');
+      debugPrint(
+          'dBug/restaurant: numerator: $numerator, denominator: $denominator');
       return 0;
     }
-    
+
     return score;
   }
 }
@@ -175,54 +186,62 @@ class Location {
 
   String formatDistance(double currentLat, double currentLng) {
     // Debug check input coordinates
-    if (currentLat.isNaN || currentLng.isNaN || latitude.isNaN || longitude.isNaN) {
-      print('dBug/location: NaN coordinates in formatDistance');
-      print('dBug/location: currentLat: $currentLat, currentLng: $currentLng');
-      print('dBug/location: latitude: $latitude, longitude: $longitude');
+    if (currentLat.isNaN ||
+        currentLng.isNaN ||
+        latitude.isNaN ||
+        longitude.isNaN) {
+      debugPrint('dBug/location: NaN coordinates in formatDistance');
+      debugPrint(
+          'dBug/location: currentLat: $currentLat, currentLng: $currentLng');
+      debugPrint('dBug/location: latitude: $latitude, longitude: $longitude');
       return 'Distance unavailable';
     }
 
-    final distance = calculateDistance(currentLat, currentLng, latitude, longitude);
-    
+    final distance =
+        calculateDistance(currentLat, currentLng, latitude, longitude);
+
     // Debug check calculated distance
     if (distance.isNaN) {
-      print('dBug/location: NaN distance calculated');
-      print('dBug/location: distance: $distance');
+      debugPrint('dBug/location: NaN distance calculated');
+      debugPrint('dBug/location: distance: $distance');
       return 'Distance unavailable';
     }
-    
-    return distance < 1 
-      ? '${(distance * 1000).round()}m'
-      : '${distance.toStringAsFixed(1)}km';
+
+    return distance < 1
+        ? '${(distance * 1000).round()}m'
+        : '${distance.toStringAsFixed(1)}km';
   }
 
   double calculateDistance(double lat1, double lon1, double lat2, double lon2) {
     // Debug check input coordinates
     if (lat1.isNaN || lon1.isNaN || lat2.isNaN || lon2.isNaN) {
-      print('dBug/location: NaN coordinates in calculateDistance');
-      print('dBug/location: lat1: $lat1, lon1: $lon1');
-      print('dBug/location: lat2: $lat2, lon2: $lon2');
+      debugPrint('dBug/location: NaN coordinates in calculateDistance');
+      debugPrint('dBug/location: lat1: $lat1, lon1: $lon1');
+      debugPrint('dBug/location: lat2: $lat2, lon2: $lon2');
       return double.nan;
     }
 
     const r = 6371;
     final dLat = _toRadians(lat2 - lat1);
     final dLon = _toRadians(lon2 - lon1);
-    
+
     // Debug check radians conversion
     if (dLat.isNaN || dLon.isNaN) {
-      print('dBug/location: NaN in radians conversion');
-      print('dBug/location: dLat: $dLat, dLon: $dLon');
+      debugPrint('dBug/location: NaN in radians conversion');
+      debugPrint('dBug/location: dLat: $dLat, dLon: $dLon');
       return double.nan;
     }
 
     final a = sin(dLat / 2) * sin(dLat / 2) +
-        cos(_toRadians(lat1)) * cos(_toRadians(lat2)) * sin(dLon / 2) * sin(dLon / 2);
-    
+        cos(_toRadians(lat1)) *
+            cos(_toRadians(lat2)) *
+            sin(dLon / 2) *
+            sin(dLon / 2);
+
     // Debug check sin/cos calculations
     if (a.isNaN) {
-      print('dBug/location: NaN in trigonometric calculation');
-      print('dBug/location: a: $a');
+      debugPrint('dBug/location: NaN in trigonometric calculation');
+      debugPrint('dBug/location: a: $a');
       return double.nan;
     }
 
@@ -236,6 +255,5 @@ class Location {
 class Photo {
   final String url;
 
-  Photo.fromJson(Map<String, dynamic> json)
-      : url = json['url'];
+  Photo.fromJson(Map<String, dynamic> json) : url = json['url'];
 }

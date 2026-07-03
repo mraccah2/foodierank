@@ -34,7 +34,8 @@ class FullScreenPhoto extends StatelessWidget {
               fit: BoxFit.contain,
               errorBuilder: (context, error, stackTrace) {
                 return const Center(
-                  child: Icon(Icons.error_outline, size: 40, color: Colors.white),
+                  child:
+                      Icon(Icons.error_outline, size: 40, color: Colors.white),
                 );
               },
             ),
@@ -43,4 +44,4 @@ class FullScreenPhoto extends StatelessWidget {
       ),
     );
   }
-} 
+}

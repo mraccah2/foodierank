@@ -49,13 +49,13 @@ class _RestaurantPhotoViewerState extends State<RestaurantPhotoViewer> {
     if (_loadedPhotos.containsKey(photoRef)) {
       return _loadedPhotos[photoRef]!;
     }
-    
+
     final photoUrl = await ProxyService.getPlacePhoto(
       photoRef,
       1200, // width
-      800,  // height
+      800, // height
     );
-    
+
     if (photoUrl.isNotEmpty) {
       _loadedPhotos[photoRef] = photoUrl;
     }
@@ -68,19 +68,21 @@ class _RestaurantPhotoViewerState extends State<RestaurantPhotoViewer> {
       builder: (context, orientation) {
         return Scaffold(
           backgroundColor: Colors.black,
-          appBar: orientation == Orientation.portrait ? AppBar(
-            backgroundColor: Colors.transparent,
-            elevation: 0,
-            leading: IconButton(
-              icon: const Icon(Icons.arrow_back),
-              color: Colors.white,
-              onPressed: () => Navigator.pop(context),
-            ),
-            title: Text(
-              '${_currentIndex + 1}/${widget.restaurant.photoRefs.length}',
-              style: const TextStyle(color: Colors.white),
-            ),
-          ) : null,
+          appBar: orientation == Orientation.portrait
+              ? AppBar(
+                  backgroundColor: Colors.transparent,
+                  elevation: 0,
+                  leading: IconButton(
+                    icon: const Icon(Icons.arrow_back),
+                    color: Colors.white,
+                    onPressed: () => Navigator.pop(context),
+                  ),
+                  title: Text(
+                    '${_currentIndex + 1}/${widget.restaurant.photoRefs.length}',
+                    style: const TextStyle(color: Colors.white),
+                  ),
+                )
+              : null,
           body: Stack(
             children: [
               GestureDetector(
@@ -93,17 +95,20 @@ class _RestaurantPhotoViewerState extends State<RestaurantPhotoViewer> {
                       child: GestureDetector(
                         onTap: () {},
                         child: FutureBuilder<String>(
-                          future: _loadPhoto(widget.restaurant.photoRefs[index]),
+                          future:
+                              _loadPhoto(widget.restaurant.photoRefs[index]),
                           builder: (context, snapshot) {
                             if (snapshot.hasData && snapshot.data!.isNotEmpty) {
                               return PhotoView(
                                 imageProvider: NetworkImage(snapshot.data!),
                                 minScale: PhotoViewComputedScale.contained,
                                 maxScale: PhotoViewComputedScale.covered * 2,
-                                scaleStateController: PhotoViewScaleStateController(),
+                                scaleStateController:
+                                    PhotoViewScaleStateController(),
                               );
                             }
-                            return const Center(child: CircularProgressIndicator());
+                            return const Center(
+                                child: CircularProgressIndicator());
                           },
                         ),
                       ),
@@ -129,7 +134,7 @@ class _RestaurantPhotoViewerState extends State<RestaurantPhotoViewer> {
                         child: Container(
                           padding: const EdgeInsets.all(8),
                           decoration: BoxDecoration(
-                            color: Colors.black.withOpacity(0.3),
+                            color: Colors.black.withValues(alpha: 0.3),
                             shape: BoxShape.circle,
                           ),
                           child: const Text(
@@ -158,7 +163,7 @@ class _RestaurantPhotoViewerState extends State<RestaurantPhotoViewer> {
                         child: Container(
                           padding: const EdgeInsets.all(8),
                           decoration: BoxDecoration(
-                            color: Colors.black.withOpacity(0.3),
+                            color: Colors.black.withValues(alpha: 0.3),
                             shape: BoxShape.circle,
                           ),
                           child: const Text(
@@ -180,4 +185,4 @@ class _RestaurantPhotoViewerState extends State<RestaurantPhotoViewer> {
       },
     );
   }
-} 
+}

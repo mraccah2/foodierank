@@ -7,7 +7,7 @@ class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
 
   @override
-  _SplashScreenState createState() => _SplashScreenState();
+  State<SplashScreen> createState() => _SplashScreenState();
 }
 
 class _SplashScreenState extends State<SplashScreen> {
@@ -22,10 +22,10 @@ class _SplashScreenState extends State<SplashScreen> {
       // Attempt to load and cache restaurants and photos
       final dataFuture = RestaurantService.instance.loadAndCacheRestaurants();
       final timerFuture = Future.delayed(const Duration(seconds: 1));
-      
+
       // Wait for both the data loading and minimum time
       await Future.wait([dataFuture, timerFuture]);
-      
+
       if (!mounted) {
         return;
       }
@@ -34,9 +34,13 @@ class _SplashScreenState extends State<SplashScreen> {
       final restaurantScreen = RestaurantListScreen(
         key: const ValueKey('restaurant_list'),
       );
-      
+
       // Allow some time for the screen to initialize
       await Future.microtask(() {});
+
+      if (!mounted) {
+        return;
+      }
 
       // Navigate to pre-built RestaurantListScreen
       Navigator.of(context).pushReplacement(
@@ -80,4 +84,4 @@ class _SplashScreenState extends State<SplashScreen> {
       ),
     );
   }
-} 
+}

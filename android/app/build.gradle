@@ -11,6 +11,16 @@ if (keystorePropertiesFile.exists()) {
     keystoreProperties.load(new FileInputStream(keystorePropertiesFile))
 }
 
+// Google Maps API key for the native manifest meta-data.
+// Resolved from (in order): the MAPS_API_KEY env var, then `MAPS_API_KEY`
+// in android/local.properties (gitignored). Never hardcode it here.
+def localProperties = new Properties()
+def localPropertiesFile = rootProject.file('local.properties')
+if (localPropertiesFile.exists()) {
+    localPropertiesFile.withInputStream { localProperties.load(it) }
+}
+def mapsApiKey = System.getenv('MAPS_API_KEY') ?: localProperties.getProperty('MAPS_API_KEY', '')
+
 configurations.all {
     resolutionStrategy {
         force 'org.jetbrains.kotlin:kotlin-stdlib-jdk8:1.8.0'
@@ -37,6 +47,9 @@ android {
         targetSdkVersion = 34
         versionCode = flutter.versionCode
         versionName = flutter.versionName
+
+        // Injected into AndroidManifest.xml as ${MAPS_API_KEY}.
+        manifestPlaceholders += [MAPS_API_KEY: mapsApiKey]
     }
 
     signingConfigs {

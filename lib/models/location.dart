@@ -15,11 +15,12 @@ class Location {
   });
 
   String formatDistance(double currentLat, double currentLng) {
-    final distanceKm = calculateDistance(latitude, longitude, currentLat, currentLng);
-    
+    final distanceKm =
+        calculateDistance(latitude, longitude, currentLat, currentLng);
+
     // Use system locale to determine units
     final useImperial = Intl.getCurrentLocale().startsWith('en_US');
-    
+
     if (useImperial) {
       final distanceMiles = distanceKm * 0.621371;
       if (distanceMiles < 0.1) {
@@ -39,7 +40,10 @@ class Location {
     final dLat = _toRadians(lat2 - lat1);
     final dLon = _toRadians(lon2 - lon1);
     final a = sin(dLat / 2) * sin(dLat / 2) +
-        cos(_toRadians(lat1)) * cos(_toRadians(lat2)) * sin(dLon / 2) * sin(dLon / 2);
+        cos(_toRadians(lat1)) *
+            cos(_toRadians(lat2)) *
+            sin(dLon / 2) *
+            sin(dLon / 2);
     final c = 2 * atan2(sqrt(a), sqrt(1 - a));
     return r * c;
   }

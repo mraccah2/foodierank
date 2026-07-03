@@ -1,6 +1,6 @@
 {
-    "name": "foodierank",
-    "short_name": "foodierank",
+    "name": "FoodieRank",
+    "short_name": "FoodieRank",
     "start_url": ".",
     "display": "standalone",
     "background_color": "#0175C2",
