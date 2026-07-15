@@ -120,6 +120,18 @@ MAPS_API_KEY=YOUR_ANDROID_KEY
 (See `android/local.properties.example`. Alternatively, set a `MAPS_API_KEY`
 environment variable before building.)
 
+**iOS native Maps SDK key** — the embedded map picker uses the Google Maps SDK
+for iOS, which reads its key natively (not via `--dart-define`). Copy
+`ios/Flutter/Secrets.xcconfig.example` to `ios/Flutter/Secrets.xcconfig`
+(gitignored) and set your iOS Maps key:
+
+```
+GOOGLE_MAPS_IOS_API_KEY = YOUR_IOS_KEY
+```
+
+Enable **Maps SDK for iOS** and **Maps SDK for Android** on the corresponding
+keys in the Google Cloud console (in addition to the Places API).
+
 ### Configuration reference
 
 | Key | Where | Purpose |
@@ -127,6 +139,7 @@ environment variable before building.)
 | `IOS_MAPS_API_KEY` | `--dart-define` | Places API key used by the iOS app at runtime |
 | `ANDROID_MAPS_API_KEY` | `--dart-define` | Places API key used by the Android app at runtime |
 | `MAPS_API_KEY` | `android/local.properties` or env | Native Android manifest map key |
+| `GOOGLE_MAPS_IOS_API_KEY` | `ios/Flutter/Secrets.xcconfig` | Native iOS Maps SDK key for the map picker |
 | `IOS_BUNDLE_ID` | `--dart-define` (optional) | Sent as `X-Ios-Bundle-Identifier` for key restrictions |
 | `ANDROID_PACKAGE_NAME` | `--dart-define` (optional) | Sent as `X-Android-Package` for key restrictions |
 | `ANDROID_CERT_SHA1` | `--dart-define` (optional) | Sent as `X-Android-Cert` for key restrictions |

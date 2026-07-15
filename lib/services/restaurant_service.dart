@@ -15,6 +15,7 @@ class RestaurantService {
   DateTime? _lastFetchTime;
   double? _lastFetchLatitude;
   double? _lastFetchLongitude;
+  String? _lastContextKey;
 
   factory RestaurantService() {
     return instance;
@@ -30,11 +31,15 @@ class RestaurantService {
       String? cuisineType,
       bool openNow = true,
       String? searchQuery,
+      int? targetDay,
+      int? targetMinutes,
+      String? contextKey,
       void Function(int count, String type, double radius)?
           onSearchUpdate}) async {
     _lastFetchTime = DateTime.now();
     _lastFetchLatitude = latitude;
     _lastFetchLongitude = longitude;
+    _lastContextKey = contextKey;
 
     _cachedRestaurants = await getNearbyRestaurants(
       latitude,
@@ -43,6 +48,8 @@ class RestaurantService {
       cuisineType: cuisineType != 'All' ? cuisineType : null,
       openNow: openNow,
       searchQuery: searchQuery,
+      targetDay: targetDay,
+      targetMinutes: targetMinutes,
       onSearchUpdate: onSearchUpdate,
     );
 
@@ -118,11 +125,27 @@ class RestaurantService {
       String? cuisineType,
       bool openNow = true,
       String? searchQuery,
+      int? targetDay,
+      int? targetMinutes,
       void Function(int count, String type, double radius)?
           onSearchUpdate}) async {
     if (latitude.isNaN || longitude.isNaN) {
       throw ArgumentError('Invalid coordinates provided');
     }
+
+    // "Custom time" means the user asked for a specific day/time-of-day rather
+    // than "open now". The Places `openNow` filter only knows the present, so we
+    // must instead request each place's opening hours and filter client-side.
+    final bool customTime = targetDay != null && targetMinutes != null;
+
+    // Opening-hours fields are a billable Enterprise-SKU add-on, so only request
+    // them when a custom time is active; the default "open now" path keeps its
+    // cheaper field mask unchanged.
+    const String baseFieldMask =
+        'places.id,places.displayName,places.rating,places.userRatingCount,places.photos,places.priceLevel,places.types,places.formattedAddress,places.location,places.editorialSummary';
+    final String fieldMask = customTime
+        ? '$baseFieldMask,places.regularOpeningHours,places.utcOffsetMinutes'
+        : baseFieldMask;
 
     double radius = _initialRadius;
     final Set<String> foundIds = {};
@@ -131,7 +154,8 @@ class RestaurantService {
     // Keep widening the search until we have enough places or we hit the
     // safety cap. Dense areas are satisfied on the first (smallest) round;
     // rural areas keep doubling the radius outward until they reach the
-    // nearest populated towns.
+    // nearest populated towns. With a custom time we count only the places that
+    // are open at that time toward the target.
     while (allRestaurants.length < _targetCount) {
       if (radius.isNaN) break;
 
@@ -141,7 +165,9 @@ class RestaurantService {
         radius,
         cuisineType: cuisineType,
         priceLevels: priceLevels,
-        openNow: openNow,
+        // With a custom time we drop the server-side open filter and evaluate
+        // opening hours ourselves.
+        openNow: customTime ? false : openNow,
         searchQuery: searchQuery,
       );
 
@@ -149,21 +175,26 @@ class RestaurantService {
       final response = await ProxyService.placesApiGet(
         'places:searchText',
         params,
-        fieldMask:
-            'places.id,places.displayName,places.rating,places.userRatingCount,places.photos,places.priceLevel,places.types,places.formattedAddress,places.location,places.editorialSummary',
+        fieldMask: fieldMask,
       );
 
       final places = (response['places'] as List<dynamic>?) ?? const [];
       for (final place in places) {
         final id = place['id'] as String?;
         if (id == null || foundIds.contains(id)) continue;
+        foundIds.add(id); // mark seen so later, wider rounds skip it
         try {
           final mappedPlace =
               _mapPlace(place as Map<String, dynamic>, priceLevels);
-          if (mappedPlace != null) {
-            foundIds.add(id);
-            allRestaurants.add(mappedPlace);
+          if (mappedPlace == null) continue;
+
+          if (customTime) {
+            final periods = (mappedPlace['regularOpeningHours']
+                as Map<String, dynamic>?)?['periods'] as List<dynamic>?;
+            if (!isOpenAt(periods, targetDay, targetMinutes)) continue;
           }
+
+          allRestaurants.add(mappedPlace);
         } catch (_) {
           // Skip a place with unexpected/missing fields rather than aborting
           // the whole search.
@@ -180,6 +211,50 @@ class RestaurantService {
     }
 
     return allRestaurants;
+  }
+
+  /// Whether a place with the given Places API opening-hours [periods] is open
+  /// at [day] (`0 = Sunday … 6 = Saturday`) and [minutes] since local midnight.
+  ///
+  /// Handles the three shapes the API produces:
+  ///   * **24-hour**: a single period whose `open` is `{0,0,0}` with no `close`.
+  ///   * **overnight**: `close.day` is later than `open.day` (e.g. 22:00→02:00).
+  ///   * **week wrap**: a Saturday-night period that closes on Sunday.
+  ///
+  /// Places with unknown hours (null/empty [periods]) are treated as closed,
+  /// since the feature's promise is "open at this time".
+  static bool isOpenAt(List<dynamic>? periods, int day, int minutes) {
+    if (periods == null || periods.isEmpty) return false;
+
+    const int week = 7 * 1440;
+    final int target = day * 1440 + minutes;
+
+    int pointToMinutes(Map<String, dynamic> point) =>
+        ((point['day'] as num?)?.toInt() ?? 0) * 1440 +
+        ((point['hour'] as num?)?.toInt() ?? 0) * 60 +
+        ((point['minute'] as num?)?.toInt() ?? 0);
+
+    for (final raw in periods) {
+      final period = raw as Map<String, dynamic>?;
+      if (period == null) continue;
+
+      final open = period['open'] as Map<String, dynamic>?;
+      if (open == null) continue;
+
+      // No close → always-open (24h) per the API contract.
+      if (period['close'] == null) return true;
+
+      final openMin = pointToMinutes(open);
+      var closeMin = pointToMinutes(period['close'] as Map<String, dynamic>);
+      // Overnight / week-wrap: normalise close to be after open.
+      if (closeMin <= openMin) closeMin += week;
+
+      if (target >= openMin && target < closeMin) return true;
+      // A period that wrapped past Saturday into Sunday also covers early-week
+      // targets once shifted forward by a full week.
+      if (target + week >= openMin && target + week < closeMin) return true;
+    }
+    return false;
   }
 
   Map<String, dynamic> _buildSearchParams(
@@ -348,10 +423,17 @@ class RestaurantService {
     }
   }
 
-  bool shouldRefreshData(double currentLat, double currentLng) {
+  bool shouldRefreshData(double currentLat, double currentLng,
+      {String? contextKey}) {
     if (_lastFetchTime == null ||
         _lastFetchLatitude == null ||
         _lastFetchLongitude == null) {
+      return true;
+    }
+
+    // A different where/when context (custom location or time) never reuses the
+    // cache from another context, and vice-versa.
+    if (contextKey != _lastContextKey) {
       return true;
     }
 

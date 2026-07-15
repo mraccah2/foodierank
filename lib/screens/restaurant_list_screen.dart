@@ -2,10 +2,13 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 import '../models/restaurant.dart';
+import '../models/search_context.dart';
 import '../services/restaurant_service.dart';
 import '../widgets/restaurant_card.dart';
 import '../widgets/restaurant_photo_viewer.dart';
 import '../widgets/minimal_restaurant_card.dart';
+import '../widgets/location_picker_sheet.dart';
+import '../widgets/time_picker_sheet.dart';
 
 enum SortOption { rank, distance }
 
@@ -27,11 +30,14 @@ class _RestaurantListScreenState extends State<RestaurantListScreen>
   String? _selectedPriceLevel;
   String? _selectedType = 'All';
   final TextEditingController _customTypeController = TextEditingController();
+  // The resolved centre of the current search (device GPS for "Near me", or the
+  // picked place's coordinates). Distances are measured from here.
   double? _currentLat;
   double? _currentLng;
+  // Where & when the search runs. Defaults to "Near me / Open now".
+  SearchContext _searchContext = SearchContext.initial;
   SortOption _sortOption = SortOption.rank;
   bool _isScrolling = false;
-  final bool _showOpenOnly = true; // Default to showing only open restaurants
   String? _searchStatus;
   final TextEditingController _searchController = TextEditingController();
   String _searchQuery = '';
@@ -78,6 +84,9 @@ class _RestaurantListScreenState extends State<RestaurantListScreen>
   }
 
   Future<void> _checkAndRefreshIfNeeded() async {
+    // Only the default "Near me / Open now" view auto-refreshes on resume. A
+    // pinned custom location or time must stay put until the user changes it.
+    if (!_searchContext.isDefault) return;
     try {
       final currentPosition = await Geolocator.getCurrentPosition(
         desiredAccuracy: LocationAccuracy.best,
@@ -121,34 +130,44 @@ class _RestaurantListScreenState extends State<RestaurantListScreen>
         _searchStatus = null;
       });
 
-      final position = await Geolocator.getCurrentPosition(
-        desiredAccuracy: LocationAccuracy.best,
-        timeLimit: const Duration(seconds: 5),
-      );
-
-      if (!mounted) return;
-
-      // Update last position and refresh time
-      _lastPosition = position;
+      // Resolve the search centre: the picked place for a custom location, or
+      // the device's GPS position for "Near me".
+      final double lat;
+      final double lng;
+      if (_searchContext.isCustomLocation) {
+        lat = _searchContext.lat!;
+        lng = _searchContext.lng!;
+      } else {
+        final position = await Geolocator.getCurrentPosition(
+          desiredAccuracy: LocationAccuracy.best,
+          timeLimit: const Duration(seconds: 5),
+        );
+        if (!mounted) return;
+        _lastPosition = position;
+        lat = position.latitude;
+        lng = position.longitude;
+      }
       _lastRefreshTime = DateTime.now();
 
-      _currentLat = position.latitude;
-      _currentLng = position.longitude;
+      _currentLat = lat;
+      _currentLng = lng;
 
       final rawRestaurants = await RestaurantService.instance.fetchRestaurants(
-        position.latitude,
-        position.longitude,
+        lat,
+        lng,
         priceLevels: _getEffectivePriceLevels(),
         cuisineType: _selectedType,
-        openNow: _showOpenOnly,
+        openNow: !_searchContext.isCustomTime,
         searchQuery: _searchQuery,
+        targetDay: _searchContext.targetDay,
+        targetMinutes: _searchContext.targetMinutes,
+        contextKey: _searchContext.isDefault ? null : _searchContext.cacheKey,
         onSearchUpdate: (count, type, radius) {
           if (mounted &&
               count < _lowResultsThreshold &&
               radius >= RestaurantService.maxRadius) {
             setState(() {
-              _searchStatus =
-                  'Found $count restaurants matching "$_searchQuery" nearby and open now.';
+              _searchStatus = _searchStatusMessage(count);
             });
           }
         },
@@ -158,9 +177,9 @@ class _RestaurantListScreenState extends State<RestaurantListScreen>
 
       if (rawRestaurants.isEmpty) {
         setState(() {
-          _error = _showOpenOnly
-              ? 'No restaurants currently open in this area'
-              : 'No restaurants found in this area';
+          _error = _searchContext.isCustomTime
+              ? 'No restaurants open ${_searchContext.timeDisplay.toLowerCase()} in this area'
+              : 'No restaurants currently open in this area';
           _isLoading = false;
         });
         return;
@@ -215,8 +234,12 @@ class _RestaurantListScreenState extends State<RestaurantListScreen>
         _lastRefreshTime = DateTime.now();
 
         // Check if we need to refresh the data
-        if (RestaurantService.instance
-            .shouldRefreshData(position.latitude, position.longitude)) {
+        if (RestaurantService.instance.shouldRefreshData(
+          position.latitude,
+          position.longitude,
+          contextKey:
+              _searchContext.isDefault ? null : _searchContext.cacheKey,
+        )) {
           _initializeAndLoad();
           return;
         }
@@ -525,6 +548,69 @@ class _RestaurantListScreenState extends State<RestaurantListScreen>
     }
   }
 
+  String _searchStatusMessage(int count) {
+    final where = _searchContext.isCustomLocation
+        ? 'near ${_searchContext.locationDisplay}'
+        : 'nearby';
+    final when = _searchContext.isCustomTime
+        ? 'open ${_searchContext.timeDisplay.toLowerCase()}'
+        : 'open now';
+    if (_searchQuery.isNotEmpty) {
+      return 'Found $count restaurants matching "$_searchQuery" $where and $when.';
+    }
+    return 'Found $count restaurants $where and $when.';
+  }
+
+  // --- Where & when context -------------------------------------------------
+
+  Future<void> _openLocationPicker() async {
+    // Seed autocomplete bias / map with the current centre (or a sane default).
+    final biasLat = _currentLat ?? _lastPosition?.latitude ?? 37.7749;
+    final biasLng = _currentLng ?? _lastPosition?.longitude ?? -122.4194;
+
+    final result =
+        await showLocationPicker(context, biasLat: biasLat, biasLng: biasLng);
+    if (result == null || !mounted) return;
+
+    setState(() {
+      _searchContext = result.useCurrentLocation
+          ? _searchContext.clearLocation()
+          : _searchContext.withLocation(
+              lat: result.place!.lat,
+              lng: result.place!.lng,
+              label: result.place!.label,
+            );
+    });
+    _initializeAndLoad();
+  }
+
+  void _resetLocation() {
+    setState(() => _searchContext = _searchContext.clearLocation());
+    _initializeAndLoad();
+  }
+
+  Future<void> _openTimePicker() async {
+    final result = await showTimeContextPicker(context,
+        isCustom: _searchContext.isCustomTime);
+    if (result == null || !mounted) return;
+
+    setState(() {
+      _searchContext = result.openNow
+          ? _searchContext.clearTime()
+          : _searchContext.withTime(
+              day: result.day!,
+              minutes: result.minutes!,
+              label: result.label!,
+            );
+    });
+    _initializeAndLoad();
+  }
+
+  void _resetTime() {
+    setState(() => _searchContext = _searchContext.clearTime());
+    _initializeAndLoad();
+  }
+
   void _toggleSearch() {
     setState(() {
       _isSearchVisible = !_isSearchVisible;
@@ -715,6 +801,9 @@ class _RestaurantListScreenState extends State<RestaurantListScreen>
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
+                // Where & when context row
+                _buildContextRow(),
+                const SizedBox(height: 8),
                 // Filter Buttons Row
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 18),
@@ -870,60 +959,12 @@ class _RestaurantListScreenState extends State<RestaurantListScreen>
                               contentPadding:
                                   const EdgeInsets.symmetric(horizontal: 16),
                             ),
-                            onSubmitted: (value) async {
-                              setState(() {
-                                _isLoading = true;
-                                _error = null;
-                              });
-
-                              try {
-                                final position =
-                                    await Geolocator.getCurrentPosition(
-                                  desiredAccuracy: LocationAccuracy.best,
-                                  timeLimit: const Duration(seconds: 5),
-                                );
-
-                                if (!mounted) return;
-
-                                _currentLat = position.latitude;
-                                _currentLng = position.longitude;
-
-                                final rawRestaurants = await RestaurantService
-                                    .instance
-                                    .fetchRestaurants(
-                                  position.latitude,
-                                  position.longitude,
-                                  priceLevels: _getEffectivePriceLevels(),
-                                  cuisineType: _selectedType,
-                                  openNow: _showOpenOnly,
-                                  searchQuery: value,
-                                  onSearchUpdate: (count, type, radius) {
-                                    if (mounted &&
-                                        count < _lowResultsThreshold &&
-                                        radius >= RestaurantService.maxRadius) {
-                                      setState(() {
-                                        _searchStatus =
-                                            'Found $count restaurants matching "$_searchQuery" nearby and open now.';
-                                      });
-                                    }
-                                  },
-                                );
-
-                                setState(() {
-                                  _restaurants = rawRestaurants
-                                      .map((r) => Restaurant.fromJson(r))
-                                      .toList();
-                                  _currentLat = position.latitude;
-                                  _currentLng = position.longitude;
-                                  _isLoading = false;
-                                });
-                                _sortRestaurants();
-                              } catch (e) {
-                                setState(() {
-                                  _error = e.toString();
-                                  _isLoading = false;
-                                });
-                              }
+                            onSubmitted: (value) {
+                              // The controller listener keeps _searchQuery in
+                              // sync; run the search through the shared path so
+                              // the current where/when context is honoured.
+                              _searchQuery = value;
+                              _initializeAndLoad();
                             },
                           ),
                         ),
@@ -1016,6 +1057,86 @@ class _RestaurantListScreenState extends State<RestaurantListScreen>
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  /// The two "where & when" pills shown under the logo. They stay collapsed to a
+  /// single line to keep the header uncluttered; detail lives in the sheets.
+  Widget _buildContextRow() {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        Flexible(
+          child: _contextPill(
+            icon: Icons.place_outlined,
+            label: _searchContext.locationDisplay,
+            active: _searchContext.isCustomLocation,
+            onTap: _openLocationPicker,
+            onClear: _searchContext.isCustomLocation ? _resetLocation : null,
+          ),
+        ),
+        const SizedBox(width: 8),
+        Flexible(
+          child: _contextPill(
+            icon: Icons.schedule,
+            label: _searchContext.timeDisplay,
+            active: _searchContext.isCustomTime,
+            onTap: _openTimePicker,
+            onClear: _searchContext.isCustomTime ? _resetTime : null,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _contextPill({
+    required IconData icon,
+    required String label,
+    required bool active,
+    required VoidCallback onTap,
+    VoidCallback? onClear,
+  }) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(20),
+      child: Container(
+        padding: EdgeInsets.only(left: 12, right: onClear != null ? 6 : 12),
+        height: 32,
+        decoration: BoxDecoration(
+          color: active ? Colors.black : Colors.white,
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: Colors.black, width: 1),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon,
+                size: 16, color: active ? Colors.white : Colors.black),
+            const SizedBox(width: 6),
+            Flexible(
+              child: Text(
+                label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: active ? FontWeight.bold : FontWeight.normal,
+                  color: active ? Colors.white : Colors.black,
+                ),
+              ),
+            ),
+            if (onClear != null)
+              GestureDetector(
+                onTap: onClear,
+                child: Padding(
+                  padding: const EdgeInsets.only(left: 4),
+                  child: Icon(Icons.close,
+                      size: 16, color: active ? Colors.white : Colors.black),
+                ),
+              ),
+          ],
+        ),
       ),
     );
   }

@@ -18,7 +18,8 @@ touches app code, and on manual dispatch. It:
 2. Cross-checks the cert/profile against Apple before building
    (`scripts/verify_ios_signing.py`).
 3. Builds the Flutter framework, injecting the runtime API key via
-   `--dart-define`.
+   `--dart-define`, and writes `ios/Flutter/Secrets.xcconfig` from
+   `IOS_MAPS_API_KEY` so the embedded Maps SDK (map picker) is keyed natively.
 4. Archives with `xcodebuild`, exports an IPA, and uploads to TestFlight.
 5. Submits the build for App Store review
    (`scripts/asc_submit_for_review.py`).

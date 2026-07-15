@@ -134,6 +134,16 @@ jobs:
       - name: Flutter pub get
         run: flutter pub get
 
+      # The embedded Google Maps SDK (map picker) reads its key from the
+      # GMSApiKey Info.plist entry, fed by GOOGLE_MAPS_IOS_API_KEY via
+      # Secrets.xcconfig. That file is gitignored, so write it here from the
+      # same secret used for the Dart/Places key.
+      - name: Write iOS Maps SDK key (Secrets.xcconfig)
+        env:
+          IOS_MAPS_API_KEY: ${{ secrets.IOS_MAPS_API_KEY }}
+        run: |
+          printf 'GOOGLE_MAPS_IOS_API_KEY = %s\n' "$IOS_MAPS_API_KEY" > ios/Flutter/Secrets.xcconfig
+
       - name: Pod install
         working-directory: ios
         run: |

@@ -50,6 +50,50 @@ class ProxyService {
     throw Exception('Failed to get response after $maxRetries attempts');
   }
 
+  /// Performs an HTTP GET against the Places API (New) — used for endpoints that
+  /// are read-only, such as Place Details (`places/{placeId}`). Mirrors the
+  /// headers and retry/back-off behaviour of [placesApiGet] (which, despite its
+  /// name, issues a POST for the search endpoints).
+  static Future<Map<String, dynamic>> placesApiGetDetails(
+    String path, {
+    required String fieldMask,
+    Map<String, String>? queryParameters,
+  }) async {
+    int retryCount = 0;
+    const int maxRetries = 3;
+
+    while (retryCount < maxRetries) {
+      try {
+        final url = Uri.parse('$baseUrl/$path').replace(
+          queryParameters: queryParameters,
+        );
+
+        final headers = {
+          'X-Goog-Api-Key': _apiKey,
+          ...Config.appAttestationHeaders,
+          'X-Goog-FieldMask': fieldMask,
+        };
+
+        final response = await _client.get(url, headers: headers);
+
+        if (response.statusCode != 200) {
+          throw Exception('Request failed with status: ${response.statusCode}');
+        }
+
+        return json.decode(response.body) as Map<String, dynamic>;
+      } catch (e) {
+        retryCount++;
+        if (retryCount < maxRetries) {
+          final delay = Duration(seconds: pow(2, retryCount).toInt());
+          await Future.delayed(delay);
+          continue;
+        }
+        rethrow;
+      }
+    }
+    throw Exception('Failed to get response after $maxRetries attempts');
+  }
+
   static Future<String> getPlacePhoto(
       String photoName, int width, int height) async {
     final cacheKey = '$photoName-$width-$height';
