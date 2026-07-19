@@ -7,12 +7,13 @@ import '../services/restaurant_service.dart';
 import '../widgets/restaurant_card.dart';
 import '../widgets/restaurant_photo_viewer.dart';
 import '../widgets/minimal_restaurant_card.dart';
+import '../widgets/restaurant_map_view.dart';
 import '../widgets/location_picker_sheet.dart';
 import '../widgets/time_picker_sheet.dart';
 
 enum SortOption { rank, distance }
 
-enum ViewMode { card, list }
+enum ViewMode { card, list, map }
 
 class RestaurantListScreen extends StatefulWidget {
   const RestaurantListScreen({super.key});
@@ -237,8 +238,7 @@ class _RestaurantListScreenState extends State<RestaurantListScreen>
         if (RestaurantService.instance.shouldRefreshData(
           position.latitude,
           position.longitude,
-          contextKey:
-              _searchContext.isDefault ? null : _searchContext.cacheKey,
+          contextKey: _searchContext.isDefault ? null : _searchContext.cacheKey,
         )) {
           _initializeAndLoad();
           return;
@@ -631,7 +631,29 @@ class _RestaurantListScreenState extends State<RestaurantListScreen>
 
   void _toggleViewMode() {
     setState(() {
+      // From the map, this pill just returns you to the list.
       _viewMode = _viewMode == ViewMode.card ? ViewMode.list : ViewMode.card;
+    });
+  }
+
+  void _toggleMapView() {
+    setState(() {
+      _viewMode = _viewMode == ViewMode.map ? ViewMode.list : ViewMode.map;
+      _cardViewFromTap = false;
+    });
+  }
+
+  /// Open a restaurant's card, the same way tapping a list row does — used by
+  /// both the list and the map so a right-swipe still takes you back.
+  void _showRestaurantCard(int index) {
+    setState(() {
+      _viewMode = ViewMode.card;
+      _cardViewFromTap = true;
+      _lastTappedIndex = index;
+    });
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _pageController.jumpToPage(index);
     });
   }
 
@@ -673,7 +695,11 @@ class _RestaurantListScreenState extends State<RestaurantListScreen>
       ),
       body: GestureDetector(
         onHorizontalDragUpdate: _cardViewFromTap ? _handleHorizontalDrag : null,
-        onVerticalDragUpdate: (details) => _handleScroll(details.delta.dy),
+        // Only the card pager is driven by this drag — the map needs its own
+        // pan/zoom gestures, and the list scrolls itself.
+        onVerticalDragUpdate: _viewMode == ViewMode.card
+            ? (details) => _handleScroll(details.delta.dy)
+            : null,
         child: _buildBody(),
       ),
     );
@@ -801,30 +827,12 @@ class _RestaurantListScreenState extends State<RestaurantListScreen>
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                // Where & when context row
-                _buildContextRow(),
-                const SizedBox(height: 8),
                 // Filter Buttons Row
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 18),
                   child: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      // Search button with dynamic background
-                      ElevatedButton(
-                        onPressed: _toggleSearch,
-                        style: buttonStyle,
-                        child: Padding(
-                          padding: const EdgeInsets.symmetric(vertical: 2),
-                          child: Icon(
-                            Icons.search,
-                            color: _isSearchVisible
-                                ? Colors.blue[900]
-                                : Colors.black,
-                            size: 20,
-                          ),
-                        ),
-                      ),
                       // Type filter (always visible now)
                       ElevatedButton(
                         onPressed: _showTypeFilter,
@@ -837,6 +845,7 @@ class _RestaurantListScreenState extends State<RestaurantListScreen>
                                   ),
                         ),
                       ),
+                      const SizedBox(width: 8),
                       ElevatedButton(
                         onPressed: _showPriceRangeDialog,
                         style: buttonStyle,
@@ -848,6 +857,7 @@ class _RestaurantListScreenState extends State<RestaurantListScreen>
                                   ),
                         ),
                       ),
+                      const SizedBox(width: 8),
                       ElevatedButton(
                         onPressed: () {
                           setState(() {
@@ -881,6 +891,7 @@ class _RestaurantListScreenState extends State<RestaurantListScreen>
                           ],
                         ),
                       ),
+                      const SizedBox(width: 8),
                       ElevatedButton(
                         onPressed: _toggleViewMode,
                         style: buttonStyle,
@@ -896,6 +907,9 @@ class _RestaurantListScreenState extends State<RestaurantListScreen>
                     ],
                   ),
                 ),
+                const SizedBox(height: 8),
+                // Where & when context row
+                _buildContextRow(),
 
                 // Search Bar (only visible when search is active)
                 if (_isSearchVisible) ...[
@@ -980,80 +994,78 @@ class _RestaurantListScreenState extends State<RestaurantListScreen>
           Expanded(
             child: Container(
               color: Colors.grey[200],
-              child: _viewMode == ViewMode.card
-                  ? PageView.builder(
-                      controller: _pageController,
-                      scrollDirection: Axis.vertical,
-                      pageSnapping: true,
-                      physics: const PageScrollPhysics(),
-                      itemCount: _restaurants!.length,
-                      onPageChanged: (index) {
-                        setState(() {});
-                      },
-                      itemBuilder: (context, index) {
-                        final restaurant = _restaurants![index];
-                        return Column(
-                          children: [
-                            const SizedBox(height: 5.0), // Keep top padding
-
-                            Expanded(
-                              child: Padding(
-                                padding:
-                                    const EdgeInsets.symmetric(horizontal: 16.0)
-                                        .copyWith(
-                                  top: 8.0,
-                                  bottom: 8.0,
-                                ),
-                                child: RestaurantCard(
-                                  restaurant: restaurant,
-                                  onPhotoTap: () {
-                                    Navigator.of(context).push(
-                                      MaterialPageRoute(
-                                        builder: (context) =>
-                                            RestaurantPhotoViewer(
-                                          restaurant: restaurant,
-                                          initialIndex: 0,
-                                        ),
-                                      ),
-                                    );
-                                  },
-                                  ranking: restaurant.rank ?? index + 1,
-                                  currentLat: _currentLat,
-                                  currentLng: _currentLng,
-                                ),
-                              ),
-                            ),
-
-                            const SizedBox(height: 30.0), // Keep bottom padding
-                          ],
-                        );
-                      },
+              child: _viewMode == ViewMode.map
+                  ? RestaurantMapView(
+                      restaurants: _restaurants!,
+                      currentLat: _currentLat,
+                      currentLng: _currentLng,
+                      onRestaurantTap: _showRestaurantCard,
                     )
-                  : ListView.builder(
-                      padding:
-                          const EdgeInsets.only(top: 3), // Added top padding
-                      itemCount: _restaurants!.length,
-                      itemBuilder: (context, index) {
-                        final restaurant = _restaurants![index];
-                        return MinimalRestaurantCard(
-                          restaurant: restaurant,
-                          ranking: restaurant.rank ?? index + 1,
-                          currentLat: _currentLat,
-                          currentLng: _currentLng,
-                          onTap: () {
-                            setState(() {
-                              _viewMode = ViewMode.card;
-                              _cardViewFromTap = true;
-                              _lastTappedIndex = index;
-                            });
-
-                            WidgetsBinding.instance.addPostFrameCallback((_) {
-                              _pageController.jumpToPage(index);
-                            });
+                  : _viewMode == ViewMode.card
+                      ? PageView.builder(
+                          controller: _pageController,
+                          scrollDirection: Axis.vertical,
+                          pageSnapping: true,
+                          physics: const PageScrollPhysics(),
+                          itemCount: _restaurants!.length,
+                          onPageChanged: (index) {
+                            setState(() {});
                           },
-                        );
-                      },
-                    ),
+                          itemBuilder: (context, index) {
+                            final restaurant = _restaurants![index];
+                            return Column(
+                              children: [
+                                const SizedBox(height: 5.0), // Keep top padding
+
+                                Expanded(
+                                  child: Padding(
+                                    padding: const EdgeInsets.symmetric(
+                                            horizontal: 16.0)
+                                        .copyWith(
+                                      top: 8.0,
+                                      bottom: 8.0,
+                                    ),
+                                    child: RestaurantCard(
+                                      restaurant: restaurant,
+                                      onPhotoTap: () {
+                                        Navigator.of(context).push(
+                                          MaterialPageRoute(
+                                            builder: (context) =>
+                                                RestaurantPhotoViewer(
+                                              restaurant: restaurant,
+                                              initialIndex: 0,
+                                            ),
+                                          ),
+                                        );
+                                      },
+                                      ranking: restaurant.rank ?? index + 1,
+                                      currentLat: _currentLat,
+                                      currentLng: _currentLng,
+                                    ),
+                                  ),
+                                ),
+
+                                const SizedBox(
+                                    height: 30.0), // Keep bottom padding
+                              ],
+                            );
+                          },
+                        )
+                      : ListView.builder(
+                          padding: const EdgeInsets.only(
+                              top: 3), // Added top padding
+                          itemCount: _restaurants!.length,
+                          itemBuilder: (context, index) {
+                            final restaurant = _restaurants![index];
+                            return MinimalRestaurantCard(
+                              restaurant: restaurant,
+                              ranking: restaurant.rank ?? index + 1,
+                              currentLat: _currentLat,
+                              currentLng: _currentLng,
+                              onTap: () => _showRestaurantCard(index),
+                            );
+                          },
+                        ),
             ),
           ),
         ],
@@ -1061,12 +1073,19 @@ class _RestaurantListScreenState extends State<RestaurantListScreen>
     );
   }
 
-  /// The two "where & when" pills shown under the logo. They stay collapsed to a
-  /// single line to keep the header uncluttered; detail lives in the sheets.
+  /// The "where & when" pills, bracketed by the search and map toggles. The
+  /// pills stay collapsed to a single line to keep the header uncluttered;
+  /// detail lives in the sheets.
   Widget _buildContextRow() {
     return Row(
       mainAxisAlignment: MainAxisAlignment.center,
       children: [
+        _iconPill(
+          icon: Icons.search,
+          active: _isSearchVisible,
+          onTap: _toggleSearch,
+        ),
+        const SizedBox(width: 8),
         Flexible(
           child: _contextPill(
             icon: Icons.place_outlined,
@@ -1086,7 +1105,39 @@ class _RestaurantListScreenState extends State<RestaurantListScreen>
             onClear: _searchContext.isCustomTime ? _resetTime : null,
           ),
         ),
+        const SizedBox(width: 8),
+        _iconPill(
+          icon: Icons.map_outlined,
+          active: _viewMode == ViewMode.map,
+          onTap: _toggleMapView,
+        ),
       ],
+    );
+  }
+
+  /// A round icon toggle sized to sit flush with [_contextPill].
+  Widget _iconPill({
+    required IconData icon,
+    required bool active,
+    required VoidCallback onTap,
+  }) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(20),
+      child: Container(
+        width: 32,
+        height: 32,
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: Colors.black, width: 1),
+        ),
+        child: Icon(
+          icon,
+          size: 18,
+          color: active ? Colors.blue[900] : Colors.black,
+        ),
+      ),
     );
   }
 
@@ -1111,8 +1162,7 @@ class _RestaurantListScreenState extends State<RestaurantListScreen>
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(icon,
-                size: 16, color: active ? Colors.white : Colors.black),
+            Icon(icon, size: 16, color: active ? Colors.white : Colors.black),
             const SizedBox(width: 6),
             Flexible(
               child: Text(
