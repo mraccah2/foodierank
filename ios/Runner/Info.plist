@@ -26,6 +26,11 @@
 	<string>????</string>
 	<key>CFBundleVersion</key>
 	<string>$(FLUTTER_BUILD_NUMBER)</string>
+	<!-- The app only uses standard HTTPS/TLS, which is exempt. Declaring it
+	     here means uploads arrive export-compliant; without it a build sits in
+	     MISSING_EXPORT_COMPLIANCE and never reaches TestFlight testers. -->
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
 	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
