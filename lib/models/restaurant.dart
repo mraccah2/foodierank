@@ -17,6 +17,15 @@ class Restaurant {
   int? rank;
   final String placeId;
 
+  /// Log-review excess over the place's ~500m neighbors, computed by
+  /// `RestaurantService._applyLocalityScores`. Positive → people travel to it
+  /// despite its quiet surroundings; negative → it rides a busy strip's foot
+  /// traffic.
+  final double destinationBonus;
+
+  /// 0..1 density of tourist attractions and hotels within ~250m.
+  final double touristPenalty;
+
   Restaurant({
     required this.id,
     required this.name,
@@ -33,6 +42,8 @@ class Restaurant {
     this.photos = const [],
     this.rank,
     required this.placeId,
+    this.destinationBonus = 0.0,
+    this.touristPenalty = 0.0,
   });
 
   factory Restaurant.fromJson(Map<String, dynamic> json) {
@@ -124,6 +135,8 @@ class Restaurant {
       photos: [],
       rank: json['rank'] as int?,
       placeId: placeId,
+      destinationBonus: (json['frDestinationBonus'] as num?)?.toDouble() ?? 0.0,
+      touristPenalty: (json['frTouristPenalty'] as num?)?.toDouble() ?? 0.0,
     );
 
     // Debug check final location values
@@ -138,36 +151,34 @@ class Restaurant {
     return restaurant;
   }
 
-  double calculateWilsonScore(double rating, int reviewCount) {
+  // Ranking constants. Quality is a Bayesian-shrunk rating in star units, and
+  // the locality terms are expressed in star-equivalents so their reach is
+  // easy to reason about: a maxed-out destination bonus is worth ±0.225 stars
+  // and a fully tourist-saturated block costs 0.35 — enough to reorder good
+  // places, never enough to lift a mediocre rating past a great one.
+  static const double _priorMeanRating = 4.0;
+  static const double _priorWeight = 40;
+  static const double _destinationWeight = 0.15;
+  static const double _touristWeight = 0.35;
+
+  /// Bayesian-shrunk rating: pulled toward [_priorMeanRating] until enough
+  /// reviews (~[_priorWeight]) accumulate. Unlike a Wilson lower bound, review
+  /// volume saturates — 20,000 reviews confer almost no edge over 200, so
+  /// sheer popularity can't outrank a genuinely better rating.
+  double get qualityScore {
+    if (reviewCount == 0 || rating.isNaN) return 0;
+    return (reviewCount * rating + _priorWeight * _priorMeanRating) /
+        (reviewCount + _priorWeight);
+  }
+
+  /// Final ranking score in star units: shrunk quality, plus a bonus for
+  /// being heavily reviewed relative to its immediate surroundings ("worth
+  /// the trip"), minus a penalty for sitting in an attraction/hotel pocket.
+  double get rankingScore {
     if (reviewCount == 0) return 0;
-
-    // Debug check input values
-    if (rating.isNaN) {
-      debugPrint('dBug/restaurant: NaN rating in Wilson score calculation');
-      debugPrint('dBug/restaurant: rating: $rating, reviewCount: $reviewCount');
-      return 0;
-    }
-
-    const z = 1.96;
-    final p = rating / 5.0;
-    final n = reviewCount.toDouble();
-
-    final numerator =
-        p + z * z / (2 * n) - z * sqrt((p * (1 - p) + z * z / (4 * n)) / n);
-    final denominator = 1 + z * z / n;
-
-    final score = numerator / denominator;
-
-    // Debug check final score
-    if (score.isNaN) {
-      debugPrint('dBug/restaurant: NaN Wilson score calculated');
-      debugPrint('dBug/restaurant: rating: $rating, reviewCount: $reviewCount');
-      debugPrint(
-          'dBug/restaurant: numerator: $numerator, denominator: $denominator');
-      return 0;
-    }
-
-    return score;
+    return qualityScore +
+        _destinationWeight * destinationBonus -
+        _touristWeight * touristPenalty;
   }
 }
 

@@ -10,6 +10,13 @@ on:
       - "pubspec.lock"
       - "assets/**"
   workflow_dispatch:
+    inputs:
+      submit_for_review:
+        description: >-
+          Submit the build for App Store review after upload. Turn this off to
+          get a TestFlight-only build for testing.
+        type: boolean
+        default: true
 
 permissions:
   actions: write
@@ -247,7 +254,10 @@ jobs:
             -authenticationKeyID "$ASC_KEY_ID" \
             -authenticationKeyIssuerID "$ASC_ISSUER_ID"
 
+      # Pushes to main always submit, preserving the release flow. A manual
+      # dispatch can opt out to get a TestFlight-only build for testing.
       - name: Submit for App Store review (auto-release after approval)
+        if: github.event_name == 'push' || inputs.submit_for_review
         env:
           ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
           ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}

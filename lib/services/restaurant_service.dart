@@ -70,6 +70,14 @@ class RestaurantService {
   static const double _initialRadius = 1000; // start ~1km
   static const double _radiusGrowth = 2.0; // double the search radius each round
   static const double maxRadius = 100000; // safety cap (~100km) for remote areas
+  static const int _sectorsPerSide = 2; // query the box as a 2×2 grid
+
+  // Locality-signal tuning (see _applyLocalityScores).
+  static const double _neighborhoodRadius = 500; // meters
+  static const double _maxDestinationExcess = 1.5; // log-review units
+  static const double _poiPenaltyRadius = 250; // meters
+  static const double _attractionWeight = 0.25; // per attraction within radius
+  static const double _hotelWeight = 0.12; // per hotel within radius
   static const List<String> cuisineTypes = [
     'All',
     'American',
@@ -159,45 +167,54 @@ class RestaurantService {
     while (allRestaurants.length < _targetCount) {
       if (radius.isNaN) break;
 
-      final params = _buildSearchParams(
-        latitude,
-        longitude,
-        radius,
-        cuisineType: cuisineType,
-        priceLevels: priceLevels,
-        // With a custom time we drop the server-side open filter and evaluate
-        // opening hours ourselves.
-        openNow: customTime ? false : openNow,
-        searchQuery: searchQuery,
+      // Text Search ranks by Google's own "prominence" within the requested
+      // box, so one big query in a touristy city fills all 20 slots with the
+      // famous places. Querying each sector of the box separately forces every
+      // quarter of the map to contribute its own local best, letting
+      // lower-prominence neighborhoods into the pool. A sector that fails
+      // (after ProxyService's retries) contributes nothing rather than
+      // aborting the round.
+      final responses = await Future.wait(
+        _sectorRects(latitude, longitude, radius).map((rect) {
+          ApiUsageTracker.instance.incrementTextSearch();
+          return ProxyService.placesApiGet(
+            'places:searchText',
+            _buildSearchParams(
+              rect,
+              cuisineType: cuisineType,
+              priceLevels: priceLevels,
+              // With a custom time we drop the server-side open filter and
+              // evaluate opening hours ourselves.
+              openNow: customTime ? false : openNow,
+              searchQuery: searchQuery,
+            ),
+            fieldMask: fieldMask,
+          ).catchError((_) => <String, dynamic>{});
+        }),
       );
 
-      ApiUsageTracker.instance.incrementTextSearch();
-      final response = await ProxyService.placesApiGet(
-        'places:searchText',
-        params,
-        fieldMask: fieldMask,
-      );
+      for (final response in responses) {
+        final places = (response['places'] as List<dynamic>?) ?? const [];
+        for (final place in places) {
+          final id = place['id'] as String?;
+          if (id == null || foundIds.contains(id)) continue;
+          foundIds.add(id); // mark seen so later, wider rounds skip it
+          try {
+            final mappedPlace =
+                _mapPlace(place as Map<String, dynamic>, priceLevels);
+            if (mappedPlace == null) continue;
 
-      final places = (response['places'] as List<dynamic>?) ?? const [];
-      for (final place in places) {
-        final id = place['id'] as String?;
-        if (id == null || foundIds.contains(id)) continue;
-        foundIds.add(id); // mark seen so later, wider rounds skip it
-        try {
-          final mappedPlace =
-              _mapPlace(place as Map<String, dynamic>, priceLevels);
-          if (mappedPlace == null) continue;
+            if (customTime) {
+              final periods = (mappedPlace['regularOpeningHours']
+                  as Map<String, dynamic>?)?['periods'] as List<dynamic>?;
+              if (!isOpenAt(periods, targetDay, targetMinutes)) continue;
+            }
 
-          if (customTime) {
-            final periods = (mappedPlace['regularOpeningHours']
-                as Map<String, dynamic>?)?['periods'] as List<dynamic>?;
-            if (!isOpenAt(periods, targetDay, targetMinutes)) continue;
+            allRestaurants.add(mappedPlace);
+          } catch (_) {
+            // Skip a place with unexpected/missing fields rather than aborting
+            // the whole search.
           }
-
-          allRestaurants.add(mappedPlace);
-        } catch (_) {
-          // Skip a place with unexpected/missing fields rather than aborting
-          // the whole search.
         }
       }
 
@@ -210,7 +227,148 @@ class RestaurantService {
       radius = (radius * _radiusGrowth).clamp(_initialRadius, maxRadius);
     }
 
+    await _applyLocalityScores(allRestaurants, latitude, longitude, radius);
+
     return allRestaurants;
+  }
+
+  /// Splits the square search box of [radius] meters around the center into a
+  /// [_sectorsPerSide]×[_sectorsPerSide] grid of sub-rectangles.
+  List<({double lowLat, double lowLng, double highLat, double highLng})>
+      _sectorRects(double latitude, double longitude, double radius) {
+    const double metersPerDegree = 111320.0;
+    final half = radius / metersPerDegree;
+    final step = (2 * half) / _sectorsPerSide;
+
+    return [
+      for (var row = 0; row < _sectorsPerSide; row++)
+        for (var col = 0; col < _sectorsPerSide; col++)
+          (
+            lowLat: latitude - half + row * step,
+            lowLng: longitude - half + col * step,
+            highLat: latitude - half + (row + 1) * step,
+            highLng: longitude - half + (col + 1) * step,
+          ),
+    ];
+  }
+
+  /// Computes the two locality signals consumed by `Restaurant.rankingScore`
+  /// and stores them on each place map, so they ride along with the raw-map
+  /// cache and survive `Restaurant.fromJson` round-trips:
+  ///
+  ///  * `frDestinationBonus` — how much more reviewed the place is than its
+  ///    ~500m neighbors, in log-review units. Positive means people travel to
+  ///    it despite its surroundings; negative means it mostly rides the foot
+  ///    traffic of an already-busy strip.
+  ///  * `frTouristPenalty` — 0..1 saturation of tourist attractions and
+  ///    hotels within ~250m, i.e. how captive the audience is.
+  Future<void> _applyLocalityScores(List<Map<String, dynamic>> restaurants,
+      double latitude, double longitude, double searchRadius) async {
+    if (restaurants.isEmpty) return;
+
+    final pois = await Future.wait([
+      _fetchPoiLocations(latitude, longitude, searchRadius,
+          type: 'tourist_attraction'),
+      _fetchPoiLocations(latitude, longitude, searchRadius, type: 'lodging'),
+    ]);
+    final attractions = pois[0];
+    final hotels = pois[1];
+
+    final positions = [
+      for (final r in restaurants)
+        (
+          lat: ((r['location'] as Map<String, dynamic>?)?['latitude'] as num?)
+                  ?.toDouble() ??
+              double.nan,
+          lng: ((r['location'] as Map<String, dynamic>?)?['longitude'] as num?)
+                  ?.toDouble() ??
+              double.nan,
+        ),
+    ];
+    final logCounts = [
+      for (final r in restaurants)
+        log(((r['userRatingCount'] as num?)?.toInt() ?? 0) + 1),
+    ];
+    final poolMedian = _median(logCounts);
+
+    for (var i = 0; i < restaurants.length; i++) {
+      final neighborLogs = <double>[];
+      for (var j = 0; j < restaurants.length; j++) {
+        if (i == j) continue;
+        final d = _calculateDistance(
+            positions[i].lat, positions[i].lng, positions[j].lat, positions[j].lng);
+        if (d <= _neighborhoodRadius) neighborLogs.add(logCounts[j]);
+      }
+      // With too few close neighbors the local median is noise; fall back to
+      // the whole pool so the bonus is still "relative to this area".
+      final baseline =
+          neighborLogs.length >= 3 ? _median(neighborLogs) : poolMedian;
+      final bonus = (logCounts[i] - baseline)
+          .clamp(-_maxDestinationExcess, _maxDestinationExcess);
+
+      var penalty = 0.0;
+      for (final poi in attractions) {
+        final d = _calculateDistance(
+            positions[i].lat, positions[i].lng, poi.lat, poi.lng);
+        if (d <= _poiPenaltyRadius) penalty += _attractionWeight;
+      }
+      for (final poi in hotels) {
+        final d = _calculateDistance(
+            positions[i].lat, positions[i].lng, poi.lat, poi.lng);
+        if (d <= _poiPenaltyRadius) penalty += _hotelWeight;
+      }
+
+      restaurants[i]['frDestinationBonus'] = bonus;
+      restaurants[i]['frTouristPenalty'] = min(1.0, penalty);
+    }
+  }
+
+  /// Best-effort fetch of nearby POI coordinates of [type] via Nearby Search.
+  /// Returns an empty list on any failure so ranking degrades to "no penalty"
+  /// instead of failing the whole restaurant search.
+  Future<List<({double lat, double lng})>> _fetchPoiLocations(
+      double latitude, double longitude, double searchRadius,
+      {required String type}) async {
+    try {
+      ApiUsageTracker.instance.incrementNearbySearch();
+      final response = await ProxyService.placesApiGet(
+        'places:searchNearby',
+        {
+          'includedTypes': [type],
+          'maxResultCount': 20,
+          'locationRestriction': {
+            'circle': {
+              'center': {'latitude': latitude, 'longitude': longitude},
+              // Nearby Search caps the circle radius at 50km.
+              'radius': searchRadius.clamp(_initialRadius, 50000),
+            },
+          },
+        },
+        fieldMask: 'places.location',
+      );
+
+      final places = (response['places'] as List<dynamic>?) ?? const [];
+      return [
+        for (final place in places)
+          if (place['location']?['latitude'] != null &&
+              place['location']?['longitude'] != null)
+            (
+              lat: (place['location']['latitude'] as num).toDouble(),
+              lng: (place['location']['longitude'] as num).toDouble(),
+            ),
+      ];
+    } catch (_) {
+      return const [];
+    }
+  }
+
+  static double _median(List<double> values) {
+    if (values.isEmpty) return 0;
+    final sorted = List.of(values)..sort();
+    final mid = sorted.length ~/ 2;
+    return sorted.length.isOdd
+        ? sorted[mid]
+        : (sorted[mid - 1] + sorted[mid]) / 2;
   }
 
   /// Whether a place with the given Places API opening-hours [periods] is open
@@ -258,22 +416,19 @@ class RestaurantService {
   }
 
   Map<String, dynamic> _buildSearchParams(
-      double latitude, double longitude, double radius,
+      ({double lowLat, double lowLng, double highLat, double highLng}) rect,
       {String? cuisineType,
       List<String>? priceLevels,
       bool openNow = true,
       String? searchQuery}) {
-    const double metersPerDegree = 111320.0;
-    double halfRadiusDegrees = radius / metersPerDegree;
-
-    if (latitude.isNaN ||
-        longitude.isNaN ||
-        radius.isNaN ||
-        halfRadiusDegrees.isNaN) {
+    if (rect.lowLat.isNaN ||
+        rect.lowLng.isNaN ||
+        rect.highLat.isNaN ||
+        rect.highLng.isNaN) {
       throw ArgumentError('Invalid parameters for search');
     }
 
-    final params = {
+    return {
       'textQuery': searchQuery?.isNotEmpty == true
           ? searchQuery
           : cuisineType != null && cuisineType != 'Other'
@@ -282,12 +437,12 @@ class RestaurantService {
       'locationRestriction': {
         'rectangle': {
           'low': {
-            'latitude': latitude - halfRadiusDegrees,
-            'longitude': longitude - halfRadiusDegrees,
+            'latitude': rect.lowLat,
+            'longitude': rect.lowLng,
           },
           'high': {
-            'latitude': latitude + halfRadiusDegrees,
-            'longitude': longitude + halfRadiusDegrees,
+            'latitude': rect.highLat,
+            'longitude': rect.highLng,
           },
         },
       },
@@ -298,17 +453,6 @@ class RestaurantService {
         'priceLevels': priceLevels,
       },
     };
-
-    final lowLat = latitude - halfRadiusDegrees;
-    final lowLng = longitude - halfRadiusDegrees;
-    final highLat = latitude + halfRadiusDegrees;
-    final highLng = longitude + halfRadiusDegrees;
-
-    if (lowLat.isNaN || lowLng.isNaN || highLat.isNaN || highLng.isNaN) {
-      throw ArgumentError('Invalid coordinate calculations');
-    }
-
-    return params;
   }
 
   Map<String, dynamic>? _mapPlace(

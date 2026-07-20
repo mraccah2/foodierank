@@ -189,11 +189,8 @@ class _RestaurantListScreenState extends State<RestaurantListScreen>
       final restaurants =
           rawRestaurants.map((place) => Restaurant.fromJson(place)).toList();
 
-      restaurants.sort((a, b) {
-        final scoreA = a.calculateWilsonScore(a.rating, a.reviewCount);
-        final scoreB = b.calculateWilsonScore(b.rating, b.reviewCount);
-        return scoreB.compareTo(scoreA);
-      });
+      restaurants
+          .sort((a, b) => b.rankingScore.compareTo(a.rankingScore));
 
       for (var i = 0; i < restaurants.length; i++) {
         restaurants[i].rank = i + 1;
@@ -492,11 +489,8 @@ class _RestaurantListScreenState extends State<RestaurantListScreen>
     setState(() {
       switch (_sortOption) {
         case SortOption.rank:
-          _restaurants!.sort((a, b) {
-            final scoreA = a.calculateWilsonScore(a.rating, a.reviewCount);
-            final scoreB = b.calculateWilsonScore(b.rating, b.reviewCount);
-            return scoreB.compareTo(scoreA);
-          });
+          _restaurants!
+              .sort((a, b) => b.rankingScore.compareTo(a.rankingScore));
 
           // Assign ranks after sorting by rank
           for (var i = 0; i < _restaurants!.length; i++) {

@@ -46,24 +46,58 @@ void main() {
     });
   });
 
-  group('Restaurant.calculateWilsonScore', () {
-    final restaurant = Restaurant(id: '1', name: 'Test', mainPhotoUrl: '',
-        reviewCount: 0, placeId: '1');
+  group('Restaurant.rankingScore', () {
+    Restaurant make(
+            {double rating = 0,
+            int reviews = 0,
+            double bonus = 0,
+            double penalty = 0}) =>
+        Restaurant(
+          id: '1',
+          name: 'Test',
+          mainPhotoUrl: '',
+          placeId: '1',
+          rating: rating,
+          reviewCount: reviews,
+          destinationBonus: bonus,
+          touristPenalty: penalty,
+        );
 
     test('zero reviews yields a zero score', () {
-      expect(restaurant.calculateWilsonScore(5.0, 0), 0);
+      expect(make(rating: 5.0, reviews: 0, bonus: 1.5).rankingScore, 0);
     });
 
-    test('score stays within the unit interval', () {
-      final score = restaurant.calculateWilsonScore(4.5, 200);
-      expect(score, greaterThan(0));
-      expect(score, lessThanOrEqualTo(1));
+    test('a highly rated small place outranks a mediocre giant', () {
+      final gem = make(rating: 4.8, reviews: 150);
+      final touristTrap = make(rating: 4.4, reviews: 6000);
+      expect(gem.rankingScore, greaterThan(touristTrap.rankingScore));
     });
 
-    test('more reviews at the same rating ranks higher', () {
-      final few = restaurant.calculateWilsonScore(4.5, 10);
-      final many = restaurant.calculateWilsonScore(4.5, 1000);
-      expect(many, greaterThan(few));
+    test('review volume still helps but saturates', () {
+      final tiny = make(rating: 4.5, reviews: 10).rankingScore;
+      final medium = make(rating: 4.5, reviews: 200).rankingScore;
+      final huge = make(rating: 4.5, reviews: 20000).rankingScore;
+      expect(medium, greaterThan(tiny));
+      expect(huge, greaterThan(medium));
+      // The 200 → 20,000 gain is a fraction of the 10 → 200 gain.
+      expect(huge - medium, lessThan((medium - tiny) / 2));
+    });
+
+    test('destination bonus lifts and tourist penalty drops the score', () {
+      final base = make(rating: 4.5, reviews: 300).rankingScore;
+      expect(make(rating: 4.5, reviews: 300, bonus: 1.5).rankingScore,
+          greaterThan(base));
+      expect(make(rating: 4.5, reviews: 300, penalty: 1.0).rankingScore,
+          lessThan(base));
+    });
+
+    test('locality terms cannot flip a clearly better rating', () {
+      final worstCaseGreat =
+          make(rating: 4.8, reviews: 500, penalty: 1.0);
+      final bestCaseMediocre =
+          make(rating: 4.0, reviews: 500, bonus: 1.5);
+      expect(worstCaseGreat.rankingScore,
+          greaterThan(bestCaseMediocre.rankingScore));
     });
   });
 }
