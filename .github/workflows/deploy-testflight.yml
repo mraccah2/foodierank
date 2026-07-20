@@ -126,9 +126,13 @@ jobs:
           ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
           ASC_PRIVATE_KEY: ${{ secrets.ASC_PRIVATE_KEY }}
         run: |
-          python3 -m venv /tmp/verify-venv
-          /tmp/verify-venv/bin/pip install --quiet --timeout 30 PyJWT cryptography
-          /tmp/verify-venv/bin/python3 scripts/verify_ios_signing.py \
+          # Build the venv under RUNNER_TEMP, not /tmp: this is a self-hosted
+          # runner, so a /tmp venv outlives the job and breaks when the system
+          # python is upgraded out from under it.
+          VENV="$RUNNER_TEMP/verify-venv"
+          python3 -m venv --clear "$VENV"
+          "$VENV/bin/python3" -m pip install --quiet --timeout 30 PyJWT cryptography
+          "$VENV/bin/python3" scripts/verify_ios_signing.py \
             --bundle-id ${{ vars.IOS_BUNDLE_ID || 'com.foodierank.foodierank' }}
 
       - name: Set build number
