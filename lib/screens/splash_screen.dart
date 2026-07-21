@@ -17,10 +17,26 @@ class _SplashScreenState extends State<SplashScreen> {
     _initRestaurantScreen();
   }
 
+  /// Fetches the first screen's restaurants and photos, then decodes those
+  /// photos into the image cache. The decode lives here rather than in
+  /// [RestaurantService] because `precacheImage` needs a BuildContext, and the
+  /// service is kept Flutter-free so `bin/foodierank.dart` can share it.
+  Future<void> _warmCaches() async {
+    final photoRefs = await RestaurantService.instance.warmCaches();
+
+    for (final photoRef in photoRefs) {
+      if (!mounted) return;
+      final photoBytes = RestaurantService.instance.getCachedPhoto(photoRef);
+      if (photoBytes != null) {
+        await precacheImage(MemoryImage(photoBytes), context);
+      }
+    }
+  }
+
   void _initRestaurantScreen() async {
     try {
       // Attempt to load and cache restaurants and photos
-      final dataFuture = RestaurantService.instance.loadAndCacheRestaurants();
+      final dataFuture = _warmCaches();
       final timerFuture = Future.delayed(const Duration(seconds: 1));
 
       // Wait for both the data loading and minimum time

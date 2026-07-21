@@ -2,8 +2,6 @@ import 'package:foodierank/services/proxy_service.dart';
 import 'package:foodierank/config.dart';
 import 'package:http/http.dart' as http;
 import 'dart:typed_data';
-import '../services/navigation_service.dart';
-import 'package:flutter/widgets.dart';
 import 'dart:async';
 import 'dart:math';
 import 'api_usage_tracker.dart';
@@ -543,8 +541,14 @@ class RestaurantService {
     return _photoCache[photoRef];
   }
 
-  Future<void> loadAndCacheRestaurants() async {
-    if (_cachedRestaurants != null) return;
+  /// Warms the restaurant + photo caches used by the first screen. Decoding the
+  /// fetched bytes into the widget tree is the caller's job (see
+  /// `SplashScreen._warmCaches`) — this class stays free of Flutter imports so
+  /// `bin/foodierank.dart` can reuse the search and ranking pipeline.
+  ///
+  /// Returns the photo refs that were fetched, in display order.
+  Future<List<String>> warmCaches() async {
+    if (_cachedRestaurants != null) return const [];
 
     final restaurants = await fetchRestaurants(37.785834, -122.406417);
     final headerPhotoRefs = restaurants
@@ -552,19 +556,8 @@ class RestaurantService {
         .cast<String>()
         .toList();
 
-    // Wait for photo URLs to be cached
     await prefetchHeaderPhotos(headerPhotoRefs);
-
-    // Preload images into memory
-    for (final photoRef in headerPhotoRefs) {
-      final photoBytes = getCachedPhoto(photoRef);
-      if (photoBytes != null) {
-        await precacheImage(
-          MemoryImage(photoBytes),
-          NavigationService.navigatorKey.currentContext!,
-        );
-      }
-    }
+    return headerPhotoRefs;
   }
 
   bool shouldRefreshData(double currentLat, double currentLng,

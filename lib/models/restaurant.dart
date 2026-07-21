@@ -1,5 +1,5 @@
 import 'dart:math' show sqrt, sin, atan2, cos, pi;
-import 'package:flutter/foundation.dart' show debugPrint;
+import '../utils/debug_log.dart';
 
 class Restaurant {
   final String id;
@@ -58,9 +58,9 @@ class Restaurant {
           lng is! double ||
           lat.isNaN ||
           lng.isNaN) {
-        debugPrint('dBug/restaurant: Invalid location data');
-        debugPrint('dBug/restaurant: latitude: $lat (${lat.runtimeType})');
-        debugPrint('dBug/restaurant: longitude: $lng (${lng.runtimeType})');
+        debugLog('dBug/restaurant: Invalid location data');
+        debugLog('dBug/restaurant: latitude: $lat (${lat.runtimeType})');
+        debugLog('dBug/restaurant: longitude: $lng (${lng.runtimeType})');
       }
     }
 
@@ -142,9 +142,9 @@ class Restaurant {
     // Debug check final location values
     if (restaurant.location.latitude.isNaN ||
         restaurant.location.longitude.isNaN) {
-      debugPrint('dBug/restaurant: NaN coordinates in final restaurant object');
-      debugPrint('dBug/restaurant: ${restaurant.name}');
-      debugPrint(
+      debugLog('dBug/restaurant: NaN coordinates in final restaurant object');
+      debugLog('dBug/restaurant: ${restaurant.name}');
+      debugLog(
           'dBug/restaurant: lat: ${restaurant.location.latitude}, lng: ${restaurant.location.longitude}');
     }
 
@@ -201,10 +201,10 @@ class Location {
         currentLng.isNaN ||
         latitude.isNaN ||
         longitude.isNaN) {
-      debugPrint('dBug/location: NaN coordinates in formatDistance');
-      debugPrint(
+      debugLog('dBug/location: NaN coordinates in formatDistance');
+      debugLog(
           'dBug/location: currentLat: $currentLat, currentLng: $currentLng');
-      debugPrint('dBug/location: latitude: $latitude, longitude: $longitude');
+      debugLog('dBug/location: latitude: $latitude, longitude: $longitude');
       return 'Distance unavailable';
     }
 
@@ -213,8 +213,8 @@ class Location {
 
     // Debug check calculated distance
     if (distance.isNaN) {
-      debugPrint('dBug/location: NaN distance calculated');
-      debugPrint('dBug/location: distance: $distance');
+      debugLog('dBug/location: NaN distance calculated');
+      debugLog('dBug/location: distance: $distance');
       return 'Distance unavailable';
     }
 
@@ -226,9 +226,9 @@ class Location {
   double calculateDistance(double lat1, double lon1, double lat2, double lon2) {
     // Debug check input coordinates
     if (lat1.isNaN || lon1.isNaN || lat2.isNaN || lon2.isNaN) {
-      debugPrint('dBug/location: NaN coordinates in calculateDistance');
-      debugPrint('dBug/location: lat1: $lat1, lon1: $lon1');
-      debugPrint('dBug/location: lat2: $lat2, lon2: $lon2');
+      debugLog('dBug/location: NaN coordinates in calculateDistance');
+      debugLog('dBug/location: lat1: $lat1, lon1: $lon1');
+      debugLog('dBug/location: lat2: $lat2, lon2: $lon2');
       return double.nan;
     }
 
@@ -238,8 +238,8 @@ class Location {
 
     // Debug check radians conversion
     if (dLat.isNaN || dLon.isNaN) {
-      debugPrint('dBug/location: NaN in radians conversion');
-      debugPrint('dBug/location: dLat: $dLat, dLon: $dLon');
+      debugLog('dBug/location: NaN in radians conversion');
+      debugLog('dBug/location: dLat: $dLat, dLon: $dLon');
       return double.nan;
     }
 
@@ -251,8 +251,8 @@ class Location {
 
     // Debug check sin/cos calculations
     if (a.isNaN) {
-      debugPrint('dBug/location: NaN in trigonometric calculation');
-      debugPrint('dBug/location: a: $a');
+      debugLog('dBug/location: NaN in trigonometric calculation');
+      debugLog('dBug/location: a: $a');
       return double.nan;
     }
 

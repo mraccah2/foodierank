@@ -156,6 +156,32 @@ flutter run --dart-define-from-file=dart_defines.json
 Grant location permission when prompted, and you'll see restaurants ranked
 around you.
 
+### 5. Run the CLI (optional)
+
+`bin/foodierank.dart` runs the same search and ranking pipeline as the app, from
+a terminal — useful for comparing rankings across cities, or scripting. It is
+plain Dart, so it needs no simulator or device:
+
+```bash
+export GOOGLE_MAPS_API_KEY=...      # see note below
+dart run bin/foodierank.dart "Times Square, New York" --any-time
+dart run bin/foodierank.dart --at 40.7484,-73.9967 --cuisine Italian --json
+```
+
+```
+  # NAME                          RATING  REVIEWS  PRICE  SCORE  SIGNALS
+  1 Mitr Thai Restaurant             4.9     9781  $$      5.12  worth the trip (+1.50)
+  2 Osteria La Baia                  4.9     7184  $$$$    4.91  worth the trip (+1.50), touristy (0.61)
+```
+
+`--json` and `--csv` emit the full ranking breakdown (quality score, destination
+bonus, tourist penalty); `--help` lists every option.
+
+Because there is no build-time `--dart-define` on desktop, the CLI takes its key
+from `GOOGLE_MAPS_API_KEY`. It sends no app-attestation headers, so this must be
+a key restricted by IP or left unrestricted — **not** either mobile key, which
+are locked to the app's bundle id / SHA-1 and will be rejected.
+
 ---
 
 ## Making it your own (forking)
@@ -177,12 +203,15 @@ To ship your own build you'll want your own app identity:
 ## Project structure
 
 ```
+bin/
+  foodierank.dart            # Command-line entry point (shares the app's ranking)
 lib/
   main.dart                  # App entry point, location bootstrap
   config.dart                # Build-time configuration (keys via --dart-define)
   models/                    # Restaurant + location models
   screens/                   # Splash + restaurant list screens
   services/                  # Places API client, ranking, navigation, usage tracking
+  utils/                     # Flutter-free helpers shared with bin/
   widgets/                   # Restaurant cards, photo viewer
 assets/                      # Icons, splash, fonts
 android/ ios/ macos/ linux/ windows/ web/   # Platform runners

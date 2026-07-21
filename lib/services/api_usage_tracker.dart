@@ -1,4 +1,4 @@
-import 'package:flutter/foundation.dart';
+import '../utils/debug_log.dart';
 
 class ApiUsageTracker {
   static final ApiUsageTracker instance = ApiUsageTracker._internal();
@@ -37,16 +37,16 @@ class ApiUsageTracker {
 
   // Print usage stats
   void printUsageStats() {
-    debugPrint('dBug/api_usage: API Usage Statistics:');
-    debugPrint(
+    debugLog('dBug/api_usage: API Usage Statistics:');
+    debugLog(
         'dBug/api_usage: Text Search Calls: $_textSearchCalls (Cost: \$${(_textSearchCalls * textSearchCost).toStringAsFixed(3)})');
-    debugPrint(
+    debugLog(
         'dBug/api_usage: Nearby Search Calls: $_nearbySearchCalls (Cost: \$${(_nearbySearchCalls * nearbySearchCost).toStringAsFixed(3)})');
-    debugPrint(
+    debugLog(
         'dBug/api_usage: Photo Calls: $_photoCalls (Cost: \$${(_photoCalls * photoCost).toStringAsFixed(3)})');
-    debugPrint(
+    debugLog(
         'dBug/api_usage: Place Details Calls: $_placeDetailsCalls (Cost: \$${(_placeDetailsCalls * placeDetailsCost).toStringAsFixed(3)})');
-    debugPrint('dBug/api_usage: Total Cost: \$${totalCost.toStringAsFixed(3)}');
+    debugLog('dBug/api_usage: Total Cost: \$${totalCost.toStringAsFixed(3)}');
   }
 
   // Reset counters

@@ -29,13 +29,27 @@ class Config {
   static const String _iosApiKey = String.fromEnvironment('IOS_MAPS_API_KEY');
 
   /// The Google Maps/Places API key for the current platform.
+  ///
+  /// On desktop — which in practice means the `bin/foodierank.dart` command-line
+  /// entry point — there is no build-time `--dart-define`, so the key comes from
+  /// the `GOOGLE_MAPS_API_KEY` environment variable instead. That key needs no
+  /// app restrictions, so it should be a separate, IP- or user-restricted key
+  /// rather than either mobile key.
   static String get googleMapsApiKey {
     if (Platform.isAndroid) {
       return _androidApiKey;
     } else if (Platform.isIOS) {
       return _iosApiKey;
     }
-    throw UnsupportedError('Unsupported platform for Google Maps API');
+
+    final fromEnvironment = Platform.environment['GOOGLE_MAPS_API_KEY'] ?? '';
+    if (fromEnvironment.isNotEmpty) {
+      return fromEnvironment;
+    }
+    throw UnsupportedError(
+      'No Google Maps API key: set GOOGLE_MAPS_API_KEY in the environment '
+      '(or run on Android/iOS, where the key is supplied via --dart-define).',
+    );
   }
 
   static String get baseUrl {
