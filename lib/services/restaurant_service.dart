@@ -125,6 +125,26 @@ class RestaurantService {
     'Other'
   ];
 
+  // A few cuisineTypes name a venue kind, not a food style, so the default
+  // "$cuisineType restaurant" Text Search phrase is wrong for them: a coffee
+  // shop is not a "Coffee restaurant", and Places Text Search returns almost
+  // no cafés for that query (it falls back to generic restaurants — pizzerias,
+  // chicken joints). Map those to the natural search phrase; every other
+  // cuisine keeps "$cuisineType restaurant". See _cuisineQueryPhrase.
+  static const Map<String, String> _cuisineQueryPhrases = {
+    'Coffee': 'coffee shop',
+    'Bakery': 'bakery',
+    'Bar': 'bar',
+    'Pub': 'pub',
+    'Deli': 'deli',
+    'Diner': 'diner',
+  };
+
+  // The Text Search phrase for a cuisine filter: a special-cased venue phrase
+  // when one applies (see _cuisineQueryPhrases), else "<cuisine> restaurant".
+  static String _cuisineQueryPhrase(String cuisineType) =>
+      _cuisineQueryPhrases[cuisineType] ?? '$cuisineType restaurant';
+
   Future<List<Map<String, dynamic>>> getNearbyRestaurants(
       double latitude, double longitude,
       {List<String>? priceLevels,
@@ -430,7 +450,7 @@ class RestaurantService {
       'textQuery': searchQuery?.isNotEmpty == true
           ? searchQuery
           : cuisineType != null && cuisineType != 'Other'
-              ? '$cuisineType restaurant'
+              ? _cuisineQueryPhrase(cuisineType)
               : 'restaurant',
       'locationRestriction': {
         'rectangle': {

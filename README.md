@@ -177,6 +177,22 @@ dart run bin/foodierank.dart --at 40.7484,-73.9967 --cuisine Italian --json
 `--json` and `--csv` emit the full ranking breakdown (quality score, destination
 bonus, tourist penalty); `--help` lists every option.
 
+**Searching for a specific dish or venue kind.** Beyond whole cuisines, the CLI
+can find the best-ranked place for one *dish* — handy when building a trip
+reservoir or a day's itinerary and you want the top spot for a signature plate,
+not a category. `--query` is a raw Places Text Search string, so a dish name
+works directly:
+
+```bash
+dart run bin/foodierank.dart --at 46.156,-1.152 --query "galette" --any-time --json
+dart run bin/foodierank.dart --at 46.156,-1.152 --query "moules marinières" --any-time
+```
+
+Venue-kind cuisine filters return the right kind of place, not restaurants:
+`--cuisine Coffee` gives cafés (Bakery, Bar, Pub, Deli, Diner likewise) — these
+map to their natural search phrase instead of `"<name> restaurant"`, which for
+Coffee returned pizzerias.
+
 Because there is no build-time `--dart-define` on desktop, the CLI takes its key
 from `GOOGLE_MAPS_API_KEY`. It sends no app-attestation headers, so this must be
 a key restricted by IP or left unrestricted — **not** either mobile key, which
