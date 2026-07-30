@@ -37,6 +37,10 @@ export interface RawPlace {
 /** A place once resolved to a Google `place_id`, ready to store. */
 export interface ResolvedPlace extends RawPlace {
   placeId: string;
+  /** Places API types, used to keep streets and shops out of the list. */
+  types?: string[];
+  /** OPERATIONAL / CLOSED_TEMPORARILY. Permanently closed never gets here. */
+  businessStatus?: string;
   /**
    * How much to trust the match.
    * - `exact`   — coordinates came from the archive and the text search hit

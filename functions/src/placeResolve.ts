@@ -1,6 +1,7 @@
 import { defineSecret } from 'firebase-functions/params';
 import { GoogleAuth } from 'google-auth-library';
 import { logger } from 'firebase-functions';
+import { rejectionReason } from './placeKind';
 import type { RawPlace, ResolvedPlace } from './types';
 
 export const PLACES_API_KEY = defineSecret('GOOGLE_PLACES_API_KEY');
@@ -43,16 +44,6 @@ const COORD_MATCH_RADIUS_M = 150;
 /** Location bias radius when the archive gave us coordinates. */
 const BIAS_RADIUS_M = 500;
 
-/**
- * Resolve imported places to Google `place_id`s.
- *
- * FoodieRank matches markers to search results by `place_id`, but only the
- * starred-places GeoJSON identifies places usefully. Takeout list CSVs give a
- * name and a URL and nothing else, so those have to be looked up.
- *
- * Calls are billed per request, so results are cached by query within a run and
- * the caller is expected to batch whole imports rather than resolve per view.
- */
 /** Stable key for a lookup, so a repeat import reuses the previous answer. */
 export function resolutionKey(place: RawPlace): string {
   const coords =
@@ -167,6 +158,8 @@ async function resolveOne(
       displayName?: { text?: string };
       location?: { latitude?: number; longitude?: number };
       formattedAddress?: string;
+      types?: string[];
+      businessStatus?: string;
     }[];
     error?: { message?: string };
   };
@@ -178,8 +171,11 @@ async function resolveOne(
         'Content-Type': 'application/json',
         Authorization: `Bearer ${await accessToken()}`,
         'X-Goog-User-Project': process.env.GCLOUD_PROJECT ?? '',
+        // types + businessStatus ride along on the call we already make, so
+        // filtering out streets and closed venues costs nothing extra.
         'X-Goog-FieldMask':
-          'places.id,places.displayName,places.location,places.formattedAddress',
+          'places.id,places.displayName,places.location,places.formattedAddress,' +
+          'places.types,places.businessStatus',
       },
       body: JSON.stringify(body),
     });
@@ -205,9 +201,20 @@ async function resolveOne(
     return null;
   }
 
+  // Google's lists contain streets and shuttered venues alongside real ones.
+  // Drop them here so they never reach Firestore, rather than filtering at
+  // every read site.
+  const reason = rejectionReason(hit.types, hit.businessStatus);
+  if (reason) {
+    logger.debug('Dropping non-restaurant', { name: place.name, reason });
+    return null;
+  }
+
   return {
     ...place,
     placeId: hit.id,
+    types: hit.types,
+    businessStatus: hit.businessStatus,
     lat: hit.location?.latitude ?? place.lat,
     lng: hit.location?.longitude ?? place.lng,
     address: hit.formattedAddress ?? place.address,
