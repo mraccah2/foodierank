@@ -17,6 +17,16 @@ import '../utils/debug_log.dart';
 const String kStarredPlacesScope =
     'https://www.googleapis.com/auth/dataportability.maps.starred_places';
 
+/// Read access to the user's Drive, so scheduled Takeout archives can be picked
+/// up automatically.
+///
+/// This grants read of the user's **entire** Drive — there is no narrower
+/// option, since `drive.file` only covers files this app created and Takeout's
+/// archives are created by Google. Requested only when the user explicitly opts
+/// into Drive import, never during sign-in.
+const String kDriveReadonlyScope =
+    'https://www.googleapis.com/auth/drive.readonly';
+
 /// Optional Google sign-in.
 ///
 /// Everything here degrades to "signed out" rather than throwing: FoodieRank
@@ -41,10 +51,12 @@ class AuthService extends ChangeNotifier {
   String? get displayName => _user?.displayName;
   String? get photoUrl => _user?.photoURL;
 
-  /// True once the user has granted the Data Portability scope and the backend
-  /// holds a refresh token for them.
-  bool _hasStarredGrant = false;
-  bool get hasStarredPlacesGrant => _hasStarredGrant;
+  /// Scopes the backend holds a refresh token for, as reported by the last
+  /// successful link.
+  final Set<String> _grantedScopes = {};
+
+  bool get hasStarredPlacesGrant => _grantedScopes.contains(kStarredPlacesScope);
+  bool get hasDriveGrant => _grantedScopes.contains(kDriveReadonlyScope);
 
   /// Bring up Firebase and Google Sign-In. Never throws — on failure the
   /// feature is simply unavailable.
@@ -131,35 +143,54 @@ class AuthService extends ChangeNotifier {
   /// one-hour access token, and polling happens with no user present.
   ///
   /// Returns a human-readable error, or null on success.
-  Future<String?> connectGoogleMapsData() async {
+  Future<String?> connectGoogleMapsData() =>
+      _grantScopes([kStarredPlacesScope], 'your Google Maps data');
+
+  /// Ask for Drive read access so scheduled Takeout archives are picked up
+  /// automatically. Separate from [connectGoogleMapsData] on purpose: this is a
+  /// broad permission and the user should be able to decline it and still use
+  /// everything else.
+  Future<String?> connectGoogleDrive() =>
+      _grantScopes([kDriveReadonlyScope], 'your Google Drive');
+
+  /// Run one consent round for [scopes] and hand the resulting auth code to the
+  /// backend. Returns a human-readable error, or null on success (including a
+  /// user cancellation, which is not an error worth surfacing).
+  Future<String?> _grantScopes(List<String> scopes, String what) async {
     if (!isSignedIn) return 'Sign in first.';
 
     try {
-      final authorization = await GoogleSignIn.instance.authorizationClient
-          .authorizeServer([kStarredPlacesScope]);
+      final authorization =
+          await GoogleSignIn.instance.authorizationClient.authorizeServer(scopes);
 
       if (authorization == null) {
-        return 'Google did not grant access to Starred places.';
+        return 'Google did not grant access to $what.';
       }
 
-      await FirebaseFunctions.instance
+      final result = await FirebaseFunctions.instance
           .httpsCallable('linkGoogleAccount')
           .call<Map<String, dynamic>>({
         'serverAuthCode': authorization.serverAuthCode,
       });
 
-      _hasStarredGrant = true;
+      // Trust the backend's view of what is actually on file rather than
+      // assuming the request succeeded exactly as asked.
+      final granted = (result.data['scopes'] as List?)?.whereType<String>();
+      _grantedScopes
+        ..clear()
+        ..addAll(granted ?? scopes);
+
       notifyListeners();
       return null;
     } on FirebaseFunctionsException catch (e) {
       debugLog('dBug/auth: link failed: ${e.code} ${e.message}');
-      return e.message ?? 'Could not connect your Google Maps data.';
+      return e.message ?? 'Could not connect $what.';
     } on GoogleSignInException catch (e) {
       if (e.code == GoogleSignInExceptionCode.canceled) return null;
       return e.description ?? 'Authorization was not granted.';
     } catch (e) {
       debugLog('dBug/auth: link failed: $e');
-      return 'Could not connect your Google Maps data.';
+      return 'Could not connect $what.';
     }
   }
 
@@ -171,7 +202,7 @@ class AuthService extends ChangeNotifier {
     } catch (e) {
       debugLog('dBug/auth: unlink failed: $e');
     }
-    _hasStarredGrant = false;
+    _grantedScopes.clear();
     notifyListeners();
   }
 
@@ -186,7 +217,7 @@ class AuthService extends ChangeNotifier {
     } catch (e) {
       debugLog('dBug/auth: firebase signOut failed: $e');
     }
-    _hasStarredGrant = false;
+    _grantedScopes.clear();
     notifyListeners();
   }
 }

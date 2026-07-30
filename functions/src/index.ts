@@ -20,6 +20,11 @@ import {
   OAUTH_CLIENT_ID,
   OAUTH_CLIENT_SECRET,
 } from './oauth';
+import {
+  DRIVE_READONLY_SCOPE,
+  downloadArchive,
+  listTakeoutArchives,
+} from './drive';
 import { PLACES_API_KEY, resolvePlaces } from './placeResolve';
 import { parseTakeoutArchive } from './takeout';
 import { applyImport, createImportJob, updateImportJob } from './store';
@@ -298,6 +303,113 @@ export const autoSyncStarredPlaces = onSchedule(
           continue;
         }
         logger.warn('Auto-sync skipped', {
+          uid,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
+  }
+);
+
+/**
+ * Pick up Takeout archives that land in the user's Drive.
+ *
+ * Takeout can be told to deliver on a schedule — every 2 months, six times
+ * over a year — straight to Drive. That is the only way Loved, Want to go and
+ * custom lists refresh without the user doing anything: no Google API exposes
+ * them, and there is no API to create the Takeout schedule either, so the user
+ * arms it once a year in the Takeout UI.
+ *
+ * Only runs for users who explicitly connected Drive; the scope is never part
+ * of ordinary sign-in.
+ */
+export const syncTakeoutFromDrive = onSchedule(
+  {
+    region: REGION,
+    schedule: 'every 12 hours',
+    secrets: [OAUTH_CLIENT_ID, OAUTH_CLIENT_SECRET, PLACES_API_KEY],
+    timeoutSeconds: 540,
+    memory: '2GiB',
+  },
+  async () => {
+    const grants = await db
+      .collectionGroup('private')
+      .where('scopes', 'array-contains', DRIVE_READONLY_SCOPE)
+      .limit(200)
+      .get();
+
+    for (const grant of grants.docs) {
+      const uid = grant.ref.parent.parent?.id;
+      if (!uid) continue;
+
+      try {
+        const accessToken = await accessTokenFor(
+          uid,
+          OAUTH_CLIENT_ID.value(),
+          OAUTH_CLIENT_SECRET.value()
+        );
+
+        const archives = await listTakeoutArchives(accessToken);
+        if (archives.length === 0) continue;
+
+        // Only the newest archive matters: each Takeout export is a full
+        // snapshot, so older ones would just be re-imported stale data.
+        const latest = archives[0];
+
+        const stateRef = db
+          .collection('users')
+          .doc(uid)
+          .collection('private')
+          .doc('drive_state');
+        const seen = (await stateRef.get()).data()?.lastFileId as
+          | string
+          | undefined;
+        if (seen === latest.id) continue;
+
+        const jobId = await createImportJob(uid, 'takeout', {
+          state: 'IN_PROGRESS',
+        });
+
+        const buffer = await downloadArchive(accessToken, latest);
+        if (!buffer) {
+          await updateImportJob(uid, jobId, {
+            state: 'FAILED',
+            error: `${latest.name} is too large to process automatically.`,
+          });
+          // Remember it anyway — retrying would fail identically every cycle.
+          await stateRef.set({ lastFileId: latest.id }, { merge: true });
+          continue;
+        }
+
+        const { places, listsFound } = parseTakeoutArchive(buffer);
+        if (places.length === 0) {
+          await updateImportJob(uid, jobId, {
+            state: 'FAILED',
+            error:
+              'That archive had no saved places. Include "Maps (your places)" ' +
+              'in the export.',
+          });
+          await stateRef.set({ lastFileId: latest.id }, { merge: true });
+          continue;
+        }
+
+        const resolved = await resolvePlaces(places, PLACES_API_KEY.value());
+        const count = await applyImport(uid, 'takeout', resolved);
+
+        await updateImportJob(uid, jobId, {
+          state: 'COMPLETE',
+          placesImported: count,
+        });
+        await stateRef.set({ lastFileId: latest.id }, { merge: true });
+
+        logger.info('Drive Takeout import complete', {
+          uid,
+          count,
+          listsFound,
+          file: latest.name,
+        });
+      } catch (error) {
+        logger.warn('Drive sync skipped', {
           uid,
           error: error instanceof Error ? error.message : String(error),
         });

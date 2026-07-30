@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../models/place_status.dart';
 import '../services/auth_service.dart';
@@ -48,6 +49,8 @@ class _AccountScreenState extends State<AccountScreen> {
                 _buildLegend(),
                 const SizedBox(height: 16),
                 _buildTakeoutCard(),
+                const SizedBox(height: 12),
+                _buildDriveCard(auth),
                 const SizedBox(height: 12),
                 _buildApiCard(auth),
                 const SizedBox(height: 16),
@@ -193,6 +196,81 @@ class _AccountScreenState extends State<AccountScreen> {
     );
   }
 
+  /// Optional automation: Takeout can deliver to Drive on a schedule, and the
+  /// backend picks the archives up. Kept visually secondary to the manual
+  /// upload because it costs a broad permission.
+  Widget _buildDriveCard(AuthService auth) {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('Or let it update itself',
+                style: TextStyle(fontWeight: FontWeight.bold)),
+            const SizedBox(height: 8),
+            const Text(
+              'Takeout can email you a new export every 2 months and drop it '
+              'straight into Drive. Connect Drive and FoodieRank will pick '
+              'those up on its own — no uploading.',
+              style: TextStyle(fontSize: 13),
+            ),
+            const SizedBox(height: 12),
+            // Be explicit about the cost. Google's own consent screen says
+            // "See and download all your Google Drive files", and a user who
+            // is surprised by that has been misled by us, not by Google.
+            Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: Colors.amber.withValues(alpha: 0.12),
+                borderRadius: BorderRadius.circular(6),
+              ),
+              child: const Text(
+                'This asks for read access to your whole Google Drive. Google '
+                'offers no narrower permission for files it created. Skip it '
+                'and uploading the .zip yourself works exactly as well.',
+                style: TextStyle(fontSize: 11),
+              ),
+            ),
+            const SizedBox(height: 12),
+            if (!auth.hasDriveGrant)
+              FilledButton.tonalIcon(
+                onPressed: _busy ? null : _connectDrive,
+                icon: const Icon(Icons.cloud_sync),
+                label: const Text('Connect Drive'),
+              )
+            else ...[
+              Row(
+                children: [
+                  const Icon(Icons.check_circle, size: 18, color: Colors.green),
+                  const SizedBox(width: 8),
+                  const Expanded(
+                    child: Text('Drive connected — checked twice a day.',
+                        style: TextStyle(fontSize: 13)),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              OutlinedButton.icon(
+                onPressed: _busy ? null : _openTakeoutSchedule,
+                icon: const Icon(Icons.open_in_new, size: 16),
+                label: const Text('Set up the Takeout schedule'),
+              ),
+              const SizedBox(height: 6),
+              const Text(
+                'In Takeout: pick "Maps (your places)", set delivery to "Add to '
+                'Drive", and choose every 2 months. Google gives no API for '
+                'this, and the schedule runs for a year before it needs '
+                'renewing.',
+                style: TextStyle(fontSize: 11, fontStyle: FontStyle.italic),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _buildApiCard(AuthService auth) {
     return Card(
       child: Padding(
@@ -326,6 +404,26 @@ class _AccountScreenState extends State<AccountScreen> {
     await AuthService.instance.signOut();
     if (!mounted) return;
     setState(() => _busy = false);
+  }
+
+  Future<void> _connectDrive() async {
+    setState(() => _busy = true);
+    final error = await AuthService.instance.connectGoogleDrive();
+    if (!mounted) return;
+    setState(() => _busy = false);
+    _toast(error ??
+        'Drive connected. Set up the Takeout schedule and imports will run '
+        'on their own.');
+  }
+
+  /// Hand off to Takeout in the system browser, where the user is already
+  /// signed in. There is no API to create the schedule and no URL parameter to
+  /// preselect a product, so this is as far as automation can go.
+  Future<void> _openTakeoutSchedule() async {
+    final uri = Uri.parse('https://takeout.google.com/');
+    if (!await launchUrl(uri, mode: LaunchMode.externalApplication)) {
+      _toast('Could not open Takeout. Visit takeout.google.com.');
+    }
   }
 
   Future<void> _connect() async {

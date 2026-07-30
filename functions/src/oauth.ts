@@ -93,7 +93,16 @@ export async function exchangeAndStoreAuthCode(
     );
   }
 
-  const scopes = (payload.scope ?? '').split(' ').filter(Boolean);
+  const granted = (payload.scope ?? '').split(' ').filter(Boolean);
+
+  // Union with what is already on file. Each consent returns only its own
+  // scopes, so overwriting here would make connecting Drive look like it had
+  // revoked the Data Portability grant (or vice versa).
+  const existing =
+    ((await tokenRef(uid).get()).data() as StoredToken | undefined)?.scopes ??
+    [];
+  const scopes = [...new Set([...existing, ...granted])];
+
   const doc: StoredToken = {
     refreshToken: payload.refresh_token,
     scopes,
@@ -106,10 +115,16 @@ export async function exchangeAndStoreAuthCode(
 
 /** True when we hold a refresh token carrying the Data Portability scope. */
 export async function hasStarredPlacesGrant(uid: string): Promise<boolean> {
+  return hasScope(uid, STARRED_PLACES_SCOPE);
+}
+
+/** True when the stored grant carries [scope]. */
+export async function hasScope(uid: string, scope: string): Promise<boolean> {
   const snap = await tokenRef(uid).get();
   const data = snap.data() as StoredToken | undefined;
-  return !!data?.refreshToken && data.scopes.includes(STARRED_PLACES_SCOPE);
+  return !!data?.refreshToken && data.scopes.includes(scope);
 }
+
 
 /**
  * Mint a fresh access token for `uid`. Throws if the user has not linked their
