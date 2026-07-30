@@ -1,0 +1,51 @@
+rules_version = '2';
+
+// FoodieRank saved-place mirror.
+//
+// Everything lives under users/{uid}. Imported markers are written *only* by
+// Cloud Functions (the Admin SDK bypasses these rules), so clients get read
+// access to their own data and nothing else.
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    match /users/{uid} {
+      allow read: if request.auth != null && request.auth.uid == uid;
+      // The profile doc holds import bookkeeping written by functions.
+      allow write: if false;
+
+      // Markers mirrored from Google. Read-only to the client: the source of
+      // truth is Google, and clients cannot write back to it anyway.
+      match /savedPlaces/{placeId} {
+        allow read: if request.auth != null && request.auth.uid == uid;
+        allow write: if false;
+      }
+
+      // Markers the user tapped away. Client-owned: this is the one piece of
+      // state that originates on the device, because Google has no write API.
+      match /clears/{placeId} {
+        allow read: if request.auth != null && request.auth.uid == uid;
+        allow write: if request.auth != null
+                     && request.auth.uid == uid
+                     && isValidClear(request.resource.data);
+      }
+
+      // Import job status, surfaced in the app so the user can see progress.
+      match /importJobs/{jobId} {
+        allow read: if request.auth != null && request.auth.uid == uid;
+        allow write: if false;
+      }
+
+      // OAuth refresh tokens. Never readable by any client, under any
+      // condition — only the Admin SDK touches this.
+      match /private/{document=**} {
+        allow read, write: if false;
+      }
+    }
+  }
+
+  function isValidClear(data) {
+    return data.keys().hasOnly(['statuses', 'updatedAt'])
+        && data.statuses is list
+        && data.statuses.size() <= 3;
+  }
+}

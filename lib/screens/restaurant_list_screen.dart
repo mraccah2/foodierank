@@ -10,6 +10,8 @@ import '../widgets/minimal_restaurant_card.dart';
 import '../widgets/restaurant_map_view.dart';
 import '../widgets/location_picker_sheet.dart';
 import '../widgets/time_picker_sheet.dart';
+import '../services/auth_service.dart';
+import 'account_screen.dart';
 
 enum SortOption { rank, distance }
 
@@ -686,6 +688,30 @@ class _RestaurantListScreenState extends State<RestaurantListScreen>
         title: Image.asset('assets/logo.png'),
         backgroundColor: Colors.grey[200],
         elevation: 0,
+        actions: [
+          // Signed-in users get their avatar; everyone else a neutral icon, so
+          // the optional sign-in never reads as something the app requires.
+          AnimatedBuilder(
+            animation: AuthService.instance,
+            builder: (context, _) {
+              final photoUrl = AuthService.instance.photoUrl;
+              return IconButton(
+                tooltip: 'Saved places',
+                onPressed: () => Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (_) => const AccountScreen(),
+                  ),
+                ),
+                icon: photoUrl != null
+                    ? CircleAvatar(
+                        radius: 13,
+                        backgroundImage: NetworkImage(photoUrl),
+                      )
+                    : const Icon(Icons.account_circle_outlined),
+              );
+            },
+          ),
+        ],
       ),
       body: GestureDetector(
         onHorizontalDragUpdate: _cardViewFromTap ? _handleHorizontalDrag : null,
@@ -1084,7 +1110,10 @@ class _RestaurantListScreenState extends State<RestaurantListScreen>
           child: _contextPill(
             icon: Icons.place_outlined,
             label: _searchContext.locationDisplay,
-            active: _searchContext.isCustomLocation,
+            // Both filters are always applied — "Near me" and "Open now" are
+            // the defaults, not the absence of a filter — so the pills read as
+            // on from a cold start. Only a *customised* pill offers a clear.
+            active: true,
             onTap: _openLocationPicker,
             onClear: _searchContext.isCustomLocation ? _resetLocation : null,
           ),
@@ -1094,7 +1123,7 @@ class _RestaurantListScreenState extends State<RestaurantListScreen>
           child: _contextPill(
             icon: Icons.schedule,
             label: _searchContext.timeDisplay,
-            active: _searchContext.isCustomTime,
+            active: true,
             onTap: _openTimePicker,
             onClear: _searchContext.isCustomTime ? _resetTime : null,
           ),

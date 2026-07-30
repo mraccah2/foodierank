@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../models/restaurant.dart';
 import 'package:url_launcher/url_launcher_string.dart';
 import '../services/restaurant_service.dart';
+import 'place_status_icon.dart';
 
 class RestaurantCard extends StatefulWidget {
   static final Map<String, int> _lastViewedIndices = {};
@@ -440,6 +441,16 @@ class _RestaurantCardState extends State<RestaurantCard> {
                               overflow: TextOverflow.visible,
                             ),
                           ),
+                          // Nested inside the "open in Google Maps" gesture on
+                          // purpose: its own tap recogniser is deeper in the
+                          // tree, so clearing a marker wins the gesture arena
+                          // and does not also launch Maps.
+                          PlaceStatusIcon(
+                            placeId: widget.restaurant.placeId,
+                            size: 22,
+                            showListLabel: true,
+                          ),
+                          const SizedBox(width: 4),
                           Container(
                             padding: const EdgeInsets.all(8),
                             decoration: const BoxDecoration(

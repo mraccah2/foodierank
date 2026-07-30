@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../models/restaurant.dart';
 import '../services/restaurant_service.dart';
+import 'place_status_icon.dart';
 
 class MinimalRestaurantCard extends StatelessWidget {
   final Restaurant restaurant;
@@ -63,15 +64,28 @@ class MinimalRestaurantCard extends StatelessWidget {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      // Restaurant name
-                      Text(
-                        restaurant.name,
-                        style: const TextStyle(
-                          fontWeight: FontWeight.bold,
-                          fontSize: 14,
-                        ),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
+                      // Restaurant name, with the Google Maps save marker
+                      // alongside it. It sits here rather than in the metadata
+                      // row below so its yellow star is never confused with the
+                      // amber rating star.
+                      Row(
+                        children: [
+                          Flexible(
+                            child: Text(
+                              restaurant.name,
+                              style: const TextStyle(
+                                fontWeight: FontWeight.bold,
+                                fontSize: 14,
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                          PlaceStatusIcon(
+                            placeId: restaurant.placeId,
+                            size: 16,
+                          ),
+                        ],
                       ),
                       const SizedBox(height: 1),
                       // Metadata row

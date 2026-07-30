@@ -168,10 +168,19 @@ jobs:
         env:
           IOS_MAPS_API_KEY: ${{ secrets.IOS_MAPS_API_KEY }}
           IOS_BUNDLE_ID: ${{ vars.IOS_BUNDLE_ID || 'com.foodierank.foodierank' }}
+          # OAuth client ids are public identifiers — they ship inside the app
+          # binary and GoogleService-Info.plist — so they live in `vars`, not
+          # `secrets`. Leaving GOOGLE_SERVER_CLIENT_ID unset is a supported
+          # build: Google sign-in simply switches off and the rest of the app
+          # is unaffected.
+          GOOGLE_SERVER_CLIENT_ID: ${{ vars.GOOGLE_SERVER_CLIENT_ID }}
+          GOOGLE_IOS_CLIENT_ID: ${{ vars.GOOGLE_IOS_CLIENT_ID }}
         run: |
           flutter build ios --release --no-codesign \
             --dart-define=IOS_MAPS_API_KEY="$IOS_MAPS_API_KEY" \
-            --dart-define=IOS_BUNDLE_ID="$IOS_BUNDLE_ID"
+            --dart-define=IOS_BUNDLE_ID="$IOS_BUNDLE_ID" \
+            --dart-define=GOOGLE_SERVER_CLIENT_ID="$GOOGLE_SERVER_CLIENT_ID" \
+            --dart-define=GOOGLE_IOS_CLIENT_ID="$GOOGLE_IOS_CLIENT_ID"
 
       - name: Configure manual signing for CI (Runner target only)
         env:

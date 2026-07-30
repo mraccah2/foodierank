@@ -7,5 +7,9 @@
   "_optional_comment": "The values below are only needed if your API keys are restricted by app identity (recommended for production). Leave blank to use unrestricted development keys.",
   "IOS_BUNDLE_ID": "com.example.foodierank",
   "ANDROID_PACKAGE_NAME": "com.example.foodierank",
-  "ANDROID_CERT_SHA1": ""
+  "ANDROID_CERT_SHA1": "",
+
+  "_signin_comment": "Optional Google sign-in, which shows your Google Maps saved places on ranked results. Leave blank to build without it — the app works fully signed out. GOOGLE_SERVER_CLIENT_ID must be the WEB OAuth client id even on mobile: it is what makes Google return the serverAuthCode the backend exchanges for a refresh token. Android resolves its own client from the SHA-1 registered in Firebase, so it needs no entry here.",
+  "GOOGLE_SERVER_CLIENT_ID": "",
+  "GOOGLE_IOS_CLIENT_ID": ""
 }

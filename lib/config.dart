@@ -52,6 +52,28 @@ class Config {
     );
   }
 
+  // ---------------------------------------------------------------------------
+  // Google Sign-In (optional feature).
+  //
+  // Signing in is never required: the app works fully signed out, and these
+  // being empty simply keeps the saved-places feature switched off.
+  //
+  // [googleServerClientId] must be the **Web** OAuth client id, even on mobile.
+  // It is what makes `authorizeServer` return a `serverAuthCode`, which the
+  // backend exchanges for the long-lived refresh token it needs to poll
+  // multi-day Data Portability archives.
+  // ---------------------------------------------------------------------------
+  static const String googleServerClientId =
+      String.fromEnvironment('GOOGLE_SERVER_CLIENT_ID');
+
+  /// iOS OAuth client id. Android resolves its client from the signing SHA-1
+  /// registered in the Firebase console, so it needs no equivalent here.
+  static const String googleIosClientId =
+      String.fromEnvironment('GOOGLE_IOS_CLIENT_ID');
+
+  /// True when the build carries enough configuration to offer Google sign-in.
+  static bool get googleSignInConfigured => googleServerClientId.isNotEmpty;
+
   static String get baseUrl {
     return useLocalProxy
         ? 'http://localhost:8080'

@@ -7,6 +7,9 @@ import 'dart:async';
 import 'services/navigation_service.dart';
 import 'screens/restaurant_list_screen.dart';
 import 'services/api_usage_tracker.dart';
+import 'services/place_status_store.dart';
+import 'services/auth_service.dart';
+import 'services/saved_places_coordinator.dart';
 
 void main() {
   runZonedGuarded(() async {
@@ -19,6 +22,17 @@ void main() {
     SystemChrome.setPreferredOrientations([
       DeviceOrientation.portraitUp,
     ]);
+
+    // Restore any cached Google Maps save markers before the first frame, so
+    // signed-in users do not see cards pop their markers in a beat later.
+    // No-ops when signed out.
+    await LocalPlaceStatusStore.instance.load();
+
+    // Optional Google sign-in. Never throws: an unconfigured build just leaves
+    // the feature switched off, and the coordinator keeps the active store in
+    // step with whoever is signed in.
+    await AuthService.instance.initialize();
+    SavedPlacesCoordinator.instance.start();
 
     // Start location and restaurant fetch before showing splash screen
     try {
