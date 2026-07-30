@@ -241,8 +241,13 @@ jobs:
               <key>${{ vars.IOS_BUNDLE_ID || 'com.foodierank.foodierank' }}</key>
               <string>$app_profile_name</string>
             </dict>
+            <!-- Export locally rather than uploading straight from
+                 xcodebuild, so the IPA can be validated against Apple's
+                 checks BEFORE it is sent. Uploading first means ITMS
+                 failures only surface by email minutes later, with the
+                 workflow already green. -->
             <key>destination</key>
-            <string>upload</string>
+            <string>export</string>
             <key>uploadSymbols</key>
             <true/>
           </dict>
@@ -263,7 +268,7 @@ jobs:
             OTHER_CODE_SIGN_FLAGS="--keychain $keychain_path" \
             COMPILER_INDEX_STORE_ENABLE=NO
 
-      - name: Export IPA & upload to TestFlight
+      - name: Export IPA
         env:
           ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
           ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
@@ -276,6 +281,56 @@ jobs:
             -authenticationKeyPath ~/private_keys/AuthKey_${ASC_KEY_ID}.p8 \
             -authenticationKeyID "$ASC_KEY_ID" \
             -authenticationKeyIssuerID "$ASC_ISSUER_ID"
+
+          IPA=$(ls "$RUNNER_TEMP"/export/*.ipa 2>/dev/null | head -1)
+          if [ -z "$IPA" ]; then
+            echo "::error::exportArchive produced no .ipa"
+            exit 1
+          fi
+          echo "ipa_path=$IPA" >> "$GITHUB_ENV"
+          echo "Exported $IPA"
+
+      # Runs the same checks App Store Connect applies after an upload, but
+      # before we send anything. Builds 31 and 32 were rejected post-upload
+      # with ITMS-90683 (missing NSPhotoLibraryUsageDescription) while this
+      # workflow reported success, because uploading and being *accepted* are
+      # different things. altool exits non-zero on ITMS findings, so those now
+      # fail the build here instead of arriving by email.
+      - name: Validate IPA against App Store rules
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+        run: |
+          xcrun altool --validate-app \
+            -f "$ipa_path" \
+            --type ios \
+            --apiKey "$ASC_KEY_ID" \
+            --apiIssuer "$ASC_ISSUER_ID"
+
+      - name: Upload to TestFlight
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+        run: |
+          xcrun altool --upload-app \
+            -f "$ipa_path" \
+            --type ios \
+            --apiKey "$ASC_KEY_ID" \
+            --apiIssuer "$ASC_ISSUER_ID"
+
+      # A successful upload only means Apple accepted the bytes. Processing
+      # happens asynchronously and can still end in INVALID, which is exactly
+      # how builds 31 and 32 vanished. Wait for the real verdict.
+      - name: Confirm App Store Connect accepted the build
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_PRIVATE_KEY: ${{ secrets.ASC_PRIVATE_KEY }}
+          BUILD_NUMBER: ${{ github.run_number }}
+          BUNDLE_ID: ${{ vars.IOS_BUNDLE_ID || 'com.foodierank.foodierank' }}
+        run: |
+          VENV="$RUNNER_TEMP/verify-venv"
+          "$VENV/bin/python3" .github/scripts/await_build_processing.py
 
       # Pushes to main always submit, preserving the release flow. A manual
       # dispatch can opt out to get a TestFlight-only build for testing.
