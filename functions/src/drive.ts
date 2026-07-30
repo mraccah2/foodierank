@@ -39,23 +39,31 @@ export interface DriveArchive {
 export async function listTakeoutArchives(
   accessToken: string
 ): Promise<DriveArchive[]> {
-  const query = [
-    "name contains 'takeout'",
-    "mimeType = 'application/zip'",
-    'trashed = false',
-  ].join(' and ');
+  // Deliberately loose. Drive reports zip uploads inconsistently — sometimes
+  // application/zip, sometimes x-zip-compressed or octet-stream — so filtering
+  // on mimeType server-side silently returned nothing. Match on the name and
+  // sort the extension out here, where it can be logged.
+  const query = ["name contains 'takeout'", 'trashed = false'].join(' and ');
 
   const url =
     `${FILES_API}?q=${encodeURIComponent(query)}` +
-    '&fields=files(id,name,size,createdTime)' +
-    '&orderBy=createdTime desc&pageSize=25';
+    '&fields=files(id,name,size,createdTime,mimeType)' +
+    '&orderBy=createdTime desc&pageSize=50' +
+    // Takeout may deposit archives in a shared drive rather than My Drive.
+    '&supportsAllDrives=true&includeItemsFromAllDrives=true';
 
   const response = await fetch(url, {
     headers: { Authorization: `Bearer ${accessToken}` },
   });
 
   const payload = (await response.json()) as {
-    files?: { id: string; name: string; size?: string; createdTime?: string }[];
+    files?: {
+      id: string;
+      name: string;
+      size?: string;
+      createdTime?: string;
+      mimeType?: string;
+    }[];
     error?: { message?: string };
   };
 
@@ -67,12 +75,57 @@ export async function listTakeoutArchives(
     );
   }
 
-  return (payload.files ?? []).map((f) => ({
-    id: f.id,
-    name: f.name,
-    size: Number(f.size ?? 0),
-    createdTime: f.createdTime ?? '',
-  }));
+  const all = payload.files ?? [];
+  const archives = all
+    .filter((f) => f.name.toLowerCase().endsWith('.zip'))
+    .map((f) => ({
+      id: f.id,
+      name: f.name,
+      size: Number(f.size ?? 0),
+      createdTime: f.createdTime ?? '',
+    }));
+
+  // Without this, "found nothing" and "worked fine" look identical in the
+  // logs — which is exactly how the first run was impossible to diagnose.
+  logger.info('Drive scan', {
+    matchedName: all.length,
+    zipArchives: archives.length,
+    names: all.slice(0, 10).map((f) => `${f.name} (${f.mimeType})`),
+  });
+
+  return archives;
+}
+
+/**
+ * Group archives into exports and return every part of the most recent one.
+ *
+ * Takeout splits a single export across several zips —
+ * `takeout-20260723T215440Z-001.zip`, `takeout-20260723T215440Z-2-001.zip` —
+ * and spreads the data between them, so "Maps (your places)" may live in any
+ * part. Reading only the newest *file* is how the first run came back empty:
+ * it picked part 1, which happened to hold none of the Maps data.
+ *
+ * The shared `takeout-<timestamp>` prefix identifies the export; anything that
+ * does not match it is treated as its own single-part export.
+ */
+export function newestExportParts(archives: DriveArchive[]): {
+  key: string;
+  parts: DriveArchive[];
+} | null {
+  if (archives.length === 0) return null;
+
+  const keyOf = (name: string) =>
+    name.match(/takeout-(\d{8}T\d{6}Z)/i)?.[1] ?? name;
+
+  const groups = new Map<string, DriveArchive[]>();
+  for (const archive of archives) {
+    const key = keyOf(archive.name);
+    (groups.get(key) ?? groups.set(key, []).get(key)!).push(archive);
+  }
+
+  // `archives` arrives newest-first, so the first key encountered is newest.
+  const key = keyOf(archives[0].name);
+  return { key, parts: groups.get(key) ?? [archives[0]] };
 }
 
 /** Download one archive. Returns null when it is implausibly large. */

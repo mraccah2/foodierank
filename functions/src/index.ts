@@ -19,16 +19,18 @@ import {
   hasStarredPlacesGrant,
   OAUTH_CLIENT_ID,
   OAUTH_CLIENT_SECRET,
+  STARRED_PLACES_SCOPE,
 } from './oauth';
 import {
   DRIVE_READONLY_SCOPE,
   downloadArchive,
   listTakeoutArchives,
+  newestExportParts,
 } from './drive';
 import { PLACES_API_KEY, resolvePlaces } from './placeResolve';
 import { parseTakeoutArchive } from './takeout';
 import { applyImport, createImportJob, updateImportJob } from './store';
-import type { ImportJobDoc } from './types';
+import type { ImportJobDoc, RawPlace } from './types';
 
 const REGION = 'us-central1';
 
@@ -238,10 +240,12 @@ export const autoSyncStarredPlaces = onSchedule(
     timeoutSeconds: 540,
   },
   async () => {
-    // Every linked user has exactly one of these docs.
+    // Select on the granted scope, not merely on holding a refresh token: a
+    // user who connected only Drive has a token but no Data Portability
+    // access, and initiating an archive for them would fail every cycle.
     const grants = await db
       .collectionGroup('private')
-      .where('refreshToken', '!=', '')
+      .where('scopes', 'array-contains', STARRED_PLACES_SCOPE)
       .limit(200)
       .get();
 
@@ -350,47 +354,65 @@ export const syncTakeoutFromDrive = onSchedule(
         );
 
         const archives = await listTakeoutArchives(accessToken);
-        if (archives.length === 0) continue;
+        if (archives.length === 0) {
+          logger.info('No Takeout archives in Drive', { uid });
+          continue;
+        }
 
-        // Only the newest archive matters: each Takeout export is a full
-        // snapshot, so older ones would just be re-imported stale data.
-        const latest = archives[0];
+        // Take every part of the newest export, not just the newest file —
+        // Takeout spreads one export across several zips and the Maps data can
+        // sit in any of them. Older exports are ignored: each export is a full
+        // snapshot, so re-importing one would only restore stale data.
+        const newest = newestExportParts(archives);
+        if (!newest) continue;
 
         const stateRef = db
           .collection('users')
           .doc(uid)
           .collection('private')
           .doc('drive_state');
-        const seen = (await stateRef.get()).data()?.lastFileId as
+        const seen = (await stateRef.get()).data()?.lastExportKey as
           | string
           | undefined;
-        if (seen === latest.id) continue;
+        if (seen === newest.key) continue;
 
         const jobId = await createImportJob(uid, 'takeout', {
           state: 'IN_PROGRESS',
         });
 
-        const buffer = await downloadArchive(accessToken, latest);
-        if (!buffer) {
-          await updateImportJob(uid, jobId, {
-            state: 'FAILED',
-            error: `${latest.name} is too large to process automatically.`,
+        const places: RawPlace[] = [];
+        const listsFound: string[] = [];
+        const skippedParts: string[] = [];
+
+        for (const part of newest.parts) {
+          const buffer = await downloadArchive(accessToken, part);
+          if (!buffer) {
+            skippedParts.push(part.name);
+            continue;
+          }
+          const parsed = parseTakeoutArchive(buffer);
+          places.push(...parsed.places);
+          listsFound.push(...parsed.listsFound);
+          logger.info('Parsed Takeout part', {
+            uid,
+            part: part.name,
+            places: parsed.places.length,
           });
-          // Remember it anyway — retrying would fail identically every cycle.
-          await stateRef.set({ lastFileId: latest.id }, { merge: true });
-          continue;
         }
 
-        const { places, listsFound } = parseTakeoutArchive(buffer);
         if (places.length === 0) {
           await updateImportJob(uid, jobId, {
             state: 'FAILED',
             error:
-              'That archive had no saved places. Include "Maps (your places)" ' +
-              'in the export.',
+              `No saved places across ${newest.parts.length} archive part(s). ` +
+              'Include "Maps (your places)" in the Takeout export.',
           });
-          await stateRef.set({ lastFileId: latest.id }, { merge: true });
+          await stateRef.set({ lastExportKey: newest.key }, { merge: true });
           continue;
+        }
+
+        if (skippedParts.length > 0) {
+          logger.warn('Some export parts were skipped', { uid, skippedParts });
         }
 
         const resolved = await resolvePlaces(places, PLACES_API_KEY.value());
@@ -400,13 +422,14 @@ export const syncTakeoutFromDrive = onSchedule(
           state: 'COMPLETE',
           placesImported: count,
         });
-        await stateRef.set({ lastFileId: latest.id }, { merge: true });
+        await stateRef.set({ lastExportKey: newest.key }, { merge: true });
 
         logger.info('Drive Takeout import complete', {
           uid,
           count,
-          listsFound,
-          file: latest.name,
+          listsFound: [...new Set(listsFound)],
+          export: newest.key,
+          parts: newest.parts.map((p) => p.name),
         });
       } catch (error) {
         logger.warn('Drive sync skipped', {

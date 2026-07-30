@@ -6,26 +6,62 @@ const {
   parseTakeoutArchive,
   parseSavedListCsv,
   coordsFromMapsUrl,
+  stripPreamble,
+  statusForList,
 } = require('../lib/takeout');
 const { parseStarredGeoJson } = require('../lib/dataportability');
 
-test('a custom list becomes a list, not a marker', () => {
+test('lists that map to no marker are ignored entirely', () => {
   const csv =
-    'Title,Note,URL,Comment\n' +
-    'Reykjavik Kitchen,,https://www.google.com/maps/place/x/@64.1466,-21.9426,17z,\n';
+    'Title,Note,URL,Tags,Comment\n' +
+    'Reykjavik Kitchen,,https://www.google.com/maps/place/x/@64.1466,-21.9426,17z,,\n';
 
-  const places = parseSavedListCsv(csv, 'Iceland trip');
-
-  assert.strictEqual(places.length, 1);
-  assert.strictEqual(places[0].name, 'Reykjavik Kitchen');
-  assert.deepStrictEqual(places[0].lists, ['Iceland trip']);
-  assert.deepStrictEqual(places[0].statuses, []);
+  assert.deepStrictEqual(parseSavedListCsv(csv, 'Iceland trip'), []);
+  assert.deepStrictEqual(parseSavedListCsv(csv, 'Parked car'), []);
+  assert.deepStrictEqual(parseSavedListCsv(csv, 'Airbnbs'), []);
 });
 
-test('Favorites maps onto the loved marker rather than a list', () => {
-  const places = parseSavedListCsv('Title,URL\nJoes Pizza,https://x\n', 'Favorites');
+test('"Favorite places" is the real export name and maps to loved', () => {
+  // Regression: only "Favorites" was matched, so every heart in a real
+  // export was silently demoted to an ordinary list.
+  assert.strictEqual(statusForList('Favorite places'), 'loved');
+  assert.strictEqual(statusForList('FAVORITE PLACES'), 'loved');
+
+  const places = parseSavedListCsv(
+    'Title,URL\nJoes Pizza,https://x\n',
+    'Favorite places'
+  );
   assert.deepStrictEqual(places[0].statuses, ['loved']);
   assert.deepStrictEqual(places[0].lists, []);
+});
+
+test('a description line above the header does not shift the columns', () => {
+  // Real export: an "Iceland Trip" list began with a free-text plan name,
+  // which the parser adopted as column names.
+  const csv =
+    "Aakash & Omri's Iceland Plan\n" +
+    'Title,Note,URL,Tags,Comment\n' +
+    'Braud og Co,cinnamon buns,https://maps.google.com/?q=x,bakery,\n';
+
+  const places = parseSavedListCsv(csv, 'Want to go');
+
+  assert.strictEqual(places.length, 1);
+  assert.strictEqual(places[0].name, 'Braud og Co');
+  assert.match(places[0].note, /cinnamon buns/);
+});
+
+test('stripPreamble leaves a well-formed file untouched', () => {
+  const csv = 'Title,Note,URL,Tags,Comment\nA,,https://x,,\n';
+  assert.strictEqual(stripPreamble(csv), csv);
+});
+
+test('Tags are captured alongside Note rather than dropped', () => {
+  const places = parseSavedListCsv(
+    'Title,Note,URL,Tags,Comment\nNoma,book ahead,https://x,fine dining,\n',
+    'Want to go'
+  );
+  assert.match(places[0].note, /book ahead/);
+  assert.match(places[0].note, /fine dining/);
 });
 
 test('Want to go maps onto the flag marker', () => {
@@ -77,39 +113,52 @@ test('malformed GeoJSON yields nothing instead of throwing', () => {
   assert.deepStrictEqual(parseStarredGeoJson('{}'), []);
 });
 
-test('a place in two lists merges into one record carrying both', () => {
+test('a place in two marker lists merges into one record carrying both', () => {
   const zip = new AdmZip();
   const url = 'https://www.google.com/maps/place/x/@64.1,-21.9,17z';
   zip.addFile(
-    'Takeout/Maps (your places)/Saved/Iceland trip.csv',
+    'Takeout/Maps (your places)/Saved/Want to go.csv',
     Buffer.from(`Title,URL\nBraud & Co,${url}\n`)
   );
   zip.addFile(
-    'Takeout/Maps (your places)/Saved/Favorites.csv',
+    'Takeout/Maps (your places)/Saved/Favorite places.csv',
     Buffer.from(`Title,URL\nBraud & Co,${url}\n`)
   );
-
-  const { places, listsFound } = parseTakeoutArchive(zip.toBuffer());
-
-  assert.strictEqual(places.length, 1);
-  assert.deepStrictEqual(places[0].statuses, ['loved']);
-  assert.deepStrictEqual(places[0].lists, ['Iceland trip']);
-  assert.strictEqual(listsFound.length, 2);
-});
-
-test('unrelated archive entries are ignored', () => {
-  const zip = new AdmZip();
-  zip.addFile('Takeout/Chrome/History.json', Buffer.from('{}'));
-  zip.addFile('Takeout/Maps (your places)/Saved/Trip.csv', Buffer.from('Title\nA\n'));
 
   const { places } = parseTakeoutArchive(zip.toBuffer());
 
   assert.strictEqual(places.length, 1);
-  assert.strictEqual(places[0].name, 'A');
+  assert.deepStrictEqual(
+    [...places[0].statuses].sort(),
+    ['loved', 'want_to_go']
+  );
+  assert.deepStrictEqual(places[0].lists, []);
+});
+
+test('irrelevant lists are reported as skipped, not imported', () => {
+  const zip = new AdmZip();
+  zip.addFile('Takeout/Chrome/History.json', Buffer.from('{}'));
+  zip.addFile(
+    'Takeout/Maps (your places)/Saved/Parked car.csv',
+    Buffer.from('Title,URL\nSpot A,https://x\n')
+  );
+  zip.addFile(
+    'Takeout/Maps (your places)/Saved/Want to go.csv',
+    Buffer.from('Title,URL\nNoma,https://y\n')
+  );
+
+  const { places, skipped } = parseTakeoutArchive(zip.toBuffer());
+
+  assert.strictEqual(places.length, 1);
+  assert.strictEqual(places[0].name, 'Noma');
+  assert.ok(skipped.includes('Parked car'));
 });
 
 test('rows without a title are skipped', () => {
-  const places = parseSavedListCsv('Title,URL\n,https://x\nReal,https://y\n', 'Trip');
+  const places = parseSavedListCsv(
+    'Title,URL\n,https://x\nReal,https://y\n',
+    'Want to go'
+  );
   assert.strictEqual(places.length, 1);
   assert.strictEqual(places[0].name, 'Real');
 });

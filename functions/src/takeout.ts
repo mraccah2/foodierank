@@ -12,20 +12,39 @@ import type { PlaceStatus, RawPlace } from './types';
  * CSV per list. Two list names are special-cased onto markers; anything else is
  * a user-created list such as "Iceland trip".
  */
+/**
+ * The only lists FoodieRank imports.
+ *
+ * Google exports every list a user owns — "Parked car", "Images", "Airbnbs",
+ * trip plans — but only these three map to a marker the app renders, so the
+ * rest are skipped rather than resolved. That is a large saving: this account's
+ * export held 2362 entries across 22 lists, of which only these matter.
+ *
+ * Real exports name the favourites list "Favorite places", not "Favorites" —
+ * getting this wrong silently demotes every heart to an ordinary list.
+ */
 const LIST_NAME_TO_STATUS: Record<string, PlaceStatus> = {
   favorite: 'loved',
   favorites: 'loved',
   favourites: 'loved',
+  'favorite places': 'loved',
+  'favourite places': 'loved',
   'want to go': 'want_to_go',
   'want to go places': 'want_to_go',
   starred: 'starred',
   'starred places': 'starred',
 };
 
+/** The marker a list maps to, or null when the list should be ignored. */
+export function statusForList(listName: string): PlaceStatus | null {
+  return LIST_NAME_TO_STATUS[listName.trim().toLowerCase()] ?? null;
+}
+
 /** CSV header aliases, lowercased. Takeout's column names vary by locale. */
 const TITLE_COLUMNS = ['title', 'name'];
 const URL_COLUMNS = ['url', 'google maps url'];
 const NOTE_COLUMNS = ['note', 'comment'];
+const TAG_COLUMNS = ['tags', 'tag'];
 
 export interface TakeoutParseResult {
   places: RawPlace[];
@@ -50,6 +69,15 @@ export function parseTakeoutArchive(buffer: Buffer): TakeoutParseResult {
       if (isSavedListCsv(path)) {
         const listName = listNameFromPath(path);
         listsFound.push(listName);
+
+        // Only the three marker lists are imported. Skipping the rest before
+        // reading them avoids resolving thousands of places the app can never
+        // display — parked cars, apartments, trip plans.
+        if (!statusForList(listName)) {
+          skipped.push(listName);
+          continue;
+        }
+
         for (const place of parseSavedListCsv(
           entry.getData().toString('utf8'),
           listName
@@ -113,14 +141,34 @@ export function parseSavedListCsv(
   csv: string,
   listName: string
 ): RawPlace[] {
-  const rows = parseCsvSync(csv, {
-    columns: (header: string[]) => header.map((h) => h.trim().toLowerCase()),
+  let headers: string[] = [];
+  const rows = parseCsvSync(stripPreamble(csv), {
+    columns: (header: string[]) => {
+      headers = header.map((h) => h.trim());
+      return headers.map((h) => h.toLowerCase());
+    },
     skip_empty_lines: true,
     relax_column_count: true,
     bom: true,
   }) as Record<string, string>[];
 
-  const status = LIST_NAME_TO_STATUS[listName.trim().toLowerCase()];
+  // Ground truth about what Takeout actually hands us, rather than what the
+  // docs claim. Column names vary by locale and have changed over time, and a
+  // silently-unmatched column is indistinguishable from an empty list.
+  logger.info('Takeout list columns', {
+    list: listName,
+    headers,
+    rows: rows.length,
+    sample: rows[0]
+      ? Object.fromEntries(
+          Object.entries(rows[0]).map(([k, v]) => [k, String(v).slice(0, 120)])
+        )
+      : null,
+  });
+
+  const status = statusForList(listName);
+  if (!status) return [];
+
   const places: RawPlace[] = [];
 
   for (const row of rows) {
@@ -130,19 +178,48 @@ export function parseSavedListCsv(
     const mapsUrl = firstValue(row, URL_COLUMNS);
     const coords = mapsUrl ? coordsFromMapsUrl(mapsUrl) : undefined;
 
+    // Real exports carry a Tags column alongside Note and Comment. Fold
+    // whichever are populated into one note rather than dropping them.
+    const note = [
+      firstValue(row, NOTE_COLUMNS),
+      firstValue(row, TAG_COLUMNS),
+    ]
+      .filter(Boolean)
+      .join(' · ');
+
     places.push({
       name,
-      // A recognised list becomes a marker; anything else stays a list.
-      statuses: status ? [status] : [],
-      lists: status ? [] : [listName],
+      statuses: [status],
+      lists: [],
       mapsUrl,
-      note: firstValue(row, NOTE_COLUMNS),
+      note: note || undefined,
       lat: coords?.lat,
       lng: coords?.lng,
     });
   }
 
   return places;
+}
+
+/**
+ * Drop anything above the real header row.
+ *
+ * Some list exports carry a free-text description first — an "Iceland Trip"
+ * list began with "Aakash & Omri's Iceland Plan" — which the CSV parser
+ * otherwise adopts as the column names, silently mapping every field wrong.
+ * Scan for the line that actually looks like Takeout's header and start there.
+ */
+export function stripPreamble(csv: string): string {
+  const lines = csv.split(/\r?\n/);
+  const headerIndex = lines.findIndex((line) => {
+    const cells = line.toLowerCase().split(',').map((c) => c.trim().replace(/^"|"$/g, ''));
+    return cells.includes('title') && (cells.includes('url') || cells.includes('note'));
+  });
+
+  // No recognisable header: hand back the original and let the caller's
+  // title-required check discard the rows rather than inventing structure.
+  if (headerIndex <= 0) return csv;
+  return lines.slice(headerIndex).join('\n');
 }
 
 function firstValue(

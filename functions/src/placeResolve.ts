@@ -1,10 +1,41 @@
 import { defineSecret } from 'firebase-functions/params';
+import { GoogleAuth } from 'google-auth-library';
 import { logger } from 'firebase-functions';
 import type { RawPlace, ResolvedPlace } from './types';
 
 export const PLACES_API_KEY = defineSecret('GOOGLE_PLACES_API_KEY');
 
 const SEARCH_TEXT_URL = 'https://places.googleapis.com/v1/places:searchText';
+
+/**
+ * Authenticate to Places with the function's own service account.
+ *
+ * The API key worked too — imports were succeeding on it. OAuth is kept
+ * because it means no long-lived key has to be stored, injected and rotated
+ * for a backend that already has an identity of its own.
+ *
+ * `X-Goog-User-Project` must accompany it so usage is attributed to this
+ * project; that requires the runtime service account to hold
+ * roles/serviceusage.serviceUsageConsumer.
+ */
+const auth = new GoogleAuth({
+  scopes: ['https://www.googleapis.com/auth/cloud-platform'],
+});
+
+let cachedToken: { value: string; expiresAt: number } | null = null;
+
+async function accessToken(): Promise<string> {
+  // Tokens last an hour; a single import makes thousands of calls, so minting
+  // one per request would dominate the run time.
+  if (cachedToken && cachedToken.expiresAt > Date.now() + 60_000) {
+    return cachedToken.value;
+  }
+  const client = await auth.getClient();
+  const token = await client.getAccessToken();
+  if (!token.token) throw new Error('Could not mint an access token');
+  cachedToken = { value: token.token, expiresAt: Date.now() + 45 * 60_000 };
+  return cachedToken.value;
+}
 
 /** A text-search hit is only trusted as `exact` within this distance. */
 const COORD_MATCH_RADIUS_M = 150;
@@ -85,7 +116,8 @@ async function resolveOne(
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'X-Goog-Api-Key': apiKey,
+        Authorization: `Bearer ${await accessToken()}`,
+        'X-Goog-User-Project': process.env.GCLOUD_PROJECT ?? '',
         'X-Goog-FieldMask':
           'places.id,places.displayName,places.location,places.formattedAddress',
       },
@@ -107,7 +139,9 @@ async function resolveOne(
 
   const hit = payload.places?.[0];
   if (!hit?.id) {
-    logger.info('No place match', { name: place.name });
+    // Roughly 15% of list entries never match: CSV exports carry only a name,
+    // and some are places that have since closed or were saved by coordinates.
+    logger.debug('No place match', { name: place.name });
     return null;
   }
 
