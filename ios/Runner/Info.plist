@@ -53,6 +53,8 @@
 	<string>We need your location to show nearby restaurants even when the app is not in use.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>We need your location to show nearby restaurants.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>FoodieRank never reads your photos. The file picker used to choose a Google Takeout archive can offer your photo library as one of its locations, and iOS requires this permission text for that picker to appear.</string>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
 	<key>UILaunchStoryboardName</key>
