@@ -15,6 +15,24 @@ export interface ArchiveState {
   urls: string[];
 }
 
+/**
+ * Google refused the export because this resource group was already exported
+ * inside the current 24-hour window.
+ *
+ * Carries the timestamp after which a retry is allowed, so callers can wait
+ * rather than pointlessly resetting authorization — a reset would revoke every
+ * scope and force the user back through consent.
+ */
+export class ArchiveRateLimitError extends Error {
+  constructor(
+    message: string,
+    readonly retryAfter: Date | null,
+  ) {
+    super(message);
+    this.name = 'ArchiveRateLimitError';
+  }
+}
+
 /** Kick off an export. Returns the archive job id to poll. */
 export async function initiateArchive(
   accessToken: string,
@@ -31,8 +49,19 @@ export async function initiateArchive(
 
   const payload = (await response.json()) as {
     archiveJobId?: string;
-    error?: { message?: string; status?: string };
+    error?: {
+      message?: string;
+      status?: string;
+      details?: { reason?: string; metadata?: Record<string, string> }[];
+    };
   };
+
+  if (response.status === 429) {
+    throw new ArchiveRateLimitError(
+      payload.error?.message ?? 'Already exported in the last 24 hours.',
+      retryAfterFrom(payload.error?.details),
+    );
+  }
 
   if (!response.ok || !payload.archiveJobId) {
     throw new Error(
@@ -42,6 +71,23 @@ export async function initiateArchive(
     );
   }
   return payload.archiveJobId;
+}
+
+/**
+ * Dig the retry timestamp out of the error details. Google reports it under
+ * `RESOURCE_EXHAUSTED_TIME_BASED`, but the metadata key has moved before, so
+ * fall back to any parseable timestamp rather than failing outright.
+ */
+function retryAfterFrom(
+  details: { reason?: string; metadata?: Record<string, string> }[] | undefined
+): Date | null {
+  for (const detail of details ?? []) {
+    for (const value of Object.values(detail.metadata ?? {})) {
+      const parsed = new Date(value);
+      if (!Number.isNaN(parsed.getTime())) return parsed;
+    }
+  }
+  return null;
 }
 
 /**

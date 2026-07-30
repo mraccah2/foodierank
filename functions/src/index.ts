@@ -3,7 +3,9 @@ import { HttpsError, onCall } from 'firebase-functions/v2/https';
 import { onSchedule } from 'firebase-functions/v2/scheduler';
 import { onObjectFinalized } from 'firebase-functions/v2/storage';
 import { db, storage } from './firebase';
+import { Timestamp } from 'firebase-admin/firestore';
 import {
+  ArchiveRateLimitError,
   downloadStarredPlaces,
   getArchiveState,
   initiateArchive,
@@ -97,8 +99,23 @@ export const startStarredPlacesImport = onCall(
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       await updateImportJob(uid, jobId, { state: 'FAILED', error: message });
-      // A repeat export of the same resource group needs resetAuthorization
-      // first; surface that rather than a bare 400.
+
+      if (error instanceof ArchiveRateLimitError) {
+        // Already exported inside the 24-hour window. Resetting authorization
+        // would "fix" this only by revoking every scope and forcing the user
+        // back through consent, so say when to come back instead.
+        const when = error.retryAfter?.toISOString() ?? null;
+        await db.collection('users').doc(uid).set(
+          {
+            nextEligibleAt: error.retryAfter
+              ? Timestamp.fromDate(error.retryAfter)
+              : null,
+          },
+          { merge: true }
+        );
+        throw new HttpsError('resource-exhausted', message, { retryAfter: when });
+      }
+
       throw new HttpsError('unavailable', message);
     }
   }
@@ -188,6 +205,101 @@ export const pollImportJobs = onSchedule(
         await updateImportJob(uid, doc.id, {
           state: 'FAILED',
           error: message,
+        });
+      }
+    }
+  }
+);
+
+/**
+ * Keep Starred places fresh with no user involvement.
+ *
+ * When the user grants *time-based* access (the 30- or 180-day option on the
+ * consent screen) Google permits one export per resource group per 24 hours.
+ * That makes a genuine background sync possible: everyone who has linked their
+ * account gets re-exported daily until their grant lapses, with no prompting.
+ *
+ * One-time grants simply fail the initiate call once and then sit idle, which
+ * is the correct behaviour — there is nothing to refresh.
+ *
+ * Runs more often than daily so a user whose window opens mid-cycle waits hours
+ * rather than a full extra day; `nextEligibleAt` is what actually gates work.
+ */
+export const autoSyncStarredPlaces = onSchedule(
+  {
+    region: REGION,
+    schedule: 'every 6 hours',
+    secrets: [OAUTH_CLIENT_ID, OAUTH_CLIENT_SECRET],
+    timeoutSeconds: 540,
+  },
+  async () => {
+    // Every linked user has exactly one of these docs.
+    const grants = await db
+      .collectionGroup('private')
+      .where('refreshToken', '!=', '')
+      .limit(200)
+      .get();
+
+    for (const grant of grants.docs) {
+      const uid = grant.ref.parent.parent?.id;
+      if (!uid) continue;
+
+      try {
+        const userRef = db.collection('users').doc(uid);
+        const user = (await userRef.get()).data() ?? {};
+
+        const nextEligible = (user.nextEligibleAt as Timestamp | undefined)
+          ?.toDate();
+        if (nextEligible && nextEligible > new Date()) continue;
+
+        // Never stack a second archive on top of one still building.
+        const running = await userRef
+          .collection('importJobs')
+          .where('state', '==', 'IN_PROGRESS')
+          .limit(1)
+          .get();
+        if (!running.empty) continue;
+
+        const accessToken = await accessTokenFor(
+          uid,
+          OAUTH_CLIENT_ID.value(),
+          OAUTH_CLIENT_SECRET.value()
+        );
+
+        const jobId = await createImportJob(uid, 'dataportability', {
+          resources: [STARRED_PLACES_RESOURCE],
+        });
+
+        const archiveJobId = await initiateArchive(accessToken, [
+          STARRED_PLACES_RESOURCE,
+        ]);
+        await updateImportJob(uid, jobId, {
+          archiveJobId,
+          state: 'IN_PROGRESS',
+        });
+        logger.info('Auto-sync initiated', { uid, archiveJobId });
+      } catch (error) {
+        if (error instanceof ArchiveRateLimitError) {
+          // Expected on a one-time grant, or if something already synced
+          // today. Park until Google says we may try again.
+          await db
+            .collection('users')
+            .doc(uid)
+            .set(
+              {
+                nextEligibleAt: error.retryAfter
+                  ? Timestamp.fromDate(error.retryAfter)
+                  : Timestamp.fromDate(
+                      new Date(Date.now() + 24 * 60 * 60 * 1000)
+                    ),
+              },
+              { merge: true }
+            );
+          continue;
+        }
+        logger.warn('Auto-sync skipped', {
+          uid,
+          error: error instanceof Error ? error.message : String(error),
         });
       }
     }

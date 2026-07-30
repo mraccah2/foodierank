@@ -4,6 +4,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:firebase_storage/firebase_storage.dart';
+import 'package:intl/intl.dart';
 
 import '../utils/debug_log.dart';
 import 'auth_service.dart';
@@ -51,6 +52,15 @@ class ImportJob {
       );
 }
 
+/// Pulls the retry timestamp out of a callable's error details, tolerating the
+/// loosely-typed map that arrives over the wire.
+DateTime? _retryAfterFrom(Object? details) {
+  if (details is! Map) return null;
+  final raw = details['retryAfter'];
+  if (raw is! String) return null;
+  return DateTime.tryParse(raw);
+}
+
 /// Starts imports and reports on their progress.
 class ImportService {
   static final ImportService instance = ImportService._();
@@ -87,12 +97,19 @@ class ImportService {
       return null;
     } on FirebaseFunctionsException catch (e) {
       debugLog('dBug/import: start failed: ${e.code} ${e.message}');
-      // The most common cause is Google refusing to re-export a resource group
-      // that has already been exported without an authorization reset.
-      if (e.code == 'unavailable') {
-        return '${e.message}\n\nIf this data was already exported, reset '
-            'authorization first.';
+
+      // Google allows one export per resource group per 24 hours. Resetting
+      // authorization would clear it only by revoking every scope and forcing
+      // a fresh consent, so tell the user when to come back instead.
+      if (e.code == 'resource-exhausted') {
+        final retryAfter = _retryAfterFrom(e.details);
+        if (retryAfter == null) {
+          return 'Already synced in the last 24 hours. Try again later.';
+        }
+        return 'Already synced recently. You can sync again after '
+            '${DateFormat('MMM d, h:mm a').format(retryAfter.toLocal())}.';
       }
+
       return e.message ?? 'Could not start the import.';
     } catch (e) {
       debugLog('dBug/import: start failed: $e');
