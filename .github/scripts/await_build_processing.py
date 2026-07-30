@@ -25,14 +25,21 @@ import jwt
 
 API = "https://api.appstoreconnect.apple.com/v1/"
 
-# Apple usually finishes in a few minutes; allow generously for a slow queue
-# but do not hold the runner indefinitely.
-TIMEOUT_SECONDS = 20 * 60
+TIMEOUT_SECONDS = 30 * 60
 POLL_SECONDS = 30
 
-# The build does not appear instantly after upload. Treat "not yet listed" as
-# pending rather than failure until this much time has passed.
-APPEARANCE_GRACE_SECONDS = 5 * 60
+# How long a build may take to show up before that counts as a rejection.
+#
+# This has to clear the time a *healthy* build takes to appear, or the check
+# fails good builds: 33 took about six minutes and 34 about eight, and a
+# five-minute grace failed 34 roughly eighty seconds before Apple's
+# confirmation email arrived.
+#
+# Waiting is the only available signal. Apple exposes no API for delivery
+# rejections — a rejected build simply never appears (31 and 32 both behaved
+# that way) and the reason arrives by email. So the cost of being certain is
+# spending this long before calling it.
+APPEARANCE_GRACE_SECONDS = 15 * 60
 
 
 def fail(message: str) -> None:

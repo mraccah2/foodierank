@@ -30,7 +30,8 @@ jobs:
   deploy:
     name: Build & Upload to TestFlight
     runs-on: [self-hosted, macos, ios]
-    timeout-minutes: 45
+    # Build is ~13 min; waiting on Apple's verdict can add up to 30 more.
+    timeout-minutes: 60
 
     steps:
       - name: Clean up old artifacts
