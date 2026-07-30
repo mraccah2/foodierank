@@ -116,6 +116,51 @@ void main() {
       await store.setAccount('google-user-2');
       expect(store.stateFor('place-a'), PlaceSaveState.empty);
     });
+
+    test('a place Google never knew about can be marked want to go', () async {
+      expect(store.stateFor('place-new'), PlaceSaveState.empty);
+
+      await store.addStatus('place-new', PlaceStatus.wantToGo);
+
+      expect(store.stateFor('place-new').displayStatus, PlaceStatus.wantToGo);
+    });
+
+    test('a user-added marker survives a re-import', () async {
+      await store.addStatus('place-new', PlaceStatus.wantToGo);
+
+      // An import replaces only what came from Google, and it has never heard
+      // of this place.
+      await store.replaceAll({
+        'place-a': const PlaceSaveState(statuses: {PlaceStatus.loved}),
+      });
+
+      expect(store.stateFor('place-new').displayStatus, PlaceStatus.wantToGo);
+    });
+
+    test('a user-added marker can be removed again', () async {
+      await store.addStatus('place-new', PlaceStatus.wantToGo);
+      await store.clearTopStatus('place-new');
+
+      expect(store.stateFor('place-new'), PlaceSaveState.empty);
+    });
+
+    test('re-adding a marker that was cleared lifts the tombstone', () async {
+      // place-a arrives from Google as loved+starred.
+      await store.clearTopStatus('place-a'); // clears loved
+      expect(store.stateFor('place-a').displayStatus, PlaceStatus.starred);
+
+      await store.addStatus('place-a', PlaceStatus.loved);
+
+      expect(store.stateFor('place-a').displayStatus, PlaceStatus.loved);
+    });
+
+    test('adding alongside an imported marker keeps precedence', () async {
+      await store.addStatus('place-b', PlaceStatus.wantToGo);
+      await store.addStatus('place-b', PlaceStatus.loved);
+
+      expect(store.stateFor('place-b').displayStatus, PlaceStatus.loved);
+      expect(store.stateFor('place-b').nextStatus, PlaceStatus.wantToGo);
+    });
   });
 
   group('PlaceStatusController', () {
@@ -206,6 +251,12 @@ class _FakeStore extends PlaceStatusStore {
     final top = stateFor(placeId).displayStatus;
     if (top == null) return;
     _states[placeId] = stateFor(placeId).without(top);
+    notifyListeners();
+  }
+
+  @override
+  Future<void> addStatus(String placeId, PlaceStatus status) async {
+    _states[placeId] = stateFor(placeId).with_(status);
     notifyListeners();
   }
 }

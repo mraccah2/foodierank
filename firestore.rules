@@ -26,7 +26,24 @@ service cloud.firestore {
         allow read: if request.auth != null && request.auth.uid == uid;
         allow write: if request.auth != null
                      && request.auth.uid == uid
-                     && isValidClear(request.resource.data);
+                     && isValidStatusList(request.resource.data);
+      }
+
+      // Markers the user set in FoodieRank rather than in Google Maps —
+      // saving a place spotted in the rankings. Client-owned like clears, and
+      // never overwritten by an import.
+      match /marks/{placeId} {
+        allow read: if request.auth != null && request.auth.uid == uid;
+        allow write: if request.auth != null
+                     && request.auth.uid == uid
+                     && isValidStatusList(request.resource.data);
+      }
+
+      // Cached name → place_id lookups. Written by functions only; readable so
+      // the app could show why a match is weak.
+      match /resolutionCache/{entry} {
+        allow read: if request.auth != null && request.auth.uid == uid;
+        allow write: if false;
       }
 
       // Import job status, surfaced in the app so the user can see progress.
@@ -43,7 +60,7 @@ service cloud.firestore {
     }
   }
 
-  function isValidClear(data) {
+  function isValidStatusList(data) {
     return data.keys().hasOnly(['statuses', 'updatedAt'])
         && data.statuses is list
         && data.statuses.size() <= 3;

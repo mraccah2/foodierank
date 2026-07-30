@@ -53,31 +53,91 @@ const BIAS_RADIUS_M = 500;
  * Calls are billed per request, so results are cached by query within a run and
  * the caller is expected to batch whole imports rather than resolve per view.
  */
+/** Stable key for a lookup, so a repeat import reuses the previous answer. */
+export function resolutionKey(place: RawPlace): string {
+  const coords =
+    typeof place.lat === 'number' && typeof place.lng === 'number'
+      ? `${place.lat.toFixed(3)},${place.lng.toFixed(3)}`
+      : '';
+  return `${place.name.trim().toLowerCase()}|${coords}`;
+}
+
+export interface ResolveOptions {
+  /**
+   * Previously resolved keys, including misses. A miss is cached as null on
+   * purpose: roughly 15% of entries never match, and without that they would
+   * be looked up again on every single run.
+   */
+  cache: Map<string, string | null>;
+  /** Stop starting new lookups once past this moment. */
+  deadline: number;
+}
+
+export interface ResolveResult {
+  resolved: ResolvedPlace[];
+  /** Keys looked up this run, to be persisted by the caller. */
+  learned: Map<string, string | null>;
+  lookups: number;
+  /** False when the deadline cut the run short and work remains. */
+  complete: boolean;
+}
+
+/**
+ * Resolve imported places to Google `place_id`s.
+ *
+ * Two things keep this affordable and inside the function timeout: answers are
+ * cached across runs, so a monthly re-import costs almost nothing; and the run
+ * stops at a deadline rather than a fixed count, using whatever budget is
+ * actually available. An incomplete run is resumed on the next tick, by which
+ * point everything already done is a cache hit.
+ */
 export async function resolvePlaces(
   places: RawPlace[],
-  apiKey: string
-): Promise<ResolvedPlace[]> {
+  apiKey: string,
+  options: ResolveOptions
+): Promise<ResolveResult> {
   const resolved: ResolvedPlace[] = [];
-  const cache = new Map<string, ResolvedPlace | null>();
+  const learned = new Map<string, string | null>();
+  const byPlaceId = new Map<string, ResolvedPlace>();
+  let lookups = 0;
+  let complete = true;
 
   for (const place of places) {
-    const cacheKey = `${place.name}|${place.lat ?? ''},${place.lng ?? ''}`;
-    if (cache.has(cacheKey)) {
-      const hit = cache.get(cacheKey);
-      if (hit) {
-        // Same physical place, but this occurrence may carry different
-        // markers or lists (e.g. found again in another list file).
-        resolved.push({ ...hit, ...place, placeId: hit.placeId });
+    const key = resolutionKey(place);
+    const known = options.cache.has(key)
+      ? options.cache.get(key)
+      : learned.get(key);
+
+    if (known !== undefined) {
+      // A miss stays a miss; a hit is reused with this occurrence's markers,
+      // which may differ when the place appears in more than one list.
+      if (known) {
+        const previous = byPlaceId.get(known);
+        resolved.push({
+          ...(previous ?? {}),
+          ...place,
+          placeId: known,
+          matchConfidence: previous?.matchConfidence ?? 'weak',
+        });
       }
       continue;
     }
 
+    if (Date.now() > options.deadline) {
+      complete = false;
+      break;
+    }
+
     const match = await resolveOne(place, apiKey);
-    cache.set(cacheKey, match);
-    if (match) resolved.push(match);
+    lookups++;
+    learned.set(key, match?.placeId ?? null);
+    if (match) {
+      byPlaceId.set(match.placeId, match);
+      resolved.push(match);
+    }
   }
 
-  return resolved;
+  return { resolved, learned, lookups, complete };
 }
 
 async function resolveOne(

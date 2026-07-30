@@ -32,6 +32,14 @@ abstract class PlaceStatusStore extends ChangeNotifier {
   /// Drop the highest-precedence marker on [placeId], revealing the next one
   /// if the place carries more than one.
   Future<void> clearTopStatus(String placeId);
+
+  /// Mark [placeId] with [status] regardless of what Google knows.
+  ///
+  /// This is FoodieRank's own data: a place spotted in the rankings and saved
+  /// for later. It survives re-imports, because imports only replace what came
+  /// from Google, and it is never written back to Google Maps — there is no API
+  /// for that.
+  Future<void> addStatus(String placeId, PlaceStatus status);
 }
 
 /// The store the UI reads from.
@@ -74,6 +82,10 @@ class PlaceStatusController extends PlaceStatusStore {
   @override
   Future<void> clearTopStatus(String placeId) =>
       _delegate.clearTopStatus(placeId);
+
+  @override
+  Future<void> addStatus(String placeId, PlaceStatus status) =>
+      _delegate.addStatus(placeId, status);
 }
 
 /// A [PlaceStatusStore] that keeps everything on-device in `shared_preferences`.
@@ -93,12 +105,14 @@ class LocalPlaceStatusStore extends PlaceStatusStore {
 
   static const _statesPrefix = 'place_save_states';
   static const _clearedPrefix = 'place_save_cleared';
+  static const _addedPrefix = 'place_save_added';
   static const _accountKey = 'place_save_account';
 
   // Per-account keys: two Google accounts on one device must not see each
   // other's markers, and signing back in should restore what was cached.
   String get _statesKey => '$_statesPrefix:$_accountId';
   String get _clearedKey => '$_clearedPrefix:$_accountId';
+  String get _addedKey => '$_addedPrefix:$_accountId';
 
   /// Markers as last imported from Google, keyed by `place_id`.
   final Map<String, PlaceSaveState> _states = {};
@@ -106,6 +120,10 @@ class LocalPlaceStatusStore extends PlaceStatusStore {
   /// Markers the user has tapped away, keyed by `place_id`. Kept separately so
   /// a re-import cannot resurrect them.
   final Map<String, Set<PlaceStatus>> _cleared = {};
+
+  /// Markers the user added here rather than in Google Maps. Also separate, so
+  /// an import that knows nothing about them cannot wipe them.
+  final Map<String, Set<PlaceStatus>> _added = {};
 
   String? _accountId;
   bool _loaded = false;
@@ -123,6 +141,7 @@ class LocalPlaceStatusStore extends PlaceStatusStore {
       if (_accountId != null) {
         _readStates(prefs);
         _readCleared(prefs);
+        _readAdded(prefs);
       }
     } catch (e) {
       debugLog('dBug/place_status: load failed: $e');
@@ -139,6 +158,7 @@ class LocalPlaceStatusStore extends PlaceStatusStore {
     _accountId = accountId;
     _states.clear();
     _cleared.clear();
+    _added.clear();
 
     final prefs = await SharedPreferences.getInstance();
     if (accountId == null) {
@@ -149,6 +169,7 @@ class LocalPlaceStatusStore extends PlaceStatusStore {
       await prefs.setString(_accountKey, accountId);
       _readStates(prefs);
       _readCleared(prefs);
+      _readAdded(prefs);
     }
     notifyListeners();
   }
@@ -166,16 +187,32 @@ class LocalPlaceStatusStore extends PlaceStatusStore {
   @override
   PlaceSaveState stateFor(String placeId) {
     if (!isAvailable) return PlaceSaveState.empty;
-    final state = _states[placeId];
-    if (state == null) return PlaceSaveState.empty;
+    final imported = _states[placeId] ?? PlaceSaveState.empty;
+    final added = _added[placeId] ?? const <PlaceStatus>{};
+    final cleared = _cleared[placeId] ?? const <PlaceStatus>{};
 
-    final cleared = _cleared[placeId];
-    if (cleared == null || cleared.isEmpty) return state;
+    final statuses = {...imported.statuses, ...added}
+        .where((s) => !cleared.contains(s))
+        .toSet();
 
-    return PlaceSaveState(
-      statuses: state.statuses.where((s) => !cleared.contains(s)).toSet(),
-      lists: state.lists,
-    );
+    if (statuses.isEmpty && imported.lists.isEmpty) return PlaceSaveState.empty;
+    return PlaceSaveState(statuses: statuses, lists: imported.lists);
+  }
+
+  @override
+  Future<void> addStatus(String placeId, PlaceStatus status) async {
+    // Adding after a clear has to lift the tombstone, or the marker would be
+    // filtered straight back out.
+    _cleared[placeId]?.remove(status);
+    (_added[placeId] ??= <PlaceStatus>{}).add(status);
+    notifyListeners();
+
+    try {
+      await _persistCleared();
+      await _persistAdded();
+    } catch (e) {
+      debugLog('dBug/place_status: persist add failed: $e');
+    }
   }
 
   @override
@@ -184,10 +221,13 @@ class LocalPlaceStatusStore extends PlaceStatusStore {
     if (top == null) return;
 
     (_cleared[placeId] ??= <PlaceStatus>{}).add(top);
+    // A marker the user added here is simply forgotten rather than tombstoned.
+    _added[placeId]?.remove(top);
     notifyListeners();
 
     try {
       await _persistCleared();
+      await _persistAdded();
     } catch (e) {
       debugLog('dBug/place_status: persist clear failed: $e');
     }
@@ -207,21 +247,12 @@ class LocalPlaceStatusStore extends PlaceStatusStore {
     }
   }
 
+  void _readAdded(SharedPreferences prefs) {
+    _readStatusMap(prefs.getString(_addedKey), _added, 'adds');
+  }
+
   void _readCleared(SharedPreferences prefs) {
-    final raw = prefs.getString(_clearedKey);
-    if (raw == null) return;
-    try {
-      final decoded = jsonDecode(raw) as Map<String, dynamic>;
-      decoded.forEach((placeId, value) {
-        _cleared[placeId] = (value as List)
-            .whereType<String>()
-            .map(PlaceStatusDisplay.fromStorageKey)
-            .whereType<PlaceStatus>()
-            .toSet();
-      });
-    } catch (e) {
-      debugLog('dBug/place_status: could not decode clears: $e');
-    }
+    _readStatusMap(prefs.getString(_clearedKey), _cleared, 'clears');
   }
 
   Future<void> _persistStates() async {
@@ -232,14 +263,41 @@ class LocalPlaceStatusStore extends PlaceStatusStore {
     await prefs.setString(_statesKey, jsonEncode(encoded));
   }
 
-  Future<void> _persistCleared() async {
+  Future<void> _persistCleared() => _persistStatusMap(_clearedKey, _cleared);
+
+  Future<void> _persistAdded() => _persistStatusMap(_addedKey, _added);
+
+  Future<void> _persistStatusMap(
+    String key,
+    Map<String, Set<PlaceStatus>> source,
+  ) async {
     if (_accountId == null) return;
     final prefs = await SharedPreferences.getInstance();
     final encoded = <String, dynamic>{};
-    _cleared.forEach((placeId, statuses) {
+    source.forEach((placeId, statuses) {
       if (statuses.isEmpty) return;
       encoded[placeId] = statuses.map((s) => s.storageKey).toList();
     });
-    await prefs.setString(_clearedKey, jsonEncode(encoded));
+    await prefs.setString(key, jsonEncode(encoded));
+  }
+
+  void _readStatusMap(
+    String? raw,
+    Map<String, Set<PlaceStatus>> target,
+    String label,
+  ) {
+    if (raw == null) return;
+    try {
+      final decoded = jsonDecode(raw) as Map<String, dynamic>;
+      decoded.forEach((placeId, value) {
+        target[placeId] = (value as List)
+            .whereType<String>()
+            .map(PlaceStatusDisplay.fromStorageKey)
+            .whereType<PlaceStatus>()
+            .toSet();
+      });
+    } catch (e) {
+      debugLog('dBug/place_status: could not decode $label: $e');
+    }
   }
 }

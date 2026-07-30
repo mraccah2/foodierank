@@ -80,6 +80,11 @@ export interface ImportJobDoc {
   archiveJobId?: string;
   resources?: string[];
   placesImported?: number;
+  /**
+   * True when the run stopped at its deadline with entries still unresolved.
+   * The next run continues, and everything already done is a cache hit.
+   */
+  partial?: boolean;
   error?: string;
   createdAt: FirebaseFirestore.Timestamp | FirebaseFirestore.FieldValue;
   updatedAt: FirebaseFirestore.Timestamp | FirebaseFirestore.FieldValue;

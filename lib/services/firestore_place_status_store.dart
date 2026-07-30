@@ -22,9 +22,11 @@ class FirestorePlaceStatusStore extends PlaceStatusStore {
 
   final Map<String, PlaceSaveState> _saved = {};
   final Map<String, Set<PlaceStatus>> _cleared = {};
+  final Map<String, Set<PlaceStatus>> _marks = {};
 
   StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _savedSub;
   StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _clearedSub;
+  StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _marksSub;
 
   bool _savedLoaded = false;
 
@@ -41,6 +43,10 @@ class FirestorePlaceStatusStore extends PlaceStatusStore {
 
   CollectionReference<Map<String, dynamic>> get _clearsRef =>
       _firestore.collection('users').doc(uid).collection('clears');
+
+  /// Markers the user added in FoodieRank rather than in Google Maps.
+  CollectionReference<Map<String, dynamic>> get _marksRef =>
+      _firestore.collection('users').doc(uid).collection('marks');
 
   /// Start listening. Safe to call once per instance.
   void start() {
@@ -66,22 +72,59 @@ class FirestorePlaceStatusStore extends PlaceStatusStore {
       },
       onError: (Object e) => debugLog('dBug/place_status: clears: $e'),
     );
+
+    _marksSub ??= _marksRef.snapshots().listen(
+      (snapshot) {
+        _marks.clear();
+        for (final doc in snapshot.docs) {
+          _marks[doc.id] = _statusesFrom(doc.data()['statuses']);
+        }
+        notifyListeners();
+      },
+      onError: (Object e) => debugLog('dBug/place_status: marks: $e'),
+    );
   }
 
   @override
   PlaceSaveState stateFor(String placeId) {
     if (!isAvailable) return PlaceSaveState.empty;
 
-    final state = _saved[placeId];
-    if (state == null) return PlaceSaveState.empty;
+    final imported = _saved[placeId] ?? PlaceSaveState.empty;
+    final marks = _marks[placeId] ?? const <PlaceStatus>{};
+    final cleared = _cleared[placeId] ?? const <PlaceStatus>{};
 
-    final cleared = _cleared[placeId];
-    if (cleared == null || cleared.isEmpty) return state;
+    final statuses = {...imported.statuses, ...marks}
+        .where((s) => !cleared.contains(s))
+        .toSet();
 
-    return PlaceSaveState(
-      statuses: state.statuses.where((s) => !cleared.contains(s)).toSet(),
-      lists: state.lists,
-    );
+    if (statuses.isEmpty && imported.lists.isEmpty) return PlaceSaveState.empty;
+    return PlaceSaveState(statuses: statuses, lists: imported.lists);
+  }
+
+  @override
+  Future<void> addStatus(String placeId, PlaceStatus status) async {
+    final marks = {...(_marks[placeId] ?? const <PlaceStatus>{}), status};
+    final cleared = {...(_cleared[placeId] ?? const <PlaceStatus>{})}
+      ..remove(status);
+
+    _marks[placeId] = marks;
+    _cleared[placeId] = cleared;
+    notifyListeners();
+
+    try {
+      await _marksRef.doc(placeId).set({
+        'statuses': marks.map((s) => s.storageKey).toList(),
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+      // Adding after a clear must lift the tombstone, or the import merge
+      // would filter the marker straight back out.
+      await _clearsRef.doc(placeId).set({
+        'statuses': cleared.map((s) => s.storageKey).toList(),
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+    } catch (e) {
+      debugLog('dBug/place_status: could not persist mark: $e');
+    }
   }
 
   @override
@@ -92,11 +135,19 @@ class FirestorePlaceStatusStore extends PlaceStatusStore {
     // Optimistic: the snapshot listener will confirm, but the icon should
     // change under the user's finger rather than after a round trip.
     (_cleared[placeId] ??= <PlaceStatus>{}).add(top);
+    final marks = {...(_marks[placeId] ?? const <PlaceStatus>{})}..remove(top);
+    _marks[placeId] = marks;
     notifyListeners();
 
     try {
       await _clearsRef.doc(placeId).set({
         'statuses': _cleared[placeId]!.map((s) => s.storageKey).toList(),
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+      // A marker the user added here is dropped outright rather than
+      // tombstoned — there is no import that would bring it back.
+      await _marksRef.doc(placeId).set({
+        'statuses': marks.map((s) => s.storageKey).toList(),
         'updatedAt': FieldValue.serverTimestamp(),
       });
     } catch (e) {
@@ -124,6 +175,7 @@ class FirestorePlaceStatusStore extends PlaceStatusStore {
   void dispose() {
     _savedSub?.cancel();
     _clearedSub?.cancel();
+    _marksSub?.cancel();
     super.dispose();
   }
 }

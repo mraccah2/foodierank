@@ -11,6 +11,7 @@ import '../widgets/restaurant_map_view.dart';
 import '../widgets/location_picker_sheet.dart';
 import '../widgets/time_picker_sheet.dart';
 import '../services/auth_service.dart';
+import '../services/place_status_store.dart';
 import 'account_screen.dart';
 
 enum SortOption { rank, distance }
@@ -44,6 +45,9 @@ class _RestaurantListScreenState extends State<RestaurantListScreen>
   String? _searchStatus;
   final TextEditingController _searchController = TextEditingController();
   String _searchQuery = '';
+
+  /// When on, the list shows only places carrying a heart, star or flag.
+  bool _taggedOnly = false;
   bool _isSearchVisible = false;
   final FocusNode _searchFocusNode = FocusNode();
   static const int _lowResultsThreshold = 3;
@@ -483,6 +487,24 @@ class _RestaurantListScreenState extends State<RestaurantListScreen>
     );
   }
 
+  /// The restaurants actually rendered.
+  ///
+  /// Ranking and sorting still run over the full set, so a place keeps the rank
+  /// it earned among all results rather than being renumbered within the
+  /// filtered subset.
+  List<Restaurant> get _visibleRestaurants {
+    final all = _restaurants ?? const <Restaurant>[];
+    if (!_taggedOnly) return all;
+    return all
+        .where((r) => placeStatusStore.stateFor(r.placeId).displayStatus != null)
+        .toList();
+  }
+
+  void _toggleTaggedFilter() {
+    setState(() => _taggedOnly = !_taggedOnly);
+    if (_pageController.hasClients) _pageController.jumpToPage(0);
+  }
+
   void _sortRestaurants() {
     if (_restaurants == null || _restaurants!.isEmpty) {
       return;
@@ -532,7 +554,7 @@ class _RestaurantListScreenState extends State<RestaurantListScreen>
           currentPage + 1; // Move down one page
 
       // Ensure we don't go out of bounds
-      nextPage = nextPage.clamp(0, _restaurants!.length - 1);
+      nextPage = nextPage.clamp(0, _visibleRestaurants.length - 1);
 
       _pageController
           .animateToPage(
@@ -720,7 +742,10 @@ class _RestaurantListScreenState extends State<RestaurantListScreen>
         onVerticalDragUpdate: _viewMode == ViewMode.card
             ? (details) => _handleScroll(details.delta.dy)
             : null,
-        child: _buildBody(),
+        child: AnimatedBuilder(
+          animation: placeStatusStore,
+          builder: (context, _) => _buildBody(),
+        ),
       ),
     );
   }
@@ -1016,7 +1041,7 @@ class _RestaurantListScreenState extends State<RestaurantListScreen>
               color: Colors.grey[200],
               child: _viewMode == ViewMode.map
                   ? RestaurantMapView(
-                      restaurants: _restaurants!,
+                      restaurants: _visibleRestaurants,
                       currentLat: _currentLat,
                       currentLng: _currentLng,
                       onRestaurantTap: _showRestaurantCard,
@@ -1027,12 +1052,12 @@ class _RestaurantListScreenState extends State<RestaurantListScreen>
                           scrollDirection: Axis.vertical,
                           pageSnapping: true,
                           physics: const PageScrollPhysics(),
-                          itemCount: _restaurants!.length,
+                          itemCount: _visibleRestaurants.length,
                           onPageChanged: (index) {
                             setState(() {});
                           },
                           itemBuilder: (context, index) {
-                            final restaurant = _restaurants![index];
+                            final restaurant = _visibleRestaurants[index];
                             return Column(
                               children: [
                                 const SizedBox(height: 5.0), // Keep top padding
@@ -1074,9 +1099,9 @@ class _RestaurantListScreenState extends State<RestaurantListScreen>
                       : ListView.builder(
                           padding: const EdgeInsets.only(
                               top: 3), // Added top padding
-                          itemCount: _restaurants!.length,
+                          itemCount: _visibleRestaurants.length,
                           itemBuilder: (context, index) {
-                            final restaurant = _restaurants![index];
+                            final restaurant = _visibleRestaurants[index];
                             return MinimalRestaurantCard(
                               restaurant: restaurant,
                               ranking: restaurant.rank ?? index + 1,
@@ -1127,6 +1152,12 @@ class _RestaurantListScreenState extends State<RestaurantListScreen>
             onTap: _openTimePicker,
             onClear: _searchContext.isCustomTime ? _resetTime : null,
           ),
+        ),
+        const SizedBox(width: 8),
+        _iconPill(
+          icon: _taggedOnly ? Icons.flag : Icons.flag_outlined,
+          active: _taggedOnly,
+          onTap: _toggleTaggedFilter,
         ),
         const SizedBox(width: 8),
         _iconPill(

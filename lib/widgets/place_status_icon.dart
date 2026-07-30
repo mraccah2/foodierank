@@ -28,12 +28,16 @@ class PlaceStatusIcon extends StatelessWidget {
   /// have the width for this; compact list rows do not.
   final bool showListLabel;
 
+  /// Whether an unmarked place offers the "want to go" shortcut.
+  final bool allowAdding;
+
   const PlaceStatusIcon({
     super.key,
     required this.placeId,
     this.store,
     this.size = 20,
     this.showListLabel = false,
+    this.allowAdding = true,
   });
 
   @override
@@ -42,10 +46,18 @@ class PlaceStatusIcon extends StatelessWidget {
     return AnimatedBuilder(
       animation: store,
       builder: (context, _) {
-        final state = store.stateFor(placeId);
-        if (state.isEmpty) return const SizedBox.shrink();
+        // Signed out there is nowhere to keep a mark, so offer nothing.
+        if (!store.isAvailable) return const SizedBox.shrink();
 
+        final state = store.stateFor(placeId);
         final status = state.displayStatus;
+
+        if (state.isEmpty) {
+          return allowAdding
+              ? _buildAddAffordance(context, store)
+              : const SizedBox.shrink();
+        }
+
         return Row(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -54,6 +66,31 @@ class PlaceStatusIcon extends StatelessWidget {
           ],
         );
       },
+    );
+  }
+
+  /// A muted outline flag on unmarked places, so a spot noticed in the
+  /// rankings can be saved for later without leaving the list.
+  ///
+  /// Deliberately low-contrast: it appears on every unmarked card, and should
+  /// read as an available action rather than as a marker the place already has.
+  Widget _buildAddAffordance(BuildContext context, PlaceStatusStore store) {
+    return Semantics(
+      button: true,
+      label: 'Save as want to go',
+      child: InkResponse(
+        onTap: () => store.addStatus(placeId, PlaceStatus.wantToGo),
+        radius: size,
+        containedInkWell: false,
+        child: Padding(
+          padding: EdgeInsets.all((40 - size).clamp(0, 12) / 2),
+          child: Icon(
+            Icons.outlined_flag,
+            size: size,
+            color: Colors.grey.withValues(alpha: 0.55),
+          ),
+        ),
+      ),
     );
   }
 

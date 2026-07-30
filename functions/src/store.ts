@@ -1,3 +1,4 @@
+import { createHash } from 'crypto';
 import { FieldValue } from 'firebase-admin/firestore';
 import { db } from './firebase';
 import type {
@@ -30,8 +31,13 @@ const importJobs = (uid: string) =>
 export async function applyImport(
   uid: string,
   source: ImportSource,
-  places: ResolvedPlace[]
+  places: ResolvedPlace[],
+  options: { prune?: boolean } = {}
 ): Promise<number> {
+  // Pruning is only safe when `places` is the complete picture. A run cut
+  // short by its deadline holds a fraction of the export, and pruning against
+  // it would delete every place it had not reached yet.
+  const prune = options.prune ?? true;
   const incoming = new Map<string, ResolvedPlace>();
   for (const place of places) {
     const existing = incoming.get(place.placeId);
@@ -88,7 +94,7 @@ export async function applyImport(
 
   // Drop this source's slice from places it no longer covers — the user
   // un-starred them in Google Maps since the last import.
-  for (const [placeId, prior] of existingDocs) {
+  for (const [placeId, prior] of prune ? existingDocs : []) {
     if (incoming.has(placeId)) continue;
     if (!prior.sources?.[source]) continue;
 
@@ -111,6 +117,57 @@ export async function applyImport(
 
   if (opCount > 0) await batch.commit();
   return incoming.size;
+}
+
+const resolutionCache = (uid: string) =>
+  db.collection('users').doc(uid).collection('resolutionCache');
+
+/**
+ * Load every place lookup already answered for this user.
+ *
+ * Re-importing the same export otherwise re-resolves all 2000-odd entries and
+ * burns the Places free allowance for no new information.
+ */
+export async function loadResolutionCache(
+  uid: string
+): Promise<Map<string, string | null>> {
+  const snapshot = await resolutionCache(uid).get();
+  const cache = new Map<string, string | null>();
+  for (const doc of snapshot.docs) {
+    cache.set(doc.data().key as string, (doc.data().placeId as string) ?? null);
+  }
+  return cache;
+}
+
+/** Persist lookups learned during a run. */
+export async function saveResolutionCache(
+  uid: string,
+  learned: Map<string, string | null>
+): Promise<void> {
+  if (learned.size === 0) return;
+
+  let batch = db.batch();
+  let ops = 0;
+
+  for (const [key, placeId] of learned) {
+    // Hash the key: names contain slashes and other characters Firestore
+    // rejects in document ids.
+    const id = createHash('sha1').update(key).digest('hex');
+    batch.set(resolutionCache(uid).doc(id), {
+      key,
+      placeId,
+      resolvedAt: FieldValue.serverTimestamp(),
+    });
+    ops++;
+
+    if (ops >= BATCH_LIMIT) {
+      await batch.commit();
+      batch = db.batch();
+      ops = 0;
+    }
+  }
+
+  if (ops > 0) await batch.commit();
 }
 
 export async function createImportJob(

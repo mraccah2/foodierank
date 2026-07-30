@@ -29,10 +29,25 @@ import {
 } from './drive';
 import { PLACES_API_KEY, resolvePlaces } from './placeResolve';
 import { parseTakeoutArchive } from './takeout';
-import { applyImport, createImportJob, updateImportJob } from './store';
+import {
+  applyImport,
+  createImportJob,
+  loadResolutionCache,
+  saveResolutionCache,
+  updateImportJob,
+} from './store';
 import type { ImportJobDoc, RawPlace } from './types';
 
 const REGION = 'us-central1';
+
+/**
+ * How long a run may spend resolving places.
+ *
+ * Functions here time out at 540s. Stopping at seven minutes leaves room to
+ * write results and cache entries; whatever is left over resumes next tick,
+ * by which point it is all cache hits.
+ */
+const RESOLVE_BUDGET_MS = 7 * 60 * 1000;
 
 /**
  * Step 1 of linking: swap the mobile client's `serverAuthCode` for a refresh
@@ -198,14 +213,27 @@ export const pollImportJobs = onSchedule(
         }
 
         const raw = await downloadStarredPlaces(urls);
-        const resolved = await resolvePlaces(raw, PLACES_API_KEY.value());
-        const count = await applyImport(uid, 'dataportability', resolved);
+        const cache = await loadResolutionCache(uid);
+        const result = await resolvePlaces(raw, PLACES_API_KEY.value(), {
+          cache,
+          deadline: Date.now() + RESOLVE_BUDGET_MS,
+        });
+        await saveResolutionCache(uid, result.learned);
+
+        const count = await applyImport(uid, 'dataportability', result.resolved, {
+          prune: result.complete,
+        });
 
         await updateImportJob(uid, doc.id, {
-          state: 'COMPLETE',
+          state: result.complete ? 'COMPLETE' : 'IN_PROGRESS',
           placesImported: count,
         });
-        logger.info('Starred places import complete', { uid, count });
+        logger.info('Starred places import', {
+          uid,
+          count,
+          complete: result.complete,
+          lookups: result.lookups,
+        });
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         logger.error('Import job failed', { uid, jobId: doc.id, message });
@@ -415,21 +443,38 @@ export const syncTakeoutFromDrive = onSchedule(
           logger.warn('Some export parts were skipped', { uid, skippedParts });
         }
 
-        const resolved = await resolvePlaces(places, PLACES_API_KEY.value());
-        const count = await applyImport(uid, 'takeout', resolved);
+        const cache = await loadResolutionCache(uid);
+        const result = await resolvePlaces(places, PLACES_API_KEY.value(), {
+          cache,
+          deadline: Date.now() + RESOLVE_BUDGET_MS,
+        });
+        await saveResolutionCache(uid, result.learned);
+
+        const count = await applyImport(uid, 'takeout', result.resolved, {
+          prune: result.complete,
+        });
+
+        // Only mark the export done when it was fully processed; otherwise the
+        // next run picks up where this one stopped, and everything already
+        // resolved is a cache hit.
+        if (result.complete) {
+          await stateRef.set({ lastExportKey: newest.key }, { merge: true });
+        }
 
         await updateImportJob(uid, jobId, {
           state: 'COMPLETE',
+          partial: !result.complete,
           placesImported: count,
         });
-        await stateRef.set({ lastExportKey: newest.key }, { merge: true });
 
-        logger.info('Drive Takeout import complete', {
+        logger.info('Drive Takeout import', {
           uid,
           count,
+          complete: result.complete,
+          lookups: result.lookups,
+          cached: cache.size,
           listsFound: [...new Set(listsFound)],
           export: newest.key,
-          parts: newest.parts.map((p) => p.name),
         });
       } catch (error) {
         logger.warn('Drive sync skipped', {
@@ -477,16 +522,27 @@ export const onTakeoutUploaded = onObjectFinalized(
         );
       }
 
-      const resolved = await resolvePlaces(places, PLACES_API_KEY.value());
-      const count = await applyImport(uid, 'takeout', resolved);
+      const cache = await loadResolutionCache(uid);
+      const result = await resolvePlaces(places, PLACES_API_KEY.value(), {
+        cache,
+        deadline: Date.now() + RESOLVE_BUDGET_MS,
+      });
+      await saveResolutionCache(uid, result.learned);
+
+      const count = await applyImport(uid, 'takeout', result.resolved, {
+        prune: result.complete,
+      });
 
       await updateImportJob(uid, jobId, {
         state: 'COMPLETE',
+        partial: !result.complete,
         placesImported: count,
       });
-      logger.info('Takeout import complete', {
+      logger.info('Takeout upload import', {
         uid,
         count,
+        complete: result.complete,
+        lookups: result.lookups,
         listsFound,
         skipped: skipped.length,
       });
