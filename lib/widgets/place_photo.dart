@@ -25,12 +25,18 @@ class PlacePhoto extends StatefulWidget {
   final double height;
   final BoxFit fit;
 
+  /// True for the single photo a place displays on its row and card face.
+  /// Those jump the download queue, so every place gets its one picture before
+  /// any place gets a second.
+  final bool priority;
+
   const PlacePhoto({
     super.key,
     required this.photoRef,
     required this.height,
     this.width,
     this.fit = BoxFit.cover,
+    this.priority = false,
   });
 
   @override
@@ -68,7 +74,7 @@ class _PlacePhotoState extends State<PlacePhoto> {
     }
 
     final ref = widget.photoRef;
-    service.loadPhoto(ref).then((bytes) {
+    service.loadPhoto(ref, priority: widget.priority).then((bytes) {
       // A recycled list row may have been rebound to a different photo while
       // this was in flight.
       if (!mounted || ref != widget.photoRef) return;

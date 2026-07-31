@@ -73,12 +73,17 @@ class RestaurantService {
   /// one download of the same photo rather than racing three.
   final Map<String, Future<Uint8List?>> _photoRequests = {};
 
-  /// Photos now share one HTTP client with everything else. Letting twenty
-  /// start at once defeats connection reuse and starves whatever the user is
-  /// actually waiting on.
-  static const int _maxConcurrentPhotos = 4;
+  /// Photos share one HTTP client with everything else. Letting twenty start at
+  /// once defeats connection reuse and starves whatever the user is actually
+  /// waiting on; six is the same ceiling browsers settle on per host.
+  static const int _maxConcurrentPhotos = 6;
   int _photosInFlight = 0;
-  final Queue<Completer<void>> _photoQueue = Queue();
+
+  /// Waiters split by priority. A place's first photo — the one its list row
+  /// and card face show — is what makes the screen look finished, so those are
+  /// served before any place's second photo.
+  final Queue<Completer<void>> _firstPhotoQueue = Queue();
+  final Queue<Completer<void>> _restPhotoQueue = Queue();
 
   /// Installed by the app so a result set survives a relaunch (see
   /// `RestaurantDiskCache`). Left null by `bin/foodierank.dart`, which is why
@@ -175,16 +180,18 @@ class RestaurantService {
       queryKey: _lastQueryKey!,
       fetchedAt: _lastFetchTime!,
     )));
-    // Warm the photos the top of the list will ask for, but do not hold the
-    // results back for them: the list is readable without pictures, and
+    // Pull the one photo each place displays, for all of them, but do not hold
+    // the results back for it: the list is readable without pictures, and
     // awaiting twenty downloads here was seconds of spinner for decoration.
-    // Everything else loads on demand as rows scroll into view.
-    unawaited(prefetchHeaderPhotos(_headerPhotoRefs(places).take(8).toList()));
+    // Additional gallery photos stay on demand — at twenty places by ten photos
+    // they would be a hundredfold the requests for something nobody has asked
+    // to see.
+    unawaited(warmFirstPhotos());
 
     return places;
   }
 
-  List<String> _headerPhotoRefs(List<Map<String, dynamic>> places) => places
+  List<String> _firstPhotoRefs(List<Map<String, dynamic>> places) => places
       .expand((r) => (r['photoRefs'] as List<dynamic>?)?.take(1) ?? const [])
       .cast<String>()
       .toList();
@@ -210,6 +217,11 @@ class RestaurantService {
     _lastFetchLongitude = snapshot.longitude;
     _lastQueryKey = snapshot.queryKey;
     _lastFetchTime = snapshot.fetchedAt;
+
+    // A restored result set needs its pictures as much as a fetched one does.
+    // Without this, a cold start drew the list instantly and then filled its
+    // photos in one row at a time as they scrolled into view.
+    unawaited(warmFirstPhotos());
   }
 
   static const int _targetCount = 20;
@@ -684,22 +696,27 @@ class RestaurantService {
   ///
   /// Concurrent callers for the same photo share one request: a list row, the
   /// card behind it and any prefetch all used to issue their own.
+  ///
+  /// [priority] marks a place's *first* photo — the one the list row and the
+  /// card header show. Those go to the front of the queue, so the second photo
+  /// of a restaurant somebody swiped through cannot hold up the only photo
+  /// twelve other restaurants have.
   Future<Uint8List?> loadPhoto(String photoRef,
-      {int maxWidth = 800, int maxHeight = 450}) {
+      {int maxWidth = 800, int maxHeight = 450, bool priority = false}) {
     final cached = getCachedPhoto(photoRef);
     if (cached != null) return Future.value(cached);
 
     final existing = _photoRequests[photoRef];
     if (existing != null) return existing;
 
-    final request = _fetchPhoto(photoRef, maxWidth, maxHeight)
+    final request = _fetchPhoto(photoRef, maxWidth, maxHeight, priority)
         .whenComplete(() => _photoRequests.remove(photoRef));
     _photoRequests[photoRef] = request;
     return request;
   }
 
   Future<Uint8List?> _fetchPhoto(
-      String photoRef, int maxWidth, int maxHeight) async {
+      String photoRef, int maxWidth, int maxHeight, bool priority) async {
     // Disk before network, and before taking a slot — a local read is orders of
     // magnitude cheaper and has no business queueing behind four downloads.
     final fromDisk = await photoCacheRead?.call(photoRef);
@@ -708,7 +725,7 @@ class RestaurantService {
       return fromDisk;
     }
 
-    await _acquirePhotoSlot();
+    await _acquirePhotoSlot(priority);
     try {
       ApiUsageTracker.instance.incrementPhoto();
       final uri = Uri.parse('${ProxyService.baseUrl}/$photoRef/media').replace(
@@ -752,31 +769,48 @@ class RestaurantService {
     }
   }
 
-  Future<void> _acquirePhotoSlot() {
+  Future<void> _acquirePhotoSlot(bool priority) {
     if (_photosInFlight < _maxConcurrentPhotos) {
       _photosInFlight++;
       return Future.value();
     }
     final waiter = Completer<void>();
-    _photoQueue.add(waiter);
+    (priority ? _firstPhotoQueue : _restPhotoQueue).add(waiter);
     return waiter.future;
   }
 
   void _releasePhotoSlot() {
+    // Drain first photos before anything else: every place should have its one
+    // picture before any place gets a second.
+    final queue =
+        _firstPhotoQueue.isNotEmpty ? _firstPhotoQueue : _restPhotoQueue;
     // Hand the slot straight to whoever is queued rather than releasing and
     // re-taking it, so the in-flight count stays accurate.
-    if (_photoQueue.isNotEmpty) {
-      _photoQueue.removeFirst().complete();
+    if (queue.isNotEmpty) {
+      queue.removeFirst().complete();
       return;
     }
     _photosInFlight--;
   }
 
-  /// Best-effort warm of photos the first screenful will ask for. Nothing waits
-  /// on this — [loadPhoto] serves whatever has landed and fetches the rest on
-  /// demand.
-  Future<void> prefetchHeaderPhotos(List<String> photoRefs) =>
-      Future.wait(photoRefs.map(loadPhoto));
+  /// Pull the one photo each place displays, for *every* place in the current
+  /// result set — not just the first screenful.
+  ///
+  /// Nothing waits on this: [loadPhoto] already serves whatever has landed and
+  /// fetches the rest on demand. It exists so that scrolling down does not
+  /// arrive at a column of empty placeholders, and so a photo already on disk
+  /// is in memory before its row is ever built.
+  Future<void> warmFirstPhotos() async {
+    try {
+      await prefetchFirstPhotos(_firstPhotoRefs(_cachedRestaurants ?? const []));
+    } catch (_) {
+      // Warming is best effort, and both callers leave it unawaited — an
+      // failure here must not surface as an unhandled async error.
+    }
+  }
+
+  Future<void> prefetchFirstPhotos(List<String> photoRefs) =>
+      Future.wait(photoRefs.map((ref) => loadPhoto(ref, priority: true)));
 
   bool shouldRefreshData(double currentLat, double currentLng,
       {List<String>? priceLevels,
