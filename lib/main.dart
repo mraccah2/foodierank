@@ -7,23 +7,30 @@ import 'screens/restaurant_list_screen.dart';
 import 'screens/splash_screen.dart';
 import 'services/api_usage_tracker.dart';
 import 'services/navigation_service.dart';
+import 'services/photo_disk_cache.dart';
 import 'services/restaurant_disk_cache.dart';
+import 'utils/debug_log.dart';
 
 void main() {
   runZonedGuarded(() {
     WidgetsFlutterBinding.ensureInitialized();
 
+    // Debug-only, and stripped from release builds. These handlers used to be
+    // silent, which is how a photo request that completed with an error — and
+    // so left a placeholder on screen forever — produced not one line of
+    // output to go on.
     FlutterError.onError = (FlutterErrorDetails details) {
-      // Already empty
+      debugLog('dBug/flutter: ${details.exception}');
     };
 
     SystemChrome.setPreferredOrientations([
       DeviceOrientation.portraitUp,
     ]);
 
-    // Let successful searches survive a relaunch. Installing the hook is
-    // synchronous; the writing it enables is not.
+    // Let successful searches and their photos survive a relaunch. Installing
+    // the hooks is synchronous; the reading and writing they enable is not.
     RestaurantDiskCache.install();
+    PhotoDiskCache.install();
 
     // Nothing is awaited before this line, and that is the point.
     //
@@ -36,7 +43,7 @@ void main() {
     // SplashScreen now owns that work, bounded and with something on screen.
     runApp(const MyApp());
   }, (error, stack) {
-    // Already empty
+    debugLog('dBug/zone: uncaught $error\n$stack');
   });
 }
 

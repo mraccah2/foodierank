@@ -152,6 +152,8 @@ class MinimalRestaurantCard extends StatelessWidget {
                       photoRef: restaurant.photoRefs.first,
                       width: 60,
                       height: 60,
+                      // The only photo a list row shows.
+                      priority: true,
                     ),
                   ),
                 ),

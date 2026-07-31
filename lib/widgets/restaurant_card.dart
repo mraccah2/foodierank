@@ -169,6 +169,10 @@ class _RestaurantCardState extends State<RestaurantCard> {
                             photoRef: widget.restaurant.photoRefs[index],
                             height: 240,
                             width: double.infinity,
+                            // The card opens on the first photo; the rest are
+                            // only reached by swiping, so they wait behind
+                            // every other place's one picture.
+                            priority: index == 0,
                           ),
                         ),
                       );
