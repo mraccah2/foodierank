@@ -6,6 +6,7 @@ import 'dart:async';
 import 'dart:math';
 import 'api_usage_tracker.dart';
 import 'app_http.dart';
+import 'photo_source.dart';
 
 /// A result set together with the query it answers and where it was taken —
 /// everything needed to decide, on the next launch, whether it can be shown
@@ -53,7 +54,7 @@ class RestaurantSearchSnapshot {
   }
 }
 
-class RestaurantService {
+class RestaurantService implements PhotoSource {
   static final RestaurantService instance = RestaurantService._internal();
   List<Map<String, dynamic>>? _cachedRestaurants;
   DateTime? _lastFetchTime;
@@ -683,6 +684,7 @@ class RestaurantService {
   /// The bytes for [photoRef] if they are already in memory. Cheap enough for a
   /// `build`; returns null rather than starting a download, so callers that can
   /// render a placeholder are not forced to wait.
+  @override
   Uint8List? getCachedPhoto(String photoRef) {
     // Re-inserting on read is what makes the bounded map an LRU rather than a
     // "first sixty photos of the session" cache.
@@ -701,6 +703,7 @@ class RestaurantService {
   /// card header show. Those go to the front of the queue, so the second photo
   /// of a restaurant somebody swiped through cannot hold up the only photo
   /// twelve other restaurants have.
+  @override
   Future<Uint8List?> loadPhoto(String photoRef,
       {int maxWidth = 800, int maxHeight = 450, bool priority = false}) {
     final cached = getCachedPhoto(photoRef);

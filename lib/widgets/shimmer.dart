@@ -22,6 +22,14 @@ class ShimmerDriver {
   Ticker? _ticker;
   int _subscribers = 0;
 
+  /// Whether frames are currently being requested. A driver left running with
+  /// nothing on screen is a leak — it costs a frame callback forever.
+  @visibleForTesting
+  bool get isRunning => _ticker != null;
+
+  @visibleForTesting
+  int get subscriberCount => _subscribers;
+
   void acquire() {
     _subscribers++;
     _ticker ??= Ticker(_tick)..start();

@@ -3,6 +3,7 @@ import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 
+import '../services/photo_source.dart';
 import '../services/restaurant_service.dart';
 import '../utils/debug_log.dart';
 import 'shimmer.dart';
@@ -32,6 +33,10 @@ class PlacePhoto extends StatefulWidget {
   /// any place gets a second.
   final bool priority;
 
+  /// Defaults to the app-wide [RestaurantService]; injectable for tests, in
+  /// the same shape as [PlaceStatusIcon.store].
+  final PhotoSource? source;
+
   const PlacePhoto({
     super.key,
     required this.photoRef,
@@ -39,6 +44,7 @@ class PlacePhoto extends StatefulWidget {
     this.width,
     this.fit = BoxFit.cover,
     this.priority = false,
+    this.source,
   });
 
   @override
@@ -65,9 +71,10 @@ class _PlacePhotoState extends State<PlacePhoto> {
     }
   }
 
+  PhotoSource get _source => widget.source ?? RestaurantService.instance;
+
   void _resolve() {
-    final service = RestaurantService.instance;
-    final cached = service.getCachedPhoto(widget.photoRef);
+    final cached = _source.getCachedPhoto(widget.photoRef);
     if (cached != null) {
       // Already in memory: assign directly, since both call sites are followed
       // by a build. Going through setState here would be a no-op rebuild.
@@ -81,8 +88,7 @@ class _PlacePhotoState extends State<PlacePhoto> {
   Future<void> _load(String ref) async {
     Uint8List? bytes;
     try {
-      bytes = await RestaurantService.instance
-          .loadPhoto(ref, priority: widget.priority);
+      bytes = await _source.loadPhoto(ref, priority: widget.priority);
     } catch (e) {
       // Awaited inside a try rather than chained off a bare `.then`, which
       // skips its callback when the future errors — that left the placeholder

@@ -104,7 +104,12 @@ class PhotoDiskCache {
 
   /// Drops entries past [maxAge], then the oldest of what remains until the
   /// directory fits in [maxBytes]. Safe to call at any time.
-  static Future<void> sweep() async {
+  ///
+  /// [olderThan] and [maxTotalBytes] exist so a test can exercise the policy
+  /// without waiting a fortnight or writing eighty megabytes.
+  static Future<void> sweep({Duration? olderThan, int? maxTotalBytes}) async {
+    final ageLimit = olderThan ?? maxAge;
+    final byteLimit = maxTotalBytes ?? maxBytes;
     try {
       final dir = _dir ?? await _directory();
       if (dir == null) return;
@@ -119,7 +124,7 @@ class PhotoDiskCache {
           final stat = await entity.stat();
           // Abandoned partial writes are never useful.
           if (entity.path.endsWith('.part') ||
-              now.difference(stat.modified) > maxAge) {
+              now.difference(stat.modified) > ageLimit) {
             await entity.delete();
             continue;
           }
@@ -132,11 +137,11 @@ class PhotoDiskCache {
         }
       }
 
-      if (total <= maxBytes) return;
+      if (total <= byteLimit) return;
 
       surviving.sort((a, b) => a.modified.compareTo(b.modified));
       for (final entry in surviving) {
-        if (total <= maxBytes) break;
+        if (total <= byteLimit) break;
         try {
           await entry.file.delete();
           total -= entry.size;
@@ -161,6 +166,15 @@ class PhotoDiskCache {
     } catch (e) {
       debugLog('dBug/photo_cache: clear failed: $e');
     }
+  }
+
+  /// Point the cache at [dir] instead of asking path_provider, so the real
+  /// read/write/sweep behaviour can be tested against actual files without
+  /// standing up a plugin mock.
+  @visibleForTesting
+  static void useDirectoryForTesting(Directory? dir) {
+    _dir = dir;
+    _dirFuture = dir == null ? null : Future<Directory?>.value(dir);
   }
 
   /// A filesystem-safe, collision-resistant name for [photoRef].
