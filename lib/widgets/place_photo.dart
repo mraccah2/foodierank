@@ -1,8 +1,10 @@
+import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 
 import '../services/restaurant_service.dart';
+import '../utils/debug_log.dart';
 import 'shimmer.dart';
 
 /// A Places photo, fetched when it first appears rather than up front.
@@ -73,15 +75,29 @@ class _PlacePhotoState extends State<PlacePhoto> {
       return;
     }
 
-    final ref = widget.photoRef;
-    service.loadPhoto(ref, priority: widget.priority).then((bytes) {
-      // A recycled list row may have been rebound to a different photo while
-      // this was in flight.
-      if (!mounted || ref != widget.photoRef) return;
-      setState(() {
-        _bytes = bytes;
-        _failed = bytes == null;
-      });
+    unawaited(_load(widget.photoRef));
+  }
+
+  Future<void> _load(String ref) async {
+    Uint8List? bytes;
+    try {
+      bytes = await RestaurantService.instance
+          .loadPhoto(ref, priority: widget.priority);
+    } catch (e) {
+      // Awaited inside a try rather than chained off a bare `.then`, which
+      // skips its callback when the future errors — that left the placeholder
+      // shimmering forever with nothing logged. Whatever went wrong, this
+      // widget resolves to a visible failure.
+      debugLog('dBug/place_photo: $ref failed: $e');
+      bytes = null;
+    }
+
+    // A recycled list row may have been rebound to a different photo while
+    // this was in flight.
+    if (!mounted || ref != widget.photoRef) return;
+    setState(() {
+      _bytes = bytes;
+      _failed = bytes == null;
     });
   }
 

@@ -9,13 +9,18 @@ import 'services/api_usage_tracker.dart';
 import 'services/navigation_service.dart';
 import 'services/photo_disk_cache.dart';
 import 'services/restaurant_disk_cache.dart';
+import 'utils/debug_log.dart';
 
 void main() {
   runZonedGuarded(() {
     WidgetsFlutterBinding.ensureInitialized();
 
+    // Debug-only, and stripped from release builds. These handlers used to be
+    // silent, which is how a photo request that completed with an error — and
+    // so left a placeholder on screen forever — produced not one line of
+    // output to go on.
     FlutterError.onError = (FlutterErrorDetails details) {
-      // Already empty
+      debugLog('dBug/flutter: ${details.exception}');
     };
 
     SystemChrome.setPreferredOrientations([
@@ -38,7 +43,7 @@ void main() {
     // SplashScreen now owns that work, bounded and with something on screen.
     runApp(const MyApp());
   }, (error, stack) {
-    // Already empty
+    debugLog('dBug/zone: uncaught $error\n$stack');
   });
 }
 

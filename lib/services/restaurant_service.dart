@@ -710,7 +710,15 @@ class RestaurantService {
     if (existing != null) return existing;
 
     final request = _fetchPhoto(photoRef, maxWidth, maxHeight, priority)
-        .whenComplete(() => _photoRequests.remove(photoRef));
+        .whenComplete(() {
+      // A block body, deliberately. `=> _photoRequests.remove(photoRef)`
+      // returns the removed value — and since this map's values *are* futures,
+      // that value is this very request. `whenComplete` waits on any Future its
+      // callback returns, so the request awaited itself and never completed.
+      // The bytes still reached the cache, so a photo appeared if its widget
+      // happened to mount after the fetch, and shimmered forever otherwise.
+      _photoRequests.remove(photoRef);
+    });
     _photoRequests[photoRef] = request;
     return request;
   }
@@ -718,11 +726,18 @@ class RestaurantService {
   Future<Uint8List?> _fetchPhoto(
       String photoRef, int maxWidth, int maxHeight, bool priority) async {
     // Disk before network, and before taking a slot — a local read is orders of
-    // magnitude cheaper and has no business queueing behind four downloads.
-    final fromDisk = await photoCacheRead?.call(photoRef);
-    if (fromDisk != null) {
-      _cachePhoto(photoRef, fromDisk);
-      return fromDisk;
+    // magnitude cheaper and has no business queueing behind six downloads.
+    try {
+      final fromDisk = await photoCacheRead?.call(photoRef);
+      if (fromDisk != null) {
+        _cachePhoto(photoRef, fromDisk);
+        return fromDisk;
+      }
+    } catch (e) {
+      // A disk tier that misbehaves degrades to "not cached", and the request
+      // carries on to the network. It must never fail the future: callers
+      // attach a bare `.then`, which skips its callback on an error, so this
+      // would leave a placeholder on screen forever with nothing logged.
     }
 
     await _acquirePhotoSlot(priority);
