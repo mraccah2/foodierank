@@ -1,3 +1,4 @@
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:photo_view/photo_view.dart';
 import 'package:photo_view/photo_view_gallery.dart';
@@ -100,7 +101,13 @@ class _RestaurantPhotoViewerState extends State<RestaurantPhotoViewer> {
                           builder: (context, snapshot) {
                             if (snapshot.hasData && snapshot.data!.isNotEmpty) {
                               return PhotoView(
-                                imageProvider: NetworkImage(snapshot.data!),
+                                // Cached on disk, so reopening the gallery — or
+                                // swiping back to a photo — does not re-download
+                                // a full-size image. A bare NetworkImage kept
+                                // only the decoded frame, and only until the
+                                // image cache evicted it.
+                                imageProvider:
+                                    CachedNetworkImageProvider(snapshot.data!),
                                 minScale: PhotoViewComputedScale.contained,
                                 maxScale: PhotoViewComputedScale.covered * 2,
                                 scaleStateController:

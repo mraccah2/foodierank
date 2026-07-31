@@ -1,0 +1,39 @@
+{
+  "project_info": {
+    "project_number": "182786688473",
+    "project_id": "foodierank-bb880",
+    "storage_bucket": "foodierank-bb880.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:182786688473:android:7da546cede22d960b305c8",
+        "android_client_info": {
+          "package_name": "com.foodierank.foodierank"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "182786688473-at67om59fvb72irtlv47m515oi3uce2n.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDTlUFRLh-YNQanGNBLbz73UxcPJ0r53c0"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "182786688473-at67om59fvb72irtlv47m515oi3uce2n.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

@@ -1,5 +1,6 @@
 import 'dart:math' show sqrt, sin, atan2, cos, pi;
 import '../utils/debug_log.dart';
+import 'cuisine.dart';
 
 class Restaurant {
   final String id;
@@ -26,6 +27,14 @@ class Restaurant {
   /// 0..1 density of tourist attractions and hotels within ~250m.
   final double touristPenalty;
 
+  /// What the place serves, ready to display, or null when neither its types
+  /// nor its country suggest anything.
+  ///
+  /// Resolved once here rather than in the cards, which each recomputed it —
+  /// the detail card twice — on every build, allocating a seventy-entry keyword
+  /// set each time. `types` never changes, so neither does this.
+  final String? cuisineLabel;
+
   Restaurant({
     required this.id,
     required this.name,
@@ -44,6 +53,7 @@ class Restaurant {
     required this.placeId,
     this.destinationBonus = 0.0,
     this.touristPenalty = 0.0,
+    this.cuisineLabel,
   });
 
   factory Restaurant.fromJson(Map<String, dynamic> json) {
@@ -115,6 +125,9 @@ class Restaurant {
     // Safely extract the placeId
     final placeId = json['id'] as String? ?? '';
 
+    final types = (json['types'] as List<dynamic>?)?.cast<String>() ?? const [];
+    final country = json['location']?['country'] as String? ?? '';
+
     final restaurant = Restaurant(
       id: json['id'] as String? ?? '', // Ensure id is not null
       name: name,
@@ -122,7 +135,7 @@ class Restaurant {
       photoRefs: extractPhotoRefs(json['photos'] as List<dynamic>?),
       rating: (json['rating'] ?? 0.0).toDouble(),
       reviewCount: parseCount(json['userRatingCount']),
-      types: (json['types'] as List<dynamic>?)?.cast<String>() ?? [],
+      types: types,
       priceLevel: convertPriceLevel(json['priceLevel'] as String?),
       description: description,
       address: json['formattedAddress'] ?? '',
@@ -130,13 +143,15 @@ class Restaurant {
         latitude: (json['location']?['latitude'] as num?)?.toDouble() ?? 0.0,
         longitude: (json['location']?['longitude'] as num?)?.toDouble() ?? 0.0,
         formattedAddress: json['formattedAddress'] ?? '',
-        country: json['location']?['country'] ?? '',
+        country: country,
       ),
       photos: [],
       rank: json['rank'] as int?,
       placeId: placeId,
       destinationBonus: (json['frDestinationBonus'] as num?)?.toDouble() ?? 0.0,
       touristPenalty: (json['frTouristPenalty'] as num?)?.toDouble() ?? 0.0,
+      cuisineLabel:
+          Cuisine.label(types, country: country.isEmpty ? null : country),
     );
 
     // Debug check final location values

@@ -30,7 +30,8 @@ jobs:
   deploy:
     name: Build & Upload to TestFlight
     runs-on: [self-hosted, macos, ios]
-    timeout-minutes: 45
+    # Build is ~13 min; waiting on Apple's verdict can add up to 30 more.
+    timeout-minutes: 60
 
     steps:
       - name: Clean up old artifacts
@@ -86,22 +87,32 @@ jobs:
             -k "$KEYCHAIN_PATH"
           rm "$CERT_PATH"
 
+          # The search list is NOT snapshotted any more. Restoring a setup-time
+          # snapshot at teardown is a lost update: any keychain another job on this
+          # shared mini added in between is silently dropped, and if the snapshot
+          # came back empty the restore SET an empty list — evicting
+          # login.keychain-db and taking the Gandalf agent auth-down. Teardown now
+          # removes only this job's own path instead. The DEFAULT keychain is still
+          # saved/restored, since this workflow deliberately hijacks it.
           ORIGINAL_DEFAULT_KEYCHAIN=$(security default-keychain | tr -d ' "')
-          ORIGINAL_KEYCHAIN_LIST=$(security list-keychains -d user | tr -d '"' | tr '\n' ' ')
           echo "original_default_keychain=$ORIGINAL_DEFAULT_KEYCHAIN" >> "$GITHUB_ENV"
-          echo "original_keychain_list=$ORIGINAL_KEYCHAIN_LIST" >> "$GITHUB_ENV"
           security default-keychain -s "$KEYCHAIN_PATH"
-          security list-keychains -d user -s "$KEYCHAIN_PATH" $ORIGINAL_KEYCHAIN_LIST
+          source "$GITHUB_WORKSPACE/.github/scripts/ci-keychain-lock.sh"
+          kc_lock_acquire
+          kc_prepend "$KEYCHAIN_PATH"
+          kc_lock_release
           security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
 
           mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
 
           PROFILE_PATH="$RUNNER_TEMP/profile.mobileprovision"
           echo "$IOS_PROVISIONING_PROFILE" | base64 --decode > "$PROFILE_PATH"
-          PROFILE_PLIST=$(security cms -D -i "$PROFILE_PATH")
-          PROFILE_UUID=$(/usr/libexec/PlistBuddy -c "Print UUID" /dev/stdin <<< "$PROFILE_PLIST")
-          PROFILE_NAME=$(/usr/libexec/PlistBuddy -c "Print Name" /dev/stdin <<< "$PROFILE_PLIST")
-          cp "$PROFILE_PATH" ~/Library/MobileDevice/Provisioning\ Profiles/"$PROFILE_UUID".mobileprovision
+          # Installs under the UUID filename and prunes ONLY profiles with the
+          # same application-identifier. The blanket `rm -f ...Profiles/*` this
+          # replaces wiped the whole per-USER directory, deleting concurrent
+          # jobs' profiles — see .github/scripts/ci-signing-assets.sh
+          source "$GITHUB_WORKSPACE/.github/scripts/ci-signing-assets.sh"
+          read -r PROFILE_UUID PROFILE_NAME <<< "$(sa_install_profile "$PROFILE_PATH" mobileprovision)"
           rm "$PROFILE_PATH"
           echo "installed_profile_path=$HOME/Library/MobileDevice/Provisioning Profiles/$PROFILE_UUID.mobileprovision" >> "$GITHUB_ENV"
 
@@ -168,10 +179,19 @@ jobs:
         env:
           IOS_MAPS_API_KEY: ${{ secrets.IOS_MAPS_API_KEY }}
           IOS_BUNDLE_ID: ${{ vars.IOS_BUNDLE_ID || 'com.foodierank.foodierank' }}
+          # OAuth client ids are public identifiers — they ship inside the app
+          # binary and GoogleService-Info.plist — so they live in `vars`, not
+          # `secrets`. Leaving GOOGLE_SERVER_CLIENT_ID unset is a supported
+          # build: Google sign-in simply switches off and the rest of the app
+          # is unaffected.
+          GOOGLE_SERVER_CLIENT_ID: ${{ vars.GOOGLE_SERVER_CLIENT_ID }}
+          GOOGLE_IOS_CLIENT_ID: ${{ vars.GOOGLE_IOS_CLIENT_ID }}
         run: |
           flutter build ios --release --no-codesign \
             --dart-define=IOS_MAPS_API_KEY="$IOS_MAPS_API_KEY" \
-            --dart-define=IOS_BUNDLE_ID="$IOS_BUNDLE_ID"
+            --dart-define=IOS_BUNDLE_ID="$IOS_BUNDLE_ID" \
+            --dart-define=GOOGLE_SERVER_CLIENT_ID="$GOOGLE_SERVER_CLIENT_ID" \
+            --dart-define=GOOGLE_IOS_CLIENT_ID="$GOOGLE_IOS_CLIENT_ID"
 
       - name: Configure manual signing for CI (Runner target only)
         env:
@@ -222,8 +242,13 @@ jobs:
               <key>${{ vars.IOS_BUNDLE_ID || 'com.foodierank.foodierank' }}</key>
               <string>$app_profile_name</string>
             </dict>
+            <!-- Export locally rather than uploading straight from
+                 xcodebuild, so the IPA can be validated against Apple's
+                 checks BEFORE it is sent. Uploading first means ITMS
+                 failures only surface by email minutes later, with the
+                 workflow already green. -->
             <key>destination</key>
-            <string>upload</string>
+            <string>export</string>
             <key>uploadSymbols</key>
             <true/>
           </dict>
@@ -244,7 +269,7 @@ jobs:
             OTHER_CODE_SIGN_FLAGS="--keychain $keychain_path" \
             COMPILER_INDEX_STORE_ENABLE=NO
 
-      - name: Export IPA & upload to TestFlight
+      - name: Export IPA
         env:
           ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
           ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
@@ -257,6 +282,56 @@ jobs:
             -authenticationKeyPath ~/private_keys/AuthKey_${ASC_KEY_ID}.p8 \
             -authenticationKeyID "$ASC_KEY_ID" \
             -authenticationKeyIssuerID "$ASC_ISSUER_ID"
+
+          IPA=$(ls "$RUNNER_TEMP"/export/*.ipa 2>/dev/null | head -1)
+          if [ -z "$IPA" ]; then
+            echo "::error::exportArchive produced no .ipa"
+            exit 1
+          fi
+          echo "ipa_path=$IPA" >> "$GITHUB_ENV"
+          echo "Exported $IPA"
+
+      # Runs the same checks App Store Connect applies after an upload, but
+      # before we send anything. Builds 31 and 32 were rejected post-upload
+      # with ITMS-90683 (missing NSPhotoLibraryUsageDescription) while this
+      # workflow reported success, because uploading and being *accepted* are
+      # different things. altool exits non-zero on ITMS findings, so those now
+      # fail the build here instead of arriving by email.
+      - name: Validate IPA against App Store rules
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+        run: |
+          xcrun altool --validate-app \
+            -f "$ipa_path" \
+            --type ios \
+            --apiKey "$ASC_KEY_ID" \
+            --apiIssuer "$ASC_ISSUER_ID"
+
+      - name: Upload to TestFlight
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+        run: |
+          xcrun altool --upload-app \
+            -f "$ipa_path" \
+            --type ios \
+            --apiKey "$ASC_KEY_ID" \
+            --apiIssuer "$ASC_ISSUER_ID"
+
+      # A successful upload only means Apple accepted the bytes. Processing
+      # happens asynchronously and can still end in INVALID, which is exactly
+      # how builds 31 and 32 vanished. Wait for the real verdict.
+      - name: Confirm App Store Connect accepted the build
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_PRIVATE_KEY: ${{ secrets.ASC_PRIVATE_KEY }}
+          BUILD_NUMBER: ${{ github.run_number }}
+          BUNDLE_ID: ${{ vars.IOS_BUNDLE_ID || 'com.foodierank.foodierank' }}
+        run: |
+          VENV="$RUNNER_TEMP/verify-venv"
+          "$VENV/bin/python3" .github/scripts/await_build_processing.py
 
       # Pushes to main always submit, preserving the release flow. A manual
       # dispatch can opt out to get a TestFlight-only build for testing.
@@ -280,17 +355,24 @@ jobs:
       - name: Clean up signing, keys & build artifacts
         if: always()
         run: |
-          rm -f ~/private_keys/AuthKey_*.p8
+          # Remove ONLY this job's ASC key and ONLY the profiles this job
+          # installed. `AuthKey_*.p8` deleted sibling jobs' credentials
+          # mid-build — observed 2026-07-28 killing a concurrent Butterfly
+          # build with "AuthKey_***.p8 ... no such file".
+          source "$GITHUB_WORKSPACE/.github/scripts/ci-signing-assets.sh"
+          sa_asc_key_remove "${{ secrets.ASC_KEY_ID }}"
+          sa_cleanup_installed
           if [ -n "$installed_profile_path" ] && [ -f "$installed_profile_path" ]; then
             rm -f "$installed_profile_path" || true
           fi
           if [ -n "$original_default_keychain" ]; then
             security default-keychain -s "$original_default_keychain" 2>/dev/null || true
           fi
-          if [ -n "$original_keychain_list" ]; then
-            security list-keychains -d user -s $original_keychain_list 2>/dev/null || true
-          fi
           if [ -n "$keychain_path" ]; then
+            source "$GITHUB_WORKSPACE/.github/scripts/ci-keychain-lock.sh"
+            kc_lock_acquire
+            kc_remove "$keychain_path"
+            kc_lock_release
             security delete-keychain "$keychain_path" 2>/dev/null || true
           fi
           # Reclaim disk: archives can be GBs each.

@@ -1,0 +1,30 @@
+{
+  "indexes": [],
+  "fieldOverrides": [
+    {
+      "//": "pollImportJobs scans every user's jobs with a collectionGroup query. Single-field equality across a collection group is NOT covered by the automatic per-collection index — it needs this explicit override, or the query fails with FAILED_PRECONDITION. The COLLECTION-scope entries are re-declared because an override replaces a field's default indexing rather than adding to it.",
+      "collectionGroup": "importJobs",
+      "fieldPath": "state",
+      "indexes": [
+        { "order": "ASCENDING", "queryScope": "COLLECTION" },
+        { "order": "DESCENDING", "queryScope": "COLLECTION" },
+        { "order": "ASCENDING", "queryScope": "COLLECTION_GROUP" }
+      ]
+    },
+    {
+      "//": "autoSyncStarredPlaces and syncTakeoutFromDrive both find linked users by array-contains on the stored scope list, which needs CONTAINS at collection-group scope.",
+      "collectionGroup": "private",
+      "fieldPath": "scopes",
+      "indexes": [
+        { "arrayConfig": "CONTAINS", "queryScope": "COLLECTION" },
+        { "arrayConfig": "CONTAINS", "queryScope": "COLLECTION_GROUP" }
+      ]
+    },
+    {
+      "//": "Refresh tokens are never queried on, and indexing them is needless exposure in index scans. Explicitly disable.",
+      "collectionGroup": "private",
+      "fieldPath": "refreshToken",
+      "indexes": []
+    }
+  ]
+}

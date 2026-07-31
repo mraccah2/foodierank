@@ -143,9 +143,39 @@ keys in the Google Cloud console (in addition to the Places API).
 | `IOS_BUNDLE_ID` | `--dart-define` (optional) | Sent as `X-Ios-Bundle-Identifier` for key restrictions |
 | `ANDROID_PACKAGE_NAME` | `--dart-define` (optional) | Sent as `X-Android-Package` for key restrictions |
 | `ANDROID_CERT_SHA1` | `--dart-define` (optional) | Sent as `X-Android-Cert` for key restrictions |
+| `GOOGLE_SERVER_CLIENT_ID` | `--dart-define` (optional) | **Web** OAuth client id, enables Google sign-in |
+| `GOOGLE_IOS_CLIENT_ID` | `--dart-define` (optional) | iOS OAuth client id |
 
 The optional identity values only matter if your API keys are restricted by app
 identity. For unrestricted development keys you can leave them blank.
+
+### Google sign-in and saved places (optional)
+
+Signing in is entirely optional — every other feature works without it. When a
+user does sign in, ranked places also show how they are saved in Google Maps:
+
+| Icon | Meaning |
+|------|---------|
+| ❤️ Heart | Loved (Favorites) |
+| ⭐ Blue star | Starred places |
+| 🚩 Green flag | Want to go |
+| 🔖 Bookmark | In a custom list, e.g. "Iceland trip" |
+
+Only one of heart/star/flag shows at a time, in that order of precedence. Tap it
+to remove that mark and reveal the next one, if any.
+
+**Two things worth knowing up front**, both forced by Google's API surface:
+
+1. **Removing a mark only changes it in FoodieRank.** Google publishes no API
+   for editing a user's saved places, so the mark stays put in Google Maps. The
+   removal is stored as a tombstone so a later import cannot bring it back.
+2. **Only Starred places can sync automatically.** The Data Portability API has
+   no scope for Favorites, Want to go, or custom lists — those arrive only by
+   uploading a Google Takeout archive from the app.
+
+Leaving `GOOGLE_SERVER_CLIENT_ID` blank builds the app with the whole feature
+switched off. The backend that performs the imports lives in `functions/`; see
+[`functions/README.md`](functions/README.md) for its setup.
 
 ### 4. Run
 
@@ -176,6 +206,22 @@ dart run bin/foodierank.dart --at 40.7484,-73.9967 --cuisine Italian --json
 
 `--json` and `--csv` emit the full ranking breakdown (quality score, destination
 bonus, tourist penalty); `--help` lists every option.
+
+**Searching for a specific dish or venue kind.** Beyond whole cuisines, the CLI
+can find the best-ranked place for one *dish* — handy when building a trip
+reservoir or a day's itinerary and you want the top spot for a signature plate,
+not a category. `--query` is a raw Places Text Search string, so a dish name
+works directly:
+
+```bash
+dart run bin/foodierank.dart --at 46.156,-1.152 --query "galette" --any-time --json
+dart run bin/foodierank.dart --at 46.156,-1.152 --query "moules marinières" --any-time
+```
+
+Venue-kind cuisine filters return the right kind of place, not restaurants:
+`--cuisine Coffee` gives cafés (Bakery, Bar, Pub, Deli, Diner likewise) — these
+map to their natural search phrase instead of `"<name> restaurant"`, which for
+Coffee returned pizzerias.
 
 Because there is no build-time `--dart-define` on desktop, the CLI takes its key
 from `GOOGLE_MAPS_API_KEY`. It sends no app-attestation headers, so this must be

@@ -10,6 +10,10 @@ import '../widgets/minimal_restaurant_card.dart';
 import '../widgets/restaurant_map_view.dart';
 import '../widgets/location_picker_sheet.dart';
 import '../widgets/time_picker_sheet.dart';
+import '../services/auth_service.dart';
+import '../services/location_service.dart';
+import '../services/place_status_store.dart';
+import 'account_screen.dart';
 
 enum SortOption { rank, distance }
 
@@ -42,6 +46,9 @@ class _RestaurantListScreenState extends State<RestaurantListScreen>
   String? _searchStatus;
   final TextEditingController _searchController = TextEditingController();
   String _searchQuery = '';
+
+  /// When on, the list shows only places carrying a heart, star or flag.
+  bool _taggedOnly = false;
   bool _isSearchVisible = false;
   final FocusNode _searchFocusNode = FocusNode();
   static const int _lowResultsThreshold = 3;
@@ -53,10 +60,15 @@ class _RestaurantListScreenState extends State<RestaurantListScreen>
   final GlobalKey _scaffoldKey = GlobalKey();
   final Set<String> _selectedPriceLevels = {};
 
+  /// How long a result set stays good enough to leave alone when the app comes
+  /// back to the foreground.
+  static const Duration _staleAfter = Duration(minutes: 45);
+
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this); // Add lifecycle observer
+    placeStatusStore.addListener(_onSavedPlacesChanged);
     _searchController.addListener(() {
       _searchQuery = _searchController.text; // Update query without setState
     });
@@ -70,6 +82,7 @@ class _RestaurantListScreenState extends State<RestaurantListScreen>
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this); // Remove lifecycle observer
+    placeStatusStore.removeListener(_onSavedPlacesChanged);
     _pageController.dispose();
     _customTypeController.dispose();
     _searchController.dispose();
@@ -77,8 +90,20 @@ class _RestaurantListScreenState extends State<RestaurantListScreen>
     super.dispose();
   }
 
+  /// The whole body used to be wrapped in an `AnimatedBuilder` on the saved-
+  /// places store, so each of the three Firestore listeners rebuilt the header,
+  /// the filters, the map and every card on every document change. The markers
+  /// look after themselves — [PlaceStatusIcon] listens to the same store — so
+  /// the list only needs rebuilding when marker membership decides what is in
+  /// it.
+  void _onSavedPlacesChanged() {
+    if (!_taggedOnly) return;
+    setState(_invalidateVisible);
+  }
+
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
+    super.didChangeAppLifecycleState(state);
     if (state == AppLifecycleState.resumed) {
       _checkAndRefreshIfNeeded();
     }
@@ -88,62 +113,71 @@ class _RestaurantListScreenState extends State<RestaurantListScreen>
     // Only the default "Near me / Open now" view auto-refreshes on resume. A
     // pinned custom location or time must stay put until the user changes it.
     if (!_searchContext.isDefault) return;
-    try {
-      final currentPosition = await Geolocator.getCurrentPosition(
-        desiredAccuracy: LocationAccuracy.best,
-        timeLimit: const Duration(seconds: 5),
-      );
+    if (_isLoadingData) return;
 
-      // Check if the hour has changed
-      final shouldRefreshTime = _lastRefreshTime == null ||
-          DateTime.now().hour != _lastRefreshTime!.hour;
+    // Comparing `DateTime.hour` meant that resuming at 3:01 after a 2:59 load
+    // counted as stale and refetched everything — thirty-odd requests, two
+    // minutes later. Elapsed time is what actually matters.
+    final elapsed = _lastRefreshTime == null
+        ? null
+        : DateTime.now().difference(_lastRefreshTime!);
+    final isStale = elapsed == null || elapsed >= _staleAfter;
 
-      // Only check distance if we have a previous position
-      final shouldRefreshDistance = _lastPosition != null &&
-          Geolocator.distanceBetween(
-                _lastPosition!.latitude,
-                _lastPosition!.longitude,
-                currentPosition.latitude,
-                currentPosition.longitude,
-              ) >
-              300;
+    // A coarse fix is plenty to answer "have we moved 300m?", and far cheaper
+    // than the best-accuracy GPS lock this used to request on every resume.
+    final position =
+        await LocationService.instance.current(accuracy: LocationAccuracy.low);
+    if (!mounted) return;
 
-      if (shouldRefreshTime || shouldRefreshDistance) {
-        _lastRefreshTime = DateTime.now();
-        _lastPosition = currentPosition;
-        await _initializeAndLoad();
-      }
-    } catch (e) {
-      // Silent fail - if we can't check conditions, we'll just wait for next attempt
-    }
+    final hasMoved = position != null &&
+        _lastPosition != null &&
+        Geolocator.distanceBetween(
+              _lastPosition!.latitude,
+              _lastPosition!.longitude,
+              position.latitude,
+              position.longitude,
+            ) >
+            300;
+
+    if (!isStale && !hasMoved) return;
+    if (position != null) _lastPosition = position;
+    // Refresh underneath the results already on screen rather than replacing
+    // them with a spinner.
+    await _initializeAndLoad(silent: true);
   }
 
   bool _isLoadingData = false;
 
-  Future<void> _initializeAndLoad() async {
+  /// Loads the current where/when/filter context.
+  ///
+  /// A [silent] load leaves whatever is on screen in place while it runs, and
+  /// on failure leaves it there too — used for background refreshes and
+  /// pull-to-refresh, where blanking the list to a spinner would be a downgrade
+  /// from stale-but-readable.
+  Future<void> _initializeAndLoad({bool silent = false}) async {
     if (_isLoadingData) return;
     _isLoadingData = true;
 
     try {
       setState(() {
-        _isLoading = true;
+        _isLoading = !silent;
         _error = null;
         _searchStatus = null;
       });
 
       // Resolve the search centre: the picked place for a custom location, or
-      // the device's GPS position for "Near me".
+      // the device's position for "Near me".
       final double lat;
       final double lng;
       if (_searchContext.isCustomLocation) {
         lat = _searchContext.lat!;
         lng = _searchContext.lng!;
       } else {
-        final position = await Geolocator.getCurrentPosition(
-          desiredAccuracy: LocationAccuracy.best,
-          timeLimit: const Duration(seconds: 5),
-        );
+        final position = await LocationService.instance.current();
         if (!mounted) return;
+        if (position == null) {
+          throw StateError('No location available');
+        }
         _lastPosition = position;
         lat = position.latitude;
         lng = position.longitude;
@@ -200,73 +234,79 @@ class _RestaurantListScreenState extends State<RestaurantListScreen>
         setState(() {
           _restaurants = restaurants;
           _isLoading = false;
+          _invalidateVisible();
         });
         _sortRestaurants();
       }
     } catch (e) {
-      if (mounted) {
-        setState(() {
-          _error = 'Unable to load restaurant data. Please try again.';
-          _isLoading = false;
-          _searchStatus = null; // Clear search status on error
-        });
-      }
+      if (!mounted) return;
+      // A background refresh that fails leaves what is already on screen alone:
+      // those results are stale, not useless, and an error page would be a
+      // downgrade from them.
+      if (silent && _restaurants != null) return;
+      setState(() {
+        _error = 'Unable to load restaurant data. Please try again.';
+        _isLoading = false;
+        _searchStatus = null; // Clear search status on error
+      });
     } finally {
       _isLoadingData = false;
     }
   }
 
-  void _loadFromCache() async {
+  /// Renders the result set already in memory — restored from disk by the
+  /// splash screen, or left by an earlier search — and only then works out
+  /// whether it is still current.
+  ///
+  /// The order matters. This used to wait on a GPS fix and a staleness check
+  /// before drawing anything, so a cold start with perfectly good cached
+  /// results still opened on a spinner.
+  Future<void> _loadFromCache() async {
     final rawRestaurants = RestaurantService.instance.cachedRestaurants;
-    if (rawRestaurants != null && rawRestaurants.isNotEmpty) {
-      try {
-        final position = await Geolocator.getCurrentPosition(
-          desiredAccuracy: LocationAccuracy.best,
-          timeLimit: const Duration(seconds: 5),
-        );
+    if (rawRestaurants == null || rawRestaurants.isEmpty) {
+      return _initializeAndLoad();
+    }
 
-        if (!mounted) return;
+    final restaurants =
+        rawRestaurants.map((place) => Restaurant.fromJson(place)).toList();
 
-        // Update last position and refresh time when loading from cache
-        _lastPosition = position;
-        _lastRefreshTime = DateTime.now();
+    // Whatever position we already have, without waiting for a fresh fix —
+    // distances render from it, and it is only used to decide on a refresh.
+    final known = LocationService.instance.lastKnown;
+    if (!mounted) return;
+    setState(() {
+      _currentLat = known?.latitude;
+      _currentLng = known?.longitude;
+      _restaurants = restaurants;
+      _isLoading = false;
+      _invalidateVisible();
+    });
+    _sortRestaurants();
 
-        // Check if we need to refresh the data
-        if (RestaurantService.instance.shouldRefreshData(
-          position.latitude,
-          position.longitude,
-          contextKey: _searchContext.isDefault ? null : _searchContext.cacheKey,
-        )) {
-          _initializeAndLoad();
-          return;
-        }
+    final position = known ?? await LocationService.instance.current();
+    if (!mounted || position == null) return;
+    _lastPosition = position;
+    _lastRefreshTime = DateTime.now();
+    if (known == null) {
+      setState(() {
+        _currentLat = position.latitude;
+        _currentLng = position.longitude;
+      });
+    }
 
-        final restaurants =
-            rawRestaurants.map((place) => Restaurant.fromJson(place)).toList();
-
-        setState(() {
-          _currentLat = position.latitude;
-          _currentLng = position.longitude;
-          _restaurants = restaurants;
-          _isLoading = false;
-        });
-        _sortRestaurants();
-      } catch (e) {
-        // Even if location fails, still show restaurants
-        if (mounted) {
-          final restaurants = rawRestaurants
-              .map((place) => Restaurant.fromJson(place))
-              .toList();
-
-          setState(() {
-            _restaurants = restaurants;
-            _isLoading = false;
-          });
-          _sortRestaurants();
-        }
-      }
-    } else {
-      _initializeAndLoad();
+    if (RestaurantService.instance.shouldRefreshData(
+      position.latitude,
+      position.longitude,
+      priceLevels: _getEffectivePriceLevels(),
+      cuisineType: _selectedType,
+      openNow: !_searchContext.isCustomTime,
+      searchQuery: _searchQuery,
+      targetDay: _searchContext.targetDay,
+      targetMinutes: _searchContext.targetMinutes,
+      contextKey: _searchContext.isDefault ? null : _searchContext.cacheKey,
+    )) {
+      // Refresh underneath the results the user is already reading.
+      unawaited(_initializeAndLoad(silent: true));
     }
   }
 
@@ -481,12 +521,47 @@ class _RestaurantListScreenState extends State<RestaurantListScreen>
     );
   }
 
+  /// Memoised so a rebuild does not re-filter. This getter is read once for
+  /// `itemCount` and again inside every `itemBuilder` call, so recomputing it
+  /// meant a `stateFor` lookup per restaurant per row — quadratic in the size
+  /// of the list, on every frame that rebuilt it.
+  List<Restaurant>? _visibleCache;
+
+  void _invalidateVisible() => _visibleCache = null;
+
+  /// The restaurants actually rendered.
+  ///
+  /// Ranking and sorting still run over the full set, so a place keeps the rank
+  /// it earned among all results rather than being renumbered within the
+  /// filtered subset.
+  List<Restaurant> get _visibleRestaurants {
+    final cached = _visibleCache;
+    if (cached != null) return cached;
+
+    final all = _restaurants ?? const <Restaurant>[];
+    return _visibleCache = _taggedOnly
+        ? all
+            .where((r) =>
+                placeStatusStore.stateFor(r.placeId).displayStatus != null)
+            .toList()
+        : all;
+  }
+
+  void _toggleTaggedFilter() {
+    setState(() {
+      _taggedOnly = !_taggedOnly;
+      _invalidateVisible();
+    });
+    if (_pageController.hasClients) _pageController.jumpToPage(0);
+  }
+
   void _sortRestaurants() {
     if (_restaurants == null || _restaurants!.isEmpty) {
       return;
     }
 
     setState(() {
+      _invalidateVisible();
       switch (_sortOption) {
         case SortOption.rank:
           _restaurants!
@@ -530,7 +605,7 @@ class _RestaurantListScreenState extends State<RestaurantListScreen>
           currentPage + 1; // Move down one page
 
       // Ensure we don't go out of bounds
-      nextPage = nextPage.clamp(0, _restaurants!.length - 1);
+      nextPage = nextPage.clamp(0, _visibleRestaurants.length - 1);
 
       _pageController
           .animateToPage(
@@ -686,6 +761,30 @@ class _RestaurantListScreenState extends State<RestaurantListScreen>
         title: Image.asset('assets/logo.png'),
         backgroundColor: Colors.grey[200],
         elevation: 0,
+        actions: [
+          // Signed-in users get their avatar; everyone else a neutral icon, so
+          // the optional sign-in never reads as something the app requires.
+          AnimatedBuilder(
+            animation: AuthService.instance,
+            builder: (context, _) {
+              final photoUrl = AuthService.instance.photoUrl;
+              return IconButton(
+                tooltip: 'Saved places',
+                onPressed: () => Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (_) => const AccountScreen(),
+                  ),
+                ),
+                icon: photoUrl != null
+                    ? CircleAvatar(
+                        radius: 13,
+                        backgroundImage: NetworkImage(photoUrl),
+                      )
+                    : const Icon(Icons.account_circle_outlined),
+              );
+            },
+          ),
+        ],
       ),
       body: GestureDetector(
         onHorizontalDragUpdate: _cardViewFromTap ? _handleHorizontalDrag : null,
@@ -812,7 +911,9 @@ class _RestaurantListScreenState extends State<RestaurantListScreen>
     );
 
     return RefreshIndicator(
-      onRefresh: _initializeAndLoad,
+      // The indicator is the progress; blanking the list to a spinner behind it
+      // would be showing the same thing twice and losing the results meanwhile.
+      onRefresh: () => _initializeAndLoad(silent: true),
       child: Column(
         children: [
           Container(
@@ -990,7 +1091,7 @@ class _RestaurantListScreenState extends State<RestaurantListScreen>
               color: Colors.grey[200],
               child: _viewMode == ViewMode.map
                   ? RestaurantMapView(
-                      restaurants: _restaurants!,
+                      restaurants: _visibleRestaurants,
                       currentLat: _currentLat,
                       currentLng: _currentLng,
                       onRestaurantTap: _showRestaurantCard,
@@ -1001,12 +1102,13 @@ class _RestaurantListScreenState extends State<RestaurantListScreen>
                           scrollDirection: Axis.vertical,
                           pageSnapping: true,
                           physics: const PageScrollPhysics(),
-                          itemCount: _restaurants!.length,
-                          onPageChanged: (index) {
-                            setState(() {});
-                          },
+                          itemCount: _visibleRestaurants.length,
+                          // No `onPageChanged` here on purpose: it used to hold
+                          // an empty `setState`, which rebuilt the header, the
+                          // filters and every card on each swipe. Nothing in
+                          // this subtree reads the current page.
                           itemBuilder: (context, index) {
-                            final restaurant = _restaurants![index];
+                            final restaurant = _visibleRestaurants[index];
                             return Column(
                               children: [
                                 const SizedBox(height: 5.0), // Keep top padding
@@ -1048,9 +1150,9 @@ class _RestaurantListScreenState extends State<RestaurantListScreen>
                       : ListView.builder(
                           padding: const EdgeInsets.only(
                               top: 3), // Added top padding
-                          itemCount: _restaurants!.length,
+                          itemCount: _visibleRestaurants.length,
                           itemBuilder: (context, index) {
-                            final restaurant = _restaurants![index];
+                            final restaurant = _visibleRestaurants[index];
                             return MinimalRestaurantCard(
                               restaurant: restaurant,
                               ranking: restaurant.rank ?? index + 1,
@@ -1084,7 +1186,10 @@ class _RestaurantListScreenState extends State<RestaurantListScreen>
           child: _contextPill(
             icon: Icons.place_outlined,
             label: _searchContext.locationDisplay,
-            active: _searchContext.isCustomLocation,
+            // Both filters are always applied — "Near me" and "Open now" are
+            // the defaults, not the absence of a filter — so the pills read as
+            // on from a cold start. Only a *customised* pill offers a clear.
+            active: true,
             onTap: _openLocationPicker,
             onClear: _searchContext.isCustomLocation ? _resetLocation : null,
           ),
@@ -1094,10 +1199,16 @@ class _RestaurantListScreenState extends State<RestaurantListScreen>
           child: _contextPill(
             icon: Icons.schedule,
             label: _searchContext.timeDisplay,
-            active: _searchContext.isCustomTime,
+            active: true,
             onTap: _openTimePicker,
             onClear: _searchContext.isCustomTime ? _resetTime : null,
           ),
+        ),
+        const SizedBox(width: 8),
+        _iconPill(
+          icon: _taggedOnly ? Icons.flag : Icons.flag_outlined,
+          active: _taggedOnly,
+          onTap: _toggleTaggedFilter,
         ),
         const SizedBox(width: 8),
         _iconPill(

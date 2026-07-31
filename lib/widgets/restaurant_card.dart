@@ -1,10 +1,17 @@
+import 'dart:collection';
+
 import 'package:flutter/material.dart';
 import '../models/restaurant.dart';
 import 'package:url_launcher/url_launcher_string.dart';
-import '../services/restaurant_service.dart';
+import 'place_photo.dart';
+import 'place_status_icon.dart';
 
 class RestaurantCard extends StatefulWidget {
-  static final Map<String, int> _lastViewedIndices = {};
+  /// Which photo each restaurant was last left on, so returning to a card
+  /// resumes where it was. Bounded, because this outlives every search: it used
+  /// to accumulate an entry per place seen for the life of the process.
+  static final LinkedHashMap<String, int> _lastViewedIndices = LinkedHashMap();
+  static const int _lastViewedLimit = 200;
 
   final Restaurant restaurant;
   final VoidCallback onPhotoTap;
@@ -27,21 +34,29 @@ class RestaurantCard extends StatefulWidget {
 
 class _RestaurantCardState extends State<RestaurantCard> {
   late final PageController _pageController;
-  late int _currentPhotoIndex;
-  bool _hasPreloadedPhotos = false;
+
+  /// A notifier rather than state, so paging through a restaurant's photos
+  /// repaints the four dots underneath them instead of rebuilding the card —
+  /// the header images, the rating row, the address, all of it.
+  late final ValueNotifier<int> _photoIndex;
 
   @override
   void initState() {
     super.initState();
-    _currentPhotoIndex =
+    final initial =
         RestaurantCard._lastViewedIndices[widget.restaurant.id] ?? 0;
-    _pageController = PageController(initialPage: _currentPhotoIndex);
+    _photoIndex = ValueNotifier<int>(initial);
+    _pageController = PageController(initialPage: initial);
   }
 
   @override
   void dispose() {
-    RestaurantCard._lastViewedIndices[widget.restaurant.id] =
-        _currentPhotoIndex;
+    final remembered = RestaurantCard._lastViewedIndices;
+    remembered[widget.restaurant.id] = _photoIndex.value;
+    while (remembered.length > RestaurantCard._lastViewedLimit) {
+      remembered.remove(remembered.keys.first);
+    }
+    _photoIndex.dispose();
     _pageController.dispose();
     super.dispose();
   }
@@ -111,218 +126,6 @@ class _RestaurantCardState extends State<RestaurantCard> {
     }
   }
 
-  Widget _buildPhoto(String photoRef) {
-    final cachedPhoto = RestaurantService.instance.getCachedPhoto(photoRef);
-    if (cachedPhoto != null) {
-      return Image(
-        image: MemoryImage(cachedPhoto),
-        fit: BoxFit.cover,
-        width: double.infinity,
-        height: 240,
-      );
-    }
-    // Fallback to loading if somehow not cached
-    return FutureBuilder<ImageProvider>(
-      future: _getPhotoUrl(photoRef),
-      builder: (context, snapshot) {
-        if (snapshot.connectionState == ConnectionState.waiting) {
-          return const Center(child: CircularProgressIndicator());
-        } else if (snapshot.hasError || !snapshot.hasData) {
-          return const Center(
-            child: Icon(Icons.error_outline, size: 40),
-          );
-        }
-        return Image(
-          image: snapshot.data!,
-          fit: BoxFit.cover,
-          width: double.infinity,
-          height: 240,
-        );
-      },
-    );
-  }
-
-  // Add this method to _RestaurantCardState class
-  String? _getDefaultCuisineByLocation(String country) {
-    // Map of countries to their primary cuisine
-    // Using the same cuisine keywords as in _findPrimaryCuisine
-    final Map<String, String> countryCuisineMap = {
-      'Afghanistan': 'afghan',
-      'Argentina': 'argentinian',
-      'Australia': 'australian',
-      'Austria': 'austrian',
-      'Belgium': 'belgian',
-      'Brazil': 'brazilian',
-      'China': 'chinese',
-      'Colombia': 'colombian',
-      'Croatia': 'croatian',
-      'Cuba': 'cuban',
-      'Czech Republic': 'czech',
-      'Denmark': 'danish',
-      'Ethiopia': 'ethiopian',
-      'Philippines': 'filipino',
-      'Finland': 'finnish',
-      'France': 'french',
-      'Georgia': 'georgian',
-      'Germany': 'german',
-      'Greece': 'greek',
-      'Hungary': 'hungarian',
-      'India': 'indian',
-      'Indonesia': 'indonesian',
-      'Ireland': 'irish',
-      'Israel': 'israeli',
-      'Italy': 'italian',
-      'Jamaica': 'jamaican',
-      'Japan': 'japanese',
-      'Korea': 'korean',
-      'Lebanon': 'lebanese',
-      'Malaysia': 'malaysian',
-      'Mexico': 'mexican',
-      'Morocco': 'moroccan',
-      'Nepal': 'nepalese',
-      'Nigeria': 'nigerian',
-      'Norway': 'norwegian',
-      'Pakistan': 'pakistani',
-      'Peru': 'peruvian',
-      'Iran': 'persian',
-      'Poland': 'polish',
-      'Portugal': 'portuguese',
-      'Romania': 'romanian',
-      'Russia': 'russian',
-      'Singapore': 'singaporean',
-      'South Africa': 'south_african',
-      'Spain': 'spanish',
-      'Sweden': 'swedish',
-      'Switzerland': 'swiss',
-      'Taiwan': 'taiwanese',
-      'Thailand': 'thai',
-      'Turkey': 'turkish',
-      'Ukraine': 'ukrainian',
-      'Uruguay': 'uruguayan',
-      'Venezuela': 'venezuelan',
-      'Vietnam': 'vietnamese',
-      'Wales': 'welsh'
-    };
-
-    final defaultCuisine = countryCuisineMap[country];
-    return defaultCuisine;
-  }
-
-  // Modify the _findPrimaryCuisine method to use the default cuisine as fallback
-  String? _findPrimaryCuisine(List<String> types) {
-    // Common cuisine keywords that appear in Google Places types
-    final cuisineKeywords = {
-      'afghani',
-      'african',
-      'american',
-      'arabic',
-      'argentinian',
-      'asian',
-      'australian',
-      'austrian',
-      'bbq',
-      'barbeque',
-      'belgian',
-      'brazilian',
-      'british',
-      'caribbean',
-      'chinese',
-      'colombian',
-      'croatian',
-      'cuban',
-      'czech',
-      'danish',
-      'ethiopian',
-      'filipino',
-      'finnish',
-      'french',
-      'georgian',
-      'german',
-      'greek',
-      'hungarian',
-      'indian',
-      'indonesian',
-      'irish',
-      'israeli',
-      'italian',
-      'jamaican',
-      'japanese',
-      'korean',
-      'latin',
-      'lebanese',
-      'malaysian',
-      'malay',
-      'mediterranean',
-      'mexican',
-      'middle_eastern',
-      'moroccan',
-      'nepalese',
-      'nigerian',
-      'norwegian',
-      'pakistani',
-      'peruvian',
-      'persian',
-      'pizza',
-      'polish',
-      'portuguese',
-      'romanian',
-      'russian',
-      'scandinavian',
-      'scottish',
-      'seafood',
-      'singaporean',
-      'south_african',
-      'sushi',
-      'spanish',
-      'swedish',
-      'swiss',
-      'taiwanese',
-      'thai',
-      'turkish',
-      'ukrainian',
-      'uruguayan',
-      'vegetarian',
-      'venezuelan',
-      'vietnamese',
-      'welsh'
-    };
-
-    // First pass: check for compound types (e.g., "vegetarian_restaurant")
-    for (var type in types) {
-      final normalizedType = type.toLowerCase();
-      // Extract the first part of compound types (before _restaurant, _food, etc.)
-      final baseCuisine = normalizedType.split('_').first;
-      if (cuisineKeywords.contains(baseCuisine)) {
-        return baseCuisine;
-      }
-    }
-
-    // Second pass: direct match with cuisine keywords
-    for (var type in types) {
-      final normalizedType = type.toLowerCase();
-      if (cuisineKeywords.contains(normalizedType)) {
-        return type;
-      }
-    }
-
-    // If no cuisine type found, try to get default cuisine based on country
-    final defaultCuisine =
-        _getDefaultCuisineByLocation(widget.restaurant.location.country);
-    if (defaultCuisine != null) {
-      return defaultCuisine;
-    }
-
-    return null;
-  }
-
-  // Add this helper method to _RestaurantCardState
-  String _formatCuisineDisplay(String cuisine) {
-    return cuisine
-        .split(' ')
-        .map((word) => word[0].toUpperCase() + word.substring(1).toLowerCase())
-        .join(' ');
-  }
-
   @override
   Widget build(BuildContext context) {
     return Card(
@@ -349,29 +152,11 @@ class _RestaurantCardState extends State<RestaurantCard> {
                   child: PageView.builder(
                     controller: _pageController,
                     itemCount: widget.restaurant.photoRefs.length,
-                    onPageChanged: (index) {
-                      setState(() {
-                        _currentPhotoIndex = index;
-                      });
-
-                      // Prefetch remaining photos on first interaction
-                      if (!_hasPreloadedPhotos) {
-                        _hasPreloadedPhotos = true;
-                        // Get all photo refs except the ones we've already loaded
-                        final remainingPhotos = widget.restaurant.photoRefs
-                            .where((ref) =>
-                                RestaurantService.instance
-                                    .getCachedPhoto(ref) ==
-                                null)
-                            .toList();
-
-                        if (remainingPhotos.isNotEmpty) {
-                          // Prefetch in the background
-                          RestaurantService.instance
-                              .prefetchHeaderPhotos(remainingPhotos);
-                        }
-                      }
-                    },
+                    // PageView.builder builds the neighbouring page as you
+                    // swipe, and PlacePhoto fetches on build, so the next photo
+                    // is already on its way. The old explicit prefetch pulled
+                    // every remaining photo the moment the card was touched.
+                    onPageChanged: (index) => _photoIndex.value = index,
                     itemBuilder: (context, index) {
                       return Hero(
                         tag: 'restaurant_photo_${widget.restaurant.id}_$index',
@@ -380,8 +165,11 @@ class _RestaurantCardState extends State<RestaurantCard> {
                             topLeft: Radius.circular(24),
                             topRight: Radius.circular(24),
                           ),
-                          child:
-                              _buildPhoto(widget.restaurant.photoRefs[index]),
+                          child: PlacePhoto(
+                            photoRef: widget.restaurant.photoRefs[index],
+                            height: 240,
+                            width: double.infinity,
+                          ),
                         ),
                       );
                     },
@@ -391,23 +179,24 @@ class _RestaurantCardState extends State<RestaurantCard> {
                   bottom: 8,
                   left: 0,
                   right: 0,
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: List.generate(widget.restaurant.photoRefs.length,
-                        (index) {
-                      return AnimatedContainer(
-                        duration: const Duration(milliseconds: 300),
-                        margin: const EdgeInsets.symmetric(horizontal: 4),
-                        width: _currentPhotoIndex == index ? 12 : 8,
-                        height: 8,
-                        decoration: BoxDecoration(
-                          color: _currentPhotoIndex == index
-                              ? Colors.white
-                              : Colors.grey,
-                          borderRadius: BorderRadius.circular(4),
-                        ),
-                      );
-                    }),
+                  child: ValueListenableBuilder<int>(
+                    valueListenable: _photoIndex,
+                    builder: (context, current, _) => Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: List.generate(
+                          widget.restaurant.photoRefs.length, (index) {
+                        return AnimatedContainer(
+                          duration: const Duration(milliseconds: 300),
+                          margin: const EdgeInsets.symmetric(horizontal: 4),
+                          width: current == index ? 12 : 8,
+                          height: 8,
+                          decoration: BoxDecoration(
+                            color: current == index ? Colors.white : Colors.grey,
+                            borderRadius: BorderRadius.circular(4),
+                          ),
+                        );
+                      }),
+                    ),
                   ),
                 ),
               ],
@@ -440,6 +229,16 @@ class _RestaurantCardState extends State<RestaurantCard> {
                               overflow: TextOverflow.visible,
                             ),
                           ),
+                          // Nested inside the "open in Google Maps" gesture on
+                          // purpose: its own tap recogniser is deeper in the
+                          // tree, so clearing a marker wins the gesture arena
+                          // and does not also launch Maps.
+                          PlaceStatusIcon(
+                            placeId: widget.restaurant.placeId,
+                            size: 22,
+                            showListLabel: true,
+                          ),
+                          const SizedBox(width: 4),
                           Container(
                             padding: const EdgeInsets.all(8),
                             decoration: const BoxDecoration(
@@ -489,14 +288,14 @@ class _RestaurantCardState extends State<RestaurantCard> {
                     ),
                     const SizedBox(height: 12),
 
-                    // Restaurant Types
+                    // Restaurant Types. Resolved once when the restaurant was
+                    // parsed (see Restaurant.cuisineLabel) rather than twice
+                    // per build off a freshly allocated keyword set.
                     Wrap(
                       spacing: 4,
                       runSpacing: 0,
                       children: [
-                        // Try to find primary cuisine
-                        if (_findPrimaryCuisine(widget.restaurant.types) !=
-                            null)
+                        if (widget.restaurant.cuisineLabel != null)
                           Container(
                             padding: const EdgeInsets.symmetric(
                                 horizontal: 8, vertical: 4),
@@ -505,8 +304,7 @@ class _RestaurantCardState extends State<RestaurantCard> {
                               borderRadius: BorderRadius.circular(4),
                             ),
                             child: Text(
-                              _formatCuisineDisplay(_findPrimaryCuisine(
-                                  widget.restaurant.types)!),
+                              widget.restaurant.cuisineLabel!,
                               style: Theme.of(context).textTheme.bodyMedium,
                             ),
                           ),
@@ -571,15 +369,5 @@ class _RestaurantCardState extends State<RestaurantCard> {
         ],
       ),
     );
-  }
-
-  Future<ImageProvider> _getPhotoUrl(String photoRef) async {
-    final cachedPhoto = RestaurantService.instance.getCachedPhoto(photoRef);
-    if (cachedPhoto != null) {
-      return MemoryImage(cachedPhoto);
-    }
-    // If not in cache, fetch and cache it
-    await RestaurantService.instance.prefetchHeaderPhotos([photoRef]);
-    return MemoryImage(RestaurantService.instance.getCachedPhoto(photoRef)!);
   }
 }

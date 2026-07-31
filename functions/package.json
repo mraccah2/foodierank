@@ -1,0 +1,29 @@
+{
+  "name": "foodierank-functions",
+  "description": "Imports the signed-in user's Google Maps saved places into Firestore.",
+  "private": true,
+  "main": "lib/index.js",
+  "engines": {
+    "node": "22"
+  },
+  "scripts": {
+    "build": "tsc",
+    "build:watch": "tsc --watch",
+    "serve": "npm run build && firebase emulators:start --only functions,firestore,storage",
+    "deploy": "firebase deploy --only functions",
+    "logs": "firebase functions:log",
+    "test": "npm run build && node --test test/*.test.js"
+  },
+  "dependencies": {
+    "adm-zip": "^0.5.16",
+    "csv-parse": "^5.6.0",
+    "firebase-admin": "^13.0.2",
+    "firebase-functions": "^6.3.0",
+    "google-auth-library": "^11.0.0"
+  },
+  "devDependencies": {
+    "@types/adm-zip": "^0.5.7",
+    "@types/node": "^22.10.5",
+    "typescript": "^5.7.3"
+  }
+}

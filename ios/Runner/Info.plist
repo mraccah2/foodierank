@@ -16,21 +16,35 @@
 	<string>6.0</string>
 	<key>CFBundleName</key>
 	<string>foodierank</string>
-	<key>GMSApiKey</key>
-	<string>$(GOOGLE_MAPS_IOS_API_KEY)</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
 	<string>$(FLUTTER_BUILD_NAME)</string>
 	<key>CFBundleSignature</key>
 	<string>????</string>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleTypeRole</key>
+			<string>Editor</string>
+			<key>CFBundleURLName</key>
+			<string>com.foodierank.foodierank</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>com.googleusercontent.apps.182786688473-vantejgfujt2rotpv434mh6k3nt7mhiv</string>
+			</array>
+		</dict>
+	</array>
 	<key>CFBundleVersion</key>
 	<string>$(FLUTTER_BUILD_NUMBER)</string>
-	<!-- The app only uses standard HTTPS/TLS, which is exempt. Declaring it
-	     here means uploads arrive export-compliant; without it a build sits in
-	     MISSING_EXPORT_COMPLIANCE and never reaches TestFlight testers. -->
+	<key>GMSApiKey</key>
+	<string>$(GOOGLE_MAPS_IOS_API_KEY)</string>
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
+	<key>LSApplicationQueriesSchemes</key>
+	<array>
+		<string>comgooglemaps</string>
+	</array>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
 	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
@@ -39,6 +53,8 @@
 	<string>We need your location to show nearby restaurants even when the app is not in use.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>We need your location to show nearby restaurants.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>FoodieRank never reads your photos. The file picker used to choose a Google Takeout archive can offer your photo library as one of its locations, and iOS requires this permission text for that picker to appear.</string>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
 	<key>UILaunchStoryboardName</key>
@@ -57,10 +73,6 @@
 		<string>UIInterfaceOrientationPortraitUpsideDown</string>
 		<string>UIInterfaceOrientationLandscapeLeft</string>
 		<string>UIInterfaceOrientationLandscapeRight</string>
-	</array>
-	<key>LSApplicationQueriesSchemes</key>
-	<array>
-		<string>comgooglemaps</string>
 	</array>
 </dict>
 </plist>

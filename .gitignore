@@ -61,3 +61,17 @@ app.*.map.json
 # The *.example templates ARE committed; the real files are not.
 /dart_defines.json
 /android/local.properties
+
+# Cloud Functions build output and dependencies.
+/functions/node_modules/
+/functions/lib/
+/functions/.env
+/functions/.env.*
+!/functions/.env.example
+
+# Firebase CLI local state. .firebaserc names the project and is per-developer.
+.firebase/
+.firebaserc
+firebase-debug.log
+firestore-debug.log
+ui-debug.log

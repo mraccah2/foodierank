@@ -9,6 +9,18 @@
 ///   dart run bin/foodierank.dart "Chartres, France"
 ///   dart run bin/foodierank.dart --at 40.7484,-73.9967 --cuisine Italian
 ///   dart run bin/foodierank.dart "Nantes" --any-time --limit 10 --json
+///
+/// Searching for a specific DISH or VENUE KIND — useful when building a trip
+/// reservoir or a daily itinerary and you want the best-ranked place for one
+/// thing, not a whole cuisine:
+///   --query "galette"        # best crêperies for a buckwheat galette
+///   --query "moules marinières"
+///   --query "huîtres"        # oyster spots
+///   --cuisine Coffee         # coffee shops / cafés (see venue-kind note below)
+/// `--query` is a raw Places Text Search string, so a dish name, a signature
+/// plate, or a place type all work; it overrides `--cuisine`. Combine with
+/// `--at <lat>,<lng> --any-time --json` to pull ranked candidates + coords for
+/// a reservoir/itinerary entry non-interactively.
 library;
 
 import 'dart:convert';
@@ -29,7 +41,15 @@ Usage:
 Options:
   --at <lat>,<lng>     Search around explicit coordinates instead of a place name.
   --cuisine <name>     One of RestaurantService.cuisineTypes (e.g. Italian, Sushi).
-  --query <text>       Free-text search, used instead of --cuisine.
+                       Most map to "<name> restaurant"; venue-kind types
+                       (Coffee, Bakery, Bar, Pub, Deli, Diner) map to their
+                       natural phrase so e.g. Coffee returns cafés, not
+                       restaurants.
+  --query <text>       Raw Places Text Search string, used instead of --cuisine.
+                       Use it to find the best place for a SPECIFIC DISH or
+                       plate when building a reservoir / itinerary, e.g.
+                       --query "galette", --query "moules marinières",
+                       --query "huîtres".
   --price <1-4,...>    Price levels to include, comma separated (1 = \$ … 4 = \$\$\$\$).
   --limit <n>          How many results to print (default 20).
   --any-time           Do not restrict to places open right now.
@@ -39,6 +59,10 @@ Options:
   -h, --help           Show this message.
 
 The GOOGLE_MAPS_API_KEY environment variable must be set.
+
+Examples — dish search for a reservoir/itinerary entry:
+  dart run bin/foodierank.dart --at 46.156,-1.152 --query "galette" --any-time --json
+  dart run bin/foodierank.dart --at 46.156,-1.152 --cuisine Coffee --any-time --limit 8
 ''';
 
 Future<void> main(List<String> argv) async {
