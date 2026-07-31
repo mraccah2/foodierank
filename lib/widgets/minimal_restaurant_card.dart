@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import '../models/restaurant.dart';
-import '../services/restaurant_service.dart';
+import 'place_photo.dart';
 import 'place_status_icon.dart';
 
 class MinimalRestaurantCard extends StatelessWidget {
@@ -116,33 +116,21 @@ class MinimalRestaurantCard extends StatelessWidget {
                             '(${restaurant.reviewCount})',
                             style: const TextStyle(fontSize: 12),
                           ),
-                          Builder(
-                            builder: (context) {
-                              final primaryCuisine =
-                                  RestaurantService.instance.findPrimaryCuisine(
-                                restaurant.types,
-                                country: restaurant.location.country,
-                              );
-                              if (primaryCuisine != null) {
-                                return Container(
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 8,
-                                    vertical: 2,
-                                  ),
-                                  decoration: BoxDecoration(
-                                    color: Colors.blue.withValues(alpha: 0.1),
-                                    borderRadius: BorderRadius.circular(4),
-                                  ),
-                                  child: Text(
-                                    RestaurantService.instance
-                                        .formatCuisineDisplay(primaryCuisine),
-                                    style: const TextStyle(fontSize: 12),
-                                  ),
-                                );
-                              }
-                              return const SizedBox.shrink();
-                            },
-                          ),
+                          if (restaurant.cuisineLabel != null)
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 8,
+                                vertical: 2,
+                              ),
+                              decoration: BoxDecoration(
+                                color: Colors.blue.withValues(alpha: 0.1),
+                                borderRadius: BorderRadius.circular(4),
+                              ),
+                              child: Text(
+                                restaurant.cuisineLabel!,
+                                style: const TextStyle(fontSize: 12),
+                              ),
+                            ),
                           if (distance.isNotEmpty)
                             Text(
                               distance,
@@ -160,36 +148,16 @@ class MinimalRestaurantCard extends StatelessWidget {
                   padding: const EdgeInsets.only(left: 8.0),
                   child: ClipRRect(
                     borderRadius: BorderRadius.circular(4),
-                    child: SizedBox(
+                    child: PlacePhoto(
+                      photoRef: restaurant.photoRefs.first,
                       width: 60,
                       height: 60,
-                      child: _buildPhoto(restaurant.photoRefs.first),
                     ),
                   ),
                 ),
             ],
           ),
         ),
-      ),
-    );
-  }
-
-  // Add this helper method to build the photo
-  Widget _buildPhoto(String photoRef) {
-    final cachedPhoto = RestaurantService.instance.getCachedPhoto(photoRef);
-    if (cachedPhoto != null) {
-      return Image.memory(
-        cachedPhoto,
-        fit: BoxFit.cover,
-        width: 60,
-        height: 60,
-      );
-    }
-    return const Center(
-      child: SizedBox(
-        width: 60,
-        height: 60,
-        child: CircularProgressIndicator(),
       ),
     );
   }

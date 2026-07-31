@@ -1,19 +1,90 @@
 import 'package:foodierank/services/proxy_service.dart';
 import 'package:foodierank/config.dart';
-import 'package:http/http.dart' as http;
+import 'dart:collection';
 import 'dart:typed_data';
 import 'dart:async';
 import 'dart:math';
 import 'api_usage_tracker.dart';
+import 'app_http.dart';
+
+/// A result set together with the query it answers and where it was taken —
+/// everything needed to decide, on the next launch, whether it can be shown
+/// straight away instead of blocking on a network search.
+class RestaurantSearchSnapshot {
+  final List<Map<String, dynamic>> places;
+  final double latitude;
+  final double longitude;
+  final String queryKey;
+  final DateTime fetchedAt;
+
+  const RestaurantSearchSnapshot({
+    required this.places,
+    required this.latitude,
+    required this.longitude,
+    required this.queryKey,
+    required this.fetchedAt,
+  });
+
+  Map<String, dynamic> toJson() => {
+        'places': places,
+        'lat': latitude,
+        'lng': longitude,
+        'queryKey': queryKey,
+        'fetchedAt': fetchedAt.millisecondsSinceEpoch,
+      };
+
+  static RestaurantSearchSnapshot? fromJson(Map<String, dynamic> json) {
+    final places = (json['places'] as List<dynamic>?)
+        ?.whereType<Map<String, dynamic>>()
+        .toList();
+    final lat = (json['lat'] as num?)?.toDouble();
+    final lng = (json['lng'] as num?)?.toDouble();
+    final fetchedAt = (json['fetchedAt'] as num?)?.toInt();
+    if (places == null || lat == null || lng == null || fetchedAt == null) {
+      return null;
+    }
+    return RestaurantSearchSnapshot(
+      places: places,
+      latitude: lat,
+      longitude: lng,
+      queryKey: json['queryKey'] as String? ?? '',
+      fetchedAt: DateTime.fromMillisecondsSinceEpoch(fetchedAt),
+    );
+  }
+}
 
 class RestaurantService {
   static final RestaurantService instance = RestaurantService._internal();
   List<Map<String, dynamic>>? _cachedRestaurants;
-  final Map<String, Uint8List> _photoCache = {};
   DateTime? _lastFetchTime;
   double? _lastFetchLatitude;
   double? _lastFetchLongitude;
-  String? _lastContextKey;
+  String? _lastQueryKey;
+
+  /// Fetched photo bytes, least-recently-used first.
+  ///
+  /// Bounded on purpose: this was an unbounded map retaining the bytes of every
+  /// photo ever fetched for the life of the process, so a few changes of
+  /// cuisine or city accumulated tens of megabytes nothing would look at again.
+  final LinkedHashMap<String, Uint8List> _photoCache = LinkedHashMap();
+  static const int _photoCacheLimit = 60;
+
+  /// In-flight photo requests, so a list row, its card and any prefetch share
+  /// one download of the same photo rather than racing three.
+  final Map<String, Future<Uint8List?>> _photoRequests = {};
+
+  /// Photos now share one HTTP client with everything else. Letting twenty
+  /// start at once defeats connection reuse and starves whatever the user is
+  /// actually waiting on.
+  static const int _maxConcurrentPhotos = 4;
+  int _photosInFlight = 0;
+  final Queue<Completer<void>> _photoQueue = Queue();
+
+  /// Installed by the app so a result set survives a relaunch (see
+  /// `RestaurantDiskCache`). Left null by `bin/foodierank.dart`, which is why
+  /// it is a hook rather than a direct call — this class stays free of Flutter
+  /// imports so the CLI can share the search and ranking pipeline.
+  Future<void> Function(RestaurantSearchSnapshot snapshot)? onResults;
 
   factory RestaurantService() {
     return instance;
@@ -22,6 +93,34 @@ class RestaurantService {
   RestaurantService._internal();
 
   List<Map<String, dynamic>>? get cachedRestaurants => _cachedRestaurants;
+
+  /// Everything that changes what a search returns, folded into one string.
+  /// Two searches with equal keys are interchangeable; anything else has to go
+  /// back to the network.
+  ///
+  /// [shouldRefreshData] used to compare only the where/when context, so a
+  /// result set fetched under one cuisine or price filter could be served for a
+  /// different one.
+  static String queryKey({
+    List<String>? priceLevels,
+    String? cuisineType,
+    bool openNow = true,
+    String? searchQuery,
+    int? targetDay,
+    int? targetMinutes,
+    String? contextKey,
+  }) {
+    final prices = (priceLevels?.toList()?..sort())?.join('|') ?? '';
+    return [
+      cuisineType ?? '',
+      prices,
+      openNow ? 'now' : 'any',
+      searchQuery ?? '',
+      targetDay?.toString() ?? '',
+      targetMinutes?.toString() ?? '',
+      contextKey ?? '',
+    ].join('');
+  }
 
   Future<List<Map<String, dynamic>>> fetchRestaurants(
       double latitude, double longitude,
@@ -34,12 +133,7 @@ class RestaurantService {
       String? contextKey,
       void Function(int count, String type, double radius)?
           onSearchUpdate}) async {
-    _lastFetchTime = DateTime.now();
-    _lastFetchLatitude = latitude;
-    _lastFetchLongitude = longitude;
-    _lastContextKey = contextKey;
-
-    _cachedRestaurants = await getNearbyRestaurants(
+    final places = await getNearbyRestaurants(
       latitude,
       longitude,
       priceLevels: priceLevels,
@@ -51,22 +145,71 @@ class RestaurantService {
       onSearchUpdate: onSearchUpdate,
     );
 
-    // Immediately prefetch all primary photos
-    if (_cachedRestaurants != null) {
-      final headerPhotoRefs = _cachedRestaurants!
-          .expand((r) => (r['photoRefs'] as List<dynamic>?)?.take(1) ?? [])
-          .cast<String>()
-          .toList();
+    // Only stamp the cache once the search has actually succeeded — recording
+    // the position up front meant a thrown search left the service claiming a
+    // fresh fetch for a result set it never got.
+    _lastFetchTime = DateTime.now();
+    _lastFetchLatitude = latitude;
+    _lastFetchLongitude = longitude;
+    _lastQueryKey = queryKey(
+      priceLevels: priceLevels,
+      cuisineType: cuisineType,
+      openNow: openNow,
+      searchQuery: searchQuery,
+      targetDay: targetDay,
+      targetMinutes: targetMinutes,
+      contextKey: contextKey,
+    );
+    _cachedRestaurants = places;
 
-      await prefetchHeaderPhotos(headerPhotoRefs);
+    unawaited(_persist(RestaurantSearchSnapshot(
+      places: places,
+      latitude: latitude,
+      longitude: longitude,
+      queryKey: _lastQueryKey!,
+      fetchedAt: _lastFetchTime!,
+    )));
+    // Warm the photos the top of the list will ask for, but do not hold the
+    // results back for them: the list is readable without pictures, and
+    // awaiting twenty downloads here was seconds of spinner for decoration.
+    // Everything else loads on demand as rows scroll into view.
+    unawaited(prefetchHeaderPhotos(_headerPhotoRefs(places).take(8).toList()));
+
+    return places;
+  }
+
+  List<String> _headerPhotoRefs(List<Map<String, dynamic>> places) => places
+      .expand((r) => (r['photoRefs'] as List<dynamic>?)?.take(1) ?? const [])
+      .cast<String>()
+      .toList();
+
+  /// Takes the snapshot by argument rather than re-reading the fields, so a
+  /// second search starting while this one is still writing cannot swap the
+  /// result set out from under it.
+  Future<void> _persist(RestaurantSearchSnapshot snapshot) async {
+    final persist = onResults;
+    if (persist == null) return;
+    try {
+      await persist(snapshot);
+    } catch (_) {
+      // Persistence is an optimisation; never fail a search over it.
     }
+  }
 
-    return _cachedRestaurants!;
+  /// Adopt a previously persisted result set as though it had just been
+  /// fetched, so a cold start can render from disk while it revalidates.
+  void hydrate(RestaurantSearchSnapshot snapshot) {
+    _cachedRestaurants = snapshot.places;
+    _lastFetchLatitude = snapshot.latitude;
+    _lastFetchLongitude = snapshot.longitude;
+    _lastQueryKey = snapshot.queryKey;
+    _lastFetchTime = snapshot.fetchedAt;
   }
 
   static const int _targetCount = 20;
   static const double _initialRadius = 1000; // start ~1km
   static const double _radiusGrowth = 2.0; // double the search radius each round
+  static const double _emptyRoundGrowth = 4.0; // step out harder over empty country
   static const double maxRadius = 100000; // safety cap (~100km) for remote areas
   static const int _sectorsPerSide = 2; // query the box as a 2×2 grid
 
@@ -184,6 +327,7 @@ class RestaurantService {
     // are open at that time toward the target.
     while (allRestaurants.length < _targetCount) {
       if (radius.isNaN) break;
+      final countBefore = allRestaurants.length;
 
       // Text Search ranks by Google's own "prominence" within the requested
       // box, so one big query in a touristy city fills all 20 slots with the
@@ -242,7 +386,15 @@ class RestaurantService {
       // Stop once we have enough, or once we've already searched at the
       // maximum radius (truly remote — return whatever we found).
       if (allRestaurants.length >= _targetCount || radius >= maxRadius) break;
-      radius = (radius * _radiusGrowth).clamp(_initialRadius, maxRadius);
+      // A round that turned up nothing at all means empty country, not a thin
+      // result: stepping out by the usual factor just buys another four
+      // requests over more of the same. Widening harder gets to the nearest
+      // populated area in fewer sequential round trips, which is what the user
+      // is actually waiting on.
+      final growth = allRestaurants.length == countBefore
+          ? _emptyRoundGrowth
+          : _radiusGrowth;
+      radius = (radius * growth).clamp(_initialRadius, maxRadius);
     }
 
     await _applyLocalityScores(allRestaurants, latitude, longitude, radius);
@@ -510,87 +662,132 @@ class RestaurantService {
     }
   }
 
-  Future<Uint8List?> getPlacePhoto(String photoName,
-      {int maxWidth = 800, int maxHeight = 450}) async {
-    ApiUsageTracker.instance.incrementPhoto();
+  /// The bytes for [photoRef] if they are already in memory. Cheap enough for a
+  /// `build`; returns null rather than starting a download, so callers that can
+  /// render a placeholder are not forced to wait.
+  Uint8List? getCachedPhoto(String photoRef) {
+    // Re-inserting on read is what makes the bounded map an LRU rather than a
+    // "first sixty photos of the session" cache.
+    final bytes = _photoCache.remove(photoRef);
+    if (bytes == null) return null;
+    _photoCache[photoRef] = bytes;
+    return bytes;
+  }
+
+  /// The bytes for [photoRef], fetching them if needed.
+  ///
+  /// Concurrent callers for the same photo share one request: a list row, the
+  /// card behind it and any prefetch all used to issue their own.
+  Future<Uint8List?> loadPhoto(String photoRef,
+      {int maxWidth = 800, int maxHeight = 450}) {
+    final cached = getCachedPhoto(photoRef);
+    if (cached != null) return Future.value(cached);
+
+    final existing = _photoRequests[photoRef];
+    if (existing != null) return existing;
+
+    final request = _fetchPhoto(photoRef, maxWidth, maxHeight)
+        .whenComplete(() => _photoRequests.remove(photoRef));
+    _photoRequests[photoRef] = request;
+    return request;
+  }
+
+  Future<Uint8List?> _fetchPhoto(
+      String photoRef, int maxWidth, int maxHeight) async {
+    await _acquirePhotoSlot();
     try {
-      final uri = Uri.parse('${ProxyService.baseUrl}/$photoName/media');
+      ApiUsageTracker.instance.incrementPhoto();
+      final uri = Uri.parse('${ProxyService.baseUrl}/$photoRef/media').replace(
+        queryParameters: {
+          'maxWidthPx': maxWidth.toString(),
+          'maxHeightPx': maxHeight.toString(),
+        },
+      );
 
-      final client = http.Client();
-      try {
-        final response = await client.get(
-          uri.replace(queryParameters: {
-            'maxWidthPx': maxWidth.toString(),
-            'maxHeightPx': maxHeight.toString(),
-            'key': Config.googleMapsApiKey,
-          }),
-          headers: {
-            'X-Goog-Api-Key': Config.googleMapsApiKey,
-            ...Config.appAttestationHeaders,
-            'Accept': 'image/*',
-            'User-Agent': 'FoodieRank/1.0',
-          },
-        ).timeout(const Duration(seconds: 10));
+      final response = await appHttpClient.get(
+        uri,
+        headers: {
+          // The key travels in the header only. It used to also be repeated as
+          // a `key` query parameter, which put it in the URL of every photo
+          // request and so into any intermediary's access log.
+          'X-Goog-Api-Key': Config.googleMapsApiKey,
+          ...Config.appAttestationHeaders,
+          'Accept': 'image/*',
+          'User-Agent': 'FoodieRank/1.0',
+        },
+      ).timeout(kPhotoTimeout);
 
-        if (response.statusCode == 200) return response.bodyBytes;
-        return null;
-      } finally {
-        client.close();
-      }
+      if (response.statusCode != 200) return null;
+      _cachePhoto(photoRef, response.bodyBytes);
+      return response.bodyBytes;
     } catch (e) {
       return null;
+    } finally {
+      _releasePhotoSlot();
     }
   }
 
-  Future<void> prefetchHeaderPhotos(List<String> photoRefs) async {
-    await Future.wait(photoRefs.map((photoRef) async {
-      if (!_photoCache.containsKey(photoRef)) {
-        try {
-          final photoBytes = await getPlacePhoto(photoRef);
-          if (photoBytes != null) {
-            _photoCache[photoRef] = photoBytes;
-          }
-        } catch (e) {
-          // Silently handle error
-        }
-      }
-    }));
+  void _cachePhoto(String photoRef, Uint8List bytes) {
+    _photoCache[photoRef] = bytes;
+    while (_photoCache.length > _photoCacheLimit) {
+      _photoCache.remove(_photoCache.keys.first);
+    }
   }
 
-  Uint8List? getCachedPhoto(String photoRef) {
-    return _photoCache[photoRef];
+  Future<void> _acquirePhotoSlot() {
+    if (_photosInFlight < _maxConcurrentPhotos) {
+      _photosInFlight++;
+      return Future.value();
+    }
+    final waiter = Completer<void>();
+    _photoQueue.add(waiter);
+    return waiter.future;
   }
 
-  /// Warms the restaurant + photo caches used by the first screen. Decoding the
-  /// fetched bytes into the widget tree is the caller's job (see
-  /// `SplashScreen._warmCaches`) — this class stays free of Flutter imports so
-  /// `bin/foodierank.dart` can reuse the search and ranking pipeline.
-  ///
-  /// Returns the photo refs that were fetched, in display order.
-  Future<List<String>> warmCaches() async {
-    if (_cachedRestaurants != null) return const [];
-
-    final restaurants = await fetchRestaurants(37.785834, -122.406417);
-    final headerPhotoRefs = restaurants
-        .expand((r) => (r['photoRefs'] as List<dynamic>?)?.take(1) ?? [])
-        .cast<String>()
-        .toList();
-
-    await prefetchHeaderPhotos(headerPhotoRefs);
-    return headerPhotoRefs;
+  void _releasePhotoSlot() {
+    // Hand the slot straight to whoever is queued rather than releasing and
+    // re-taking it, so the in-flight count stays accurate.
+    if (_photoQueue.isNotEmpty) {
+      _photoQueue.removeFirst().complete();
+      return;
+    }
+    _photosInFlight--;
   }
+
+  /// Best-effort warm of photos the first screenful will ask for. Nothing waits
+  /// on this — [loadPhoto] serves whatever has landed and fetches the rest on
+  /// demand.
+  Future<void> prefetchHeaderPhotos(List<String> photoRefs) =>
+      Future.wait(photoRefs.map(loadPhoto));
 
   bool shouldRefreshData(double currentLat, double currentLng,
-      {String? contextKey}) {
+      {List<String>? priceLevels,
+      String? cuisineType,
+      bool openNow = true,
+      String? searchQuery,
+      int? targetDay,
+      int? targetMinutes,
+      String? contextKey}) {
     if (_lastFetchTime == null ||
         _lastFetchLatitude == null ||
         _lastFetchLongitude == null) {
       return true;
     }
 
-    // A different where/when context (custom location or time) never reuses the
-    // cache from another context, and vice-versa.
-    if (contextKey != _lastContextKey) {
+    // Anything that changes what the search returns — the where/when context,
+    // but also the cuisine, price and keyword filters — invalidates the cache.
+    // Only the context was compared before, so a result set fetched under one
+    // cuisine filter could be served for another.
+    if (queryKey(
+          priceLevels: priceLevels,
+          cuisineType: cuisineType,
+          openNow: openNow,
+          searchQuery: searchQuery,
+          targetDay: targetDay,
+          targetMinutes: targetMinutes,
+          contextKey: contextKey,
+        ) !=
+        _lastQueryKey) {
       return true;
     }
 
@@ -621,131 +818,5 @@ class RestaurantService {
     final c = 2 * atan2(sqrt(a), sqrt(1 - a));
 
     return R * c; // Distance in meters
-  }
-
-  String? findPrimaryCuisine(List<String> types, {String? country}) {
-    // Common cuisine keywords that appear in Google Places types
-    final cuisineKeywords = {
-      'afghani',
-      'african',
-      'american',
-      'arabic',
-      'argentinian',
-      'asian',
-      'australian',
-      'austrian',
-      'bbq',
-      'barbeque',
-      'belgian',
-      'brazilian',
-      'british',
-      'caribbean',
-      'chinese',
-      'colombian',
-      'croatian',
-      'cuban',
-      'czech',
-      'danish',
-      'ethiopian',
-      'filipino',
-      'finnish',
-      'french',
-      'georgian',
-      'german',
-      'greek',
-      'hungarian',
-      'indian',
-      'indonesian',
-      'irish',
-      'israeli',
-      'italian',
-      'jamaican',
-      'japanese',
-      'korean',
-      'latin',
-      'lebanese',
-      'malaysian',
-      'malay',
-      'mediterranean',
-      'mexican',
-      'middle_eastern',
-      'moroccan',
-      'nepalese',
-      'nigerian',
-      'norwegian',
-      'pakistani',
-      'peruvian',
-      'persian',
-      'pizza',
-      'polish',
-      'portuguese',
-      'romanian',
-      'russian',
-      'scandinavian',
-      'scottish',
-      'seafood',
-      'singaporean',
-      'south_african',
-      'sushi',
-      'spanish',
-      'swedish',
-      'swiss',
-      'taiwanese',
-      'thai',
-      'turkish',
-      'ukrainian',
-      'uruguayan',
-      'vegetarian',
-      'venezuelan',
-      'vietnamese',
-      'welsh'
-    };
-
-    // First pass: check for compound types
-    for (var type in types) {
-      final normalizedType = type.toLowerCase();
-      final baseCuisine = normalizedType.split('_').first;
-      if (cuisineKeywords.contains(baseCuisine)) {
-        return baseCuisine;
-      }
-    }
-
-    // Second pass: direct match with cuisine keywords
-    for (var type in types) {
-      final normalizedType = type.toLowerCase();
-      if (cuisineKeywords.contains(normalizedType)) {
-        return type;
-      }
-    }
-
-    // Modified: If using country-based default, append a question mark
-    if (country != null) {
-      final defaultCuisine = getDefaultCuisineByLocation(country);
-      if (defaultCuisine != null) {
-        return '$defaultCuisine?'; // Add question mark to indicate it's a guess
-      }
-    }
-
-    return null;
-  }
-
-  String formatCuisineDisplay(String cuisine) {
-    return cuisine
-        .split('_')
-        .map((word) => word[0].toUpperCase() + word.substring(1).toLowerCase())
-        .join(' ');
-  }
-
-  String? getDefaultCuisineByLocation(String country) {
-    // Map of countries to their primary cuisine
-    final Map<String, String> countryCuisineMap = {
-      'Afghanistan': 'afghan',
-      'Argentina': 'argentinian',
-      // ... (keep all the existing country mappings)
-      'Spain': 'spanish',
-      // ... (keep all the remaining mappings)
-    };
-
-    return countryCuisineMap[country];
   }
 }

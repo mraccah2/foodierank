@@ -1,8 +1,24 @@
 import 'dart:async';
+
 import 'package:flutter/material.dart';
+
+import '../services/bootstrap.dart';
+import '../services/location_service.dart';
+import '../services/restaurant_disk_cache.dart';
 import '../services/restaurant_service.dart';
 import 'restaurant_list_screen.dart';
 
+/// The first screen: a brief, bounded warm-up before the list takes over.
+///
+/// It restores the last session's results, starts the saved-places feature and
+/// resolves a position — none of which the list screen strictly needs, because
+/// it resolves whatever is missing itself and has its own error and retry. So
+/// this screen never blocks on any of it: whatever has not finished by
+/// [_deadline] simply happens later.
+///
+/// It used to await a full Places search here — and before that, `main` awaited
+/// one too — with no ceiling on either, which is how a slow network turned into
+/// an app that never opened.
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
 
@@ -11,69 +27,48 @@ class SplashScreen extends StatefulWidget {
 }
 
 class _SplashScreenState extends State<SplashScreen> {
+  /// Past this the user is better served by the list screen, which can show
+  /// progress and offer a retry, than by a splash that might never end.
+  static const Duration _deadline = Duration(seconds: 6);
+
   @override
   void initState() {
     super.initState();
-    _initRestaurantScreen();
+    _start();
   }
 
-  /// Fetches the first screen's restaurants and photos, then decodes those
-  /// photos into the image cache. The decode lives here rather than in
-  /// [RestaurantService] because `precacheImage` needs a BuildContext, and the
-  /// service is kept Flutter-free so `bin/foodierank.dart` can share it.
-  Future<void> _warmCaches() async {
-    final photoRefs = await RestaurantService.instance.warmCaches();
+  Future<void> _prepare() async {
+    // The saved-places feature is independent of the search, so it comes up
+    // alongside rather than in front of it.
+    unawaited(Bootstrap.start());
 
-    for (final photoRef in photoRefs) {
-      if (!mounted) return;
-      final photoBytes = RestaurantService.instance.getCachedPhoto(photoRef);
-      if (photoBytes != null) {
-        await precacheImage(MemoryImage(photoBytes), context);
-      }
-    }
+    // Whatever the last session left behind, so the list has something to draw
+    // before the network answers. The list screen decides whether it is still
+    // current (see RestaurantService.shouldRefreshData) and refreshes quietly
+    // underneath if not.
+    final cached = await RestaurantDiskCache.load();
+    if (cached != null) RestaurantService.instance.hydrate(cached);
+
+    // Warm the position so the list does not open on a GPS wait.
+    await LocationService.instance.current();
   }
 
-  void _initRestaurantScreen() async {
+  Future<void> _start() async {
     try {
-      // Attempt to load and cache restaurants and photos
-      final dataFuture = _warmCaches();
-      final timerFuture = Future.delayed(const Duration(seconds: 1));
-
-      // Wait for both the data loading and minimum time
-      await Future.wait([dataFuture, timerFuture]);
-
-      if (!mounted) {
-        return;
-      }
-
-      // Pre-build the restaurant list screen
-      final restaurantScreen = RestaurantListScreen(
-        key: const ValueKey('restaurant_list'),
-      );
-
-      // Allow some time for the screen to initialize
-      await Future.microtask(() {});
-
-      if (!mounted) {
-        return;
-      }
-
-      // Navigate to pre-built RestaurantListScreen
-      Navigator.of(context).pushReplacement(
-        MaterialPageRoute(
-          builder: (context) => restaurantScreen,
-        ),
-      );
-    } catch (e) {
-      if (!mounted) {
-        return;
-      }
-
-      // Navigate to RestaurantListScreen with error
-      Navigator.of(context).pushReplacement(
-        MaterialPageRoute(builder: (context) => const RestaurantListScreen()),
-      );
+      await _prepare().timeout(_deadline);
+    } catch (_) {
+      // Every step here is an optimisation. The list screen resolves anything
+      // that is missing and surfaces its own error if it cannot.
     }
+    if (!mounted) return;
+
+    Navigator.of(context).pushReplacement(
+      MaterialPageRoute(
+        builder: (context) => const RestaurantListScreen(
+          key: ValueKey('restaurant_list'),
+        ),
+      ),
+    );
   }
 
   @override
@@ -83,11 +78,13 @@ class _SplashScreenState extends State<SplashScreen> {
       body: Stack(
         fit: StackFit.expand,
         children: [
+          // Sized for a phone screen. This was a 3840x5760 PNG — 24 MB in the
+          // bundle and an 88 MB RGBA decode on the raster thread, on the one
+          // frame the app most needs to be cheap.
           Image.asset(
-            'assets/splash.png',
+            'assets/splash.jpg',
             fit: BoxFit.cover,
           ),
-          // Add a loading indicator
           const Positioned(
             bottom: 50,
             left: 0,

@@ -1,18 +1,16 @@
-import 'package:flutter/material.dart';
-import 'screens/splash_screen.dart';
-import 'package:flutter/services.dart';
-import 'package:geolocator/geolocator.dart';
-import 'services/restaurant_service.dart';
 import 'dart:async';
-import 'services/navigation_service.dart';
+
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+
 import 'screens/restaurant_list_screen.dart';
+import 'screens/splash_screen.dart';
 import 'services/api_usage_tracker.dart';
-import 'services/place_status_store.dart';
-import 'services/auth_service.dart';
-import 'services/saved_places_coordinator.dart';
+import 'services/navigation_service.dart';
+import 'services/restaurant_disk_cache.dart';
 
 void main() {
-  runZonedGuarded(() async {
+  runZonedGuarded(() {
     WidgetsFlutterBinding.ensureInitialized();
 
     FlutterError.onError = (FlutterErrorDetails details) {
@@ -23,44 +21,19 @@ void main() {
       DeviceOrientation.portraitUp,
     ]);
 
-    // Restore any cached Google Maps save markers before the first frame, so
-    // signed-in users do not see cards pop their markers in a beat later.
-    // No-ops when signed out.
-    await LocalPlaceStatusStore.instance.load();
+    // Let successful searches survive a relaunch. Installing the hook is
+    // synchronous; the writing it enables is not.
+    RestaurantDiskCache.install();
 
-    // Optional Google sign-in. Never throws: an unconfigured build just leaves
-    // the feature switched off, and the coordinator keeps the active store in
-    // step with whoever is signed in.
-    await AuthService.instance.initialize();
-    SavedPlacesCoordinator.instance.start();
-
-    // Start location and restaurant fetch before showing splash screen
-    try {
-      final permission = await Geolocator.checkPermission();
-      if (permission == LocationPermission.denied) {
-        await Geolocator.requestPermission();
-      }
-
-      final position = await Geolocator.getCurrentPosition(
-        desiredAccuracy: LocationAccuracy.low,
-        timeLimit: const Duration(seconds: 10),
-      ).timeout(
-        const Duration(seconds: 10),
-        onTimeout: () async {
-          final lastKnown = await Geolocator.getLastKnownPosition();
-          if (lastKnown != null) return lastKnown;
-          throw TimeoutException('Could not get location');
-        },
-      );
-
-      await RestaurantService.instance.fetchRestaurants(
-        position.latitude,
-        position.longitude,
-      );
-    } catch (e) {
-      // Already empty
-    }
-
+    // Nothing is awaited before this line, and that is the point.
+    //
+    // Saved-place markers, Firebase, Google Sign-In, a location fix — including
+    // the OS permission dialog — and a full Places search all used to be
+    // awaited here first. Until the last of them finished, the app rendered
+    // nothing: no spinner, no error, no retry, just the native launch image.
+    // With a stalled request that meant minutes of apparently frozen app.
+    //
+    // SplashScreen now owns that work, bounded and with something on screen.
     runApp(const MyApp());
   }, (error, stack) {
     // Already empty
@@ -89,6 +62,7 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
+    super.didChangeAppLifecycleState(state);
     if (state == AppLifecycleState.paused) {
       // App is going to background, print stats
       ApiUsageTracker.instance.printUsageStats();
