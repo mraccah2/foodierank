@@ -86,6 +86,12 @@ class RestaurantService {
   /// imports so the CLI can share the search and ranking pipeline.
   Future<void> Function(RestaurantSearchSnapshot snapshot)? onResults;
 
+  /// The disk tier under [_photoCache], installed by `PhotoDiskCache` for the
+  /// same reason [onResults] is a hook: it needs `path_provider`, which the CLI
+  /// cannot load. Null simply means memory-only, which is what `bin/` gets.
+  Future<Uint8List?> Function(String photoRef)? photoCacheRead;
+  Future<void> Function(String photoRef, Uint8List bytes)? photoCacheWrite;
+
   factory RestaurantService() {
     return instance;
   }
@@ -694,6 +700,14 @@ class RestaurantService {
 
   Future<Uint8List?> _fetchPhoto(
       String photoRef, int maxWidth, int maxHeight) async {
+    // Disk before network, and before taking a slot — a local read is orders of
+    // magnitude cheaper and has no business queueing behind four downloads.
+    final fromDisk = await photoCacheRead?.call(photoRef);
+    if (fromDisk != null) {
+      _cachePhoto(photoRef, fromDisk);
+      return fromDisk;
+    }
+
     await _acquirePhotoSlot();
     try {
       ApiUsageTracker.instance.incrementPhoto();
@@ -719,6 +733,10 @@ class RestaurantService {
 
       if (response.statusCode != 200) return null;
       _cachePhoto(photoRef, response.bodyBytes);
+      // Nothing waits on the write: the bytes are already in memory for this
+      // session, and persisting them is for the next one.
+      unawaited(photoCacheWrite?.call(photoRef, response.bodyBytes) ??
+          Future<void>.value());
       return response.bodyBytes;
     } catch (e) {
       return null;

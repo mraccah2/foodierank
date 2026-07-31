@@ -7,6 +7,7 @@ import 'screens/restaurant_list_screen.dart';
 import 'screens/splash_screen.dart';
 import 'services/api_usage_tracker.dart';
 import 'services/navigation_service.dart';
+import 'services/photo_disk_cache.dart';
 import 'services/restaurant_disk_cache.dart';
 
 void main() {
@@ -21,9 +22,10 @@ void main() {
       DeviceOrientation.portraitUp,
     ]);
 
-    // Let successful searches survive a relaunch. Installing the hook is
-    // synchronous; the writing it enables is not.
+    // Let successful searches and their photos survive a relaunch. Installing
+    // the hooks is synchronous; the reading and writing they enable is not.
     RestaurantDiskCache.install();
+    PhotoDiskCache.install();
 
     // Nothing is awaited before this line, and that is the point.
     //

@@ -3,6 +3,7 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 
 import '../services/restaurant_service.dart';
+import 'shimmer.dart';
 
 /// A Places photo, fetched when it first appears rather than up front.
 ///
@@ -98,18 +99,21 @@ class _PlacePhotoState extends State<PlacePhoto> {
     );
   }
 
-  /// A flat grey block, deliberately not a spinner: a list of twenty rows would
-  /// otherwise run twenty animations for images that arrive in a few hundred
-  /// milliseconds.
+  /// A shimmering block while the photo is in flight, and a flat one once it
+  /// has failed — a shimmer implies something is still coming.
+  ///
+  /// Deliberately not a spinner per row: twenty rows would mean twenty
+  /// animation controllers. Every ShimmerBox shares one ticker.
   Widget _placeholder() {
-    return Container(
-      width: widget.width,
-      height: widget.height,
-      color: Colors.grey[300],
-      child: _failed
-          ? Icon(Icons.image_not_supported_outlined,
-              size: widget.height * 0.3, color: Colors.grey[500])
-          : null,
-    );
+    if (_failed) {
+      return Container(
+        width: widget.width,
+        height: widget.height,
+        color: Colors.grey[300],
+        child: Icon(Icons.image_not_supported_outlined,
+            size: widget.height * 0.3, color: Colors.grey[500]),
+      );
+    }
+    return ShimmerBox(width: widget.width, height: widget.height);
   }
 }
