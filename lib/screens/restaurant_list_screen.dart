@@ -61,8 +61,6 @@ class _RestaurantListScreenState extends State<RestaurantListScreen>
   DateTime? _lastRefreshTime;
   Position? _lastPosition;
   ViewMode _viewMode = ViewMode.list;
-  bool _cardViewFromTap = false;
-  int? _lastTappedIndex;
   final GlobalKey _scaffoldKey = GlobalKey();
   final Set<String> _selectedPriceLevels = {};
 
@@ -714,46 +712,43 @@ class _RestaurantListScreenState extends State<RestaurantListScreen>
   void _toggleMapView() {
     setState(() {
       _viewMode = _viewMode == ViewMode.map ? ViewMode.list : ViewMode.map;
-      _cardViewFromTap = false;
     });
   }
 
   /// Open a restaurant's card, the same way tapping a list row does — used by
-  /// both the list and the map so a right-swipe still takes you back.
+  /// both the list and the map so a swipe still takes you back.
   void _showRestaurantCard(int index) {
     setState(() {
       _viewMode = ViewMode.card;
-      _cardViewFromTap = true;
-      _lastTappedIndex = index;
     });
+    _jumpToCardWhenAttached(index);
+  }
 
+  /// Jumps the pager to [index] once it actually exists.
+  ///
+  /// This used to be a bare post-frame `jumpToPage`, which worked only while
+  /// the view swap was instantaneous. The swap now fades the outgoing view out
+  /// before mounting the incoming one, so on the next frame there is still no
+  /// PageView attached to the controller — and `jumpToPage` asserts, which took
+  /// the whole transition down with it and left you on the list.
+  ///
+  /// Waiting for the attachment costs nothing visually: the pager mounts at the
+  /// start of its fade-in, so the jump lands while it is still transparent.
+  void _jumpToCardWhenAttached(int index, [int framesLeft = 60]) {
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      _pageController.jumpToPage(index);
+      if (!mounted || _viewMode != ViewMode.card) return;
+      if (_pageController.hasClients) {
+        _pageController.jumpToPage(index);
+      } else if (framesLeft > 0) {
+        _jumpToCardWhenAttached(index, framesLeft - 1);
+      }
     });
   }
 
-  void _handleHorizontalDrag(DragUpdateDetails details) {
-    if (_cardViewFromTap && details.delta.dx > 20) {
-      // Right swipe
-      setState(() {
-        _viewMode = ViewMode.list;
-        _cardViewFromTap = false;
-      });
-
-      // Flash the card that was being viewed
-      if (_lastTappedIndex != null) {
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          final context = _scaffoldKey.currentContext;
-          if (context != null) {
-            Scrollable.ensureVisible(
-              context,
-              alignment: 0.5,
-              duration: const Duration(milliseconds: 300),
-            );
-          }
-        });
-      }
-    }
+  /// Leaves the card and goes back to the list.
+  void _returnToList() {
+    if (_viewMode != ViewMode.card) return;
+    setState(() => _viewMode = ViewMode.list);
   }
 
   @override
@@ -800,9 +795,10 @@ class _RestaurantListScreenState extends State<RestaurantListScreen>
         ],
       ),
       body: GestureDetector(
-        onHorizontalDragUpdate: _cardViewFromTap ? _handleHorizontalDrag : null,
         // Only the card pager is driven by this drag — the map needs its own
-        // pan/zoom gestures, and the list scrolls itself.
+        // pan/zoom gestures, and the list scrolls itself. The back-swipe lives
+        // on the card body itself (see RestaurantCard.onSwipeBack) rather than
+        // out here, so it cannot compete with the photo pager.
         onVerticalDragUpdate: _viewMode == ViewMode.card
             ? (details) => _handleScroll(details.delta.dy)
             : null,
@@ -881,8 +877,10 @@ class _RestaurantListScreenState extends State<RestaurantListScreen>
                 FilterRail(
                   typeLabel:
                       _selectedType == 'All' ? 'All types' : _selectedType!,
+                  typeIsCustom: _selectedType != 'All',
                   onType: _showTypeFilter,
                   priceLabel: _getPriceLevelDisplay(),
+                  priceIsCustom: _selectedPriceLevels.isNotEmpty,
                   onPrice: _showPriceRangeDialog,
                   sortByRank: _sortOption == SortOption.rank,
                   onToggleSort: () {
@@ -1036,6 +1034,7 @@ class _RestaurantListScreenState extends State<RestaurantListScreen>
                   ranking: restaurant.rank ?? index + 1,
                   currentLat: _currentLat,
                   currentLng: _currentLng,
+                  onSwipeBack: _returnToList,
                 ),
               ),
             );
@@ -1044,6 +1043,10 @@ class _RestaurantListScreenState extends State<RestaurantListScreen>
 
       case ViewMode.list:
         return ListView.separated(
+          // Keeps the scroll offset across a trip into a card and back. The
+          // list is rebuilt from scratch by the view swap, so without this,
+          // swiping back from the fortieth restaurant returns you to the first.
+          key: const PageStorageKey<String>('restaurant_list'),
           padding: const EdgeInsets.only(bottom: AppSpacing.xl),
           itemCount: _visibleRestaurants.length,
           // A hairline between rows, instead of every row being its own

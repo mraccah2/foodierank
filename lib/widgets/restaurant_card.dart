@@ -33,6 +33,13 @@ class RestaurantCard extends StatefulWidget {
   final double? currentLat;
   final double? currentLng;
 
+  /// Swiping the card sideways goes back to the list.
+  ///
+  /// Deliberately not wired to the photo header: that is a horizontal pager in
+  /// its own right, and stealing its drags would cost you the ability to look
+  /// through a restaurant's pictures.
+  final VoidCallback? onSwipeBack;
+
   const RestaurantCard({
     super.key,
     required this.restaurant,
@@ -40,6 +47,7 @@ class RestaurantCard extends StatefulWidget {
     required this.ranking,
     this.currentLat,
     this.currentLng,
+    this.onSwipeBack,
   });
 
   @override
@@ -50,6 +58,9 @@ class _RestaurantCardState extends State<RestaurantCard> {
   static const double _photoHeight = 260;
 
   late final PageController _pageController;
+
+  /// Horizontal distance travelled in the current back-swipe.
+  double _dragX = 0;
 
   /// A notifier rather than state, so paging through a restaurant's photos
   /// repaints the four dots underneath them instead of rebuilding the card —
@@ -142,6 +153,19 @@ class _RestaurantCardState extends State<RestaurantCard> {
     }
   }
 
+  /// Either direction goes back — the card is a detour off the list, not a
+  /// position in it, so there is no "forward" for a left swipe to mean.
+  ///
+  /// Accepts both a long slow drag and a quick flick; requiring one or the
+  /// other is how a gesture ends up feeling broken for half its users.
+  void _handleSwipeBack(DragEndDetails details) {
+    final onSwipeBack = widget.onSwipeBack;
+    if (onSwipeBack == null) return;
+
+    final flicked = (details.primaryVelocity ?? 0).abs() > 300;
+    if (_dragX.abs() > 60 || flicked) onSwipeBack();
+  }
+
   @override
   Widget build(BuildContext context) {
     // Clipping comes from the shared CardTheme, so the photo's top corners are
@@ -155,15 +179,22 @@ class _RestaurantCardState extends State<RestaurantCard> {
         children: [
           if (widget.restaurant.photoRefs.isNotEmpty) _buildPhotoHeader(),
           Flexible(
-            child: SingleChildScrollView(
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(
-                  AppSpacing.lg,
-                  AppSpacing.lg,
-                  AppSpacing.lg,
-                  AppSpacing.lg,
+            child: GestureDetector(
+              // Only the body carries the back-swipe. The photo header above
+              // keeps its own horizontal pager.
+              onHorizontalDragStart: (_) => _dragX = 0,
+              onHorizontalDragUpdate: (d) => _dragX += d.delta.dx,
+              onHorizontalDragEnd: _handleSwipeBack,
+              child: SingleChildScrollView(
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(
+                    AppSpacing.lg,
+                    AppSpacing.lg,
+                    AppSpacing.lg,
+                    AppSpacing.lg,
+                  ),
+                  child: _buildBody(context),
                 ),
-                child: _buildBody(context),
               ),
             ),
           ),

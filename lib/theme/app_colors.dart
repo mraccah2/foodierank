@@ -56,6 +56,19 @@ class AppColors {
       onSurfaceVariant: _lightOnSurfaceVariant,
       outlineVariant: _lightOutlineVariant,
       outline: const Color(0xFFA89C8D),
+
+      // Named rather than generated. Left to `fromSeed`, these come out as a
+      // low-chroma tint at the seed's own hue — and a pale, desaturated
+      // terracotta is pink, which is how cuisine chips ended up looking like
+      // bubblegum. Tertiary fared worse: a chartreuse nobody picked.
+      secondary: const Color(0xFF6E5B4B),
+      onSecondary: Colors.white,
+      secondaryContainer: const Color(0xFFE8DFD0), // warm sand
+      onSecondaryContainer: const Color(0xFF4A4239),
+      tertiary: const Color(0xFF8A6A2E),
+      onTertiary: Colors.white,
+      tertiaryContainer: const Color(0xFFF5E3C4), // amber, for cautions
+      onTertiaryContainer: const Color(0xFF5A4526),
     );
   }
 
@@ -75,6 +88,18 @@ class AppColors {
       onSurfaceVariant: _darkOnSurfaceVariant,
       outlineVariant: _darkOutlineVariant,
       outline: const Color(0xFF6E655B),
+
+      // Deliberately a step lighter than `surfaceContainerHigh`, which is what
+      // a Card is set to in this scheme — a chip that matched its card would be
+      // invisible.
+      secondary: const Color(0xFFCFC0AE),
+      onSecondary: const Color(0xFF3A2E24),
+      secondaryContainer: const Color(0xFF3A332B),
+      onSecondaryContainer: const Color(0xFFE6DDD2),
+      tertiary: const Color(0xFFD9B978),
+      onTertiary: const Color(0xFF3D2E10),
+      tertiaryContainer: const Color(0xFF3D3220),
+      onTertiaryContainer: const Color(0xFFF0DDBB),
     );
   }
 

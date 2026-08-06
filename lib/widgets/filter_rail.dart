@@ -13,9 +13,15 @@ import '../theme/app_spacing.dart';
 /// unchanged.
 class FilterRail extends StatelessWidget {
   final String typeLabel;
+
+  /// Whether a cuisine other than "All" is applied.
+  final bool typeIsCustom;
   final VoidCallback onType;
 
   final String priceLabel;
+
+  /// Whether the price range has been narrowed from the full span.
+  final bool priceIsCustom;
   final VoidCallback onPrice;
 
   final bool sortByRank;
@@ -46,8 +52,10 @@ class FilterRail extends StatelessWidget {
   const FilterRail({
     super.key,
     required this.typeLabel,
+    required this.typeIsCustom,
     required this.onType,
     required this.priceLabel,
+    required this.priceIsCustom,
     required this.onPrice,
     required this.sortByRank,
     required this.onToggleSort,
@@ -88,13 +96,14 @@ class FilterRail extends StatelessWidget {
           ),
           const _Gap(),
 
-          // "Near me" and "Open now" are the defaults, not the absence of a
-          // filter, so these always read as set. A *customised* one is the only
-          // kind that goes accent-coloured and offers a clear.
+          // Both of these are *always* applied — "Near me" and "Open now" are
+          // the defaults, not the absence of a filter — so they read as on from
+          // a cold start rather than waiting to be customised. Only a
+          // customised one offers a clear.
           _RailChip(
             icon: Icons.place_outlined,
             label: locationLabel,
-            selected: locationIsCustom,
+            selected: true,
             onTap: onLocation,
             onClear: onClearLocation,
           ),
@@ -102,15 +111,27 @@ class FilterRail extends StatelessWidget {
           _RailChip(
             icon: Icons.schedule_rounded,
             label: timeLabel,
-            selected: timeIsCustom,
+            selected: true,
             onTap: onTime,
             onClear: onClearTime,
           ),
           const _Gap(),
 
-          _RailChip(label: typeLabel, onTap: onType, trailingChevron: true),
+          // These three do have an "off" state, so they fill only once they
+          // are actually narrowing the results.
+          _RailChip(
+            label: typeLabel,
+            selected: typeIsCustom,
+            onTap: onType,
+            trailingChevron: true,
+          ),
           const _Gap(),
-          _RailChip(label: priceLabel, onTap: onPrice, trailingChevron: true),
+          _RailChip(
+            label: priceLabel,
+            selected: priceIsCustom,
+            onTap: onPrice,
+            trailingChevron: true,
+          ),
           const _Gap(),
 
           _RailChip(
@@ -118,6 +139,7 @@ class FilterRail extends StatelessWidget {
                 ? Icons.star_rounded
                 : Icons.directions_walk_rounded,
             label: sortByRank ? 'Rank' : 'Distance',
+            selected: !sortByRank,
             onTap: onToggleSort,
           ),
           const _Gap(),
