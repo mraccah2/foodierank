@@ -16,7 +16,7 @@ publish_to: 'none' # Remove this line if you wish to publish to pub.dev
 # https://developer.apple.com/library/archive/documentation/General/Reference/InfoPlistKeyReference/Articles/CoreFoundationKeys.html
 # In Windows, build-name is used as the major, minor, and patch parts
 # of the product and file versions while build-number is used as the build suffix.
-version: 1.0.1+23
+version: 1.1.0+23
 
 environment:
   sdk: '>=3.0.0 <4.0.0'
@@ -113,15 +113,26 @@ flutter:
     - assets/splash.jpg
     - assets/logo.png
 
-# Move flutter_icons configuration to root level
-flutter_icons:
+  # Both are variable fonts, so one file each covers the whole weight range.
+  # Weight is selected with `FontVariation('wght', …)` in AppTypography rather
+  # than by shipping a file per weight — see lib/theme/app_typography.dart.
+  #
+  # This block used to sit at the root of the file rather than under `flutter:`,
+  # where it was silently ignored: nothing was ever bundled, and the one icon
+  # that referenced it rendered as tofu.
+  fonts:
+    - family: Fraunces
+      fonts:
+        - asset: assets/fonts/Fraunces.ttf
+    - family: PlusJakartaSans
+      fonts:
+        - asset: assets/fonts/PlusJakartaSans.ttf
+
+# Also previously at root level, and equally ignored. Only read by
+# `flutter_launcher_icons`, which is run by hand, not by the build.
+flutter_launcher_icons:
   android: true
   ios: true
   image_path: "assets/app_icon.png"  # Make sure this path points to your icon file
   adaptive_icon_background: "#FFFFFF" # Optional: for Android adaptive icons
   adaptive_icon_foreground: "assets/app_icon_foreground.png" # Optional: for Android adaptive icons
-
-fonts:
-  - family: Material Symbols Outlined
-    fonts:
-      - asset: assets/fonts/MaterialSymbolsOutlined[FILL,GRAD,opsz,wght].ttf

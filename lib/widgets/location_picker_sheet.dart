@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 
 import '../screens/map_picker_screen.dart';
 import '../services/places_lookup_service.dart';
+import '../theme/app_spacing.dart';
 
 /// Outcome of the location picker. Either the user asked to go back to their
 /// current GPS location, or they picked a specific [place]. A null return from
@@ -27,13 +28,11 @@ Future<LocationPickResult?> showLocationPicker(
   required double biasLat,
   required double biasLng,
 }) {
+  // Background, radius and drag handle all come from the shared
+  // BottomSheetThemeData now, so both sheets are certain to match.
   return showModalBottomSheet<LocationPickResult>(
     context: context,
     isScrollControlled: true,
-    backgroundColor: Colors.white,
-    shape: const RoundedRectangleBorder(
-      borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
-    ),
     builder: (_) => _LocationPickerSheet(biasLat: biasLat, biasLng: biasLng),
   );
 }
@@ -138,10 +137,13 @@ class _LocationPickerSheetState extends State<_LocationPickerSheet> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const SizedBox(height: 8),
-            _grabHandle(),
             Padding(
-              padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+              padding: const EdgeInsets.fromLTRB(
+                AppSpacing.gutter,
+                0,
+                AppSpacing.gutter,
+                AppSpacing.md,
+              ),
               child: TextField(
                 controller: _controller,
                 autofocus: false,
@@ -149,20 +151,16 @@ class _LocationPickerSheetState extends State<_LocationPickerSheet> {
                 onChanged: _onChanged,
                 decoration: InputDecoration(
                   hintText: 'Search address or place',
-                  prefixIcon: const Icon(Icons.search),
+                  prefixIcon: const Icon(Icons.search_rounded, size: 20),
                   suffixIcon: searching
                       ? IconButton(
-                          icon: const Icon(Icons.clear),
+                          icon: const Icon(Icons.close_rounded, size: 18),
                           onPressed: () {
                             _controller.clear();
                             _onChanged('');
                           },
                         )
                       : null,
-                  isDense: true,
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
                 ),
               ),
             ),
@@ -178,21 +176,16 @@ class _LocationPickerSheetState extends State<_LocationPickerSheet> {
     );
   }
 
-  Widget _grabHandle() => Container(
-        width: 40,
-        height: 4,
-        decoration: BoxDecoration(
-          color: Colors.black26,
-          borderRadius: BorderRadius.circular(2),
-        ),
-      );
-
   Widget _buildPredictions() {
     if (_predictions.isEmpty) {
-      return const Padding(
-        padding: EdgeInsets.all(24),
-        child: Text('No matches yet — keep typing.',
-            style: TextStyle(color: Colors.black54)),
+      return Padding(
+        padding: const EdgeInsets.all(AppSpacing.xl),
+        child: Text(
+          'No matches yet — keep typing.',
+          style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+              ),
+        ),
       );
     }
     return ListView.builder(
@@ -218,7 +211,8 @@ class _LocationPickerSheetState extends State<_LocationPickerSheet> {
       shrinkWrap: true,
       children: [
         ListTile(
-          leading: const Icon(Icons.my_location, color: Colors.blue),
+          leading: Icon(Icons.my_location_rounded,
+              color: Theme.of(context).colorScheme.primary),
           title: const Text('Use my current location'),
           onTap: () => Navigator.of(context)
               .pop(const LocationPickResult.currentLocation()),
@@ -229,14 +223,21 @@ class _LocationPickerSheetState extends State<_LocationPickerSheet> {
           onTap: _pickOnMap,
         ),
         if (_recents.isNotEmpty) ...[
-          const Divider(height: 1),
-          const Padding(
-            padding: EdgeInsets.fromLTRB(16, 12, 16, 4),
-            child: Text('Recent',
-                style: TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.bold,
-                    color: Colors.black54)),
+          const Divider(height: AppSpacing.lg),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(
+              AppSpacing.gutter,
+              AppSpacing.sm,
+              AppSpacing.gutter,
+              AppSpacing.xs,
+            ),
+            child: Text(
+              'RECENT',
+              style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                    letterSpacing: 0.8,
+                  ),
+            ),
           ),
           ..._recents.map((r) => ListTile(
                 leading: const Icon(Icons.history),

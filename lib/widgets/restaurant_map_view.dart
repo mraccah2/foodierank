@@ -4,6 +4,10 @@ import 'package:flutter/material.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 
 import '../models/restaurant.dart';
+import '../theme/app_colors.dart';
+import '../theme/app_spacing.dart';
+import '../theme/app_typography.dart';
+import '../theme/map_style.dart';
 
 /// A movable, zoomable map of the current result set. Each restaurant that has
 /// real coordinates gets a pin carrying its rank, drawn to match the amber rank
@@ -108,9 +112,9 @@ class _RestaurantMapViewState extends State<RestaurantMapView> {
       ..lineTo(centre.dx, height - 2)
       ..lineTo(centre.dx + 15, centre.dy + radius - 6)
       ..close();
-    canvas.drawPath(tail, Paint()..color = Colors.amber);
+    canvas.drawPath(tail, Paint()..color = AppColors.mapPin);
 
-    canvas.drawCircle(centre, radius, Paint()..color = Colors.amber);
+    canvas.drawCircle(centre, radius, Paint()..color = AppColors.mapPin);
     canvas.drawCircle(
       centre,
       radius,
@@ -123,12 +127,11 @@ class _RestaurantMapViewState extends State<RestaurantMapView> {
     final label = TextPainter(
       text: TextSpan(
         text: '$rank',
-        style: TextStyle(
-          color: Colors.black,
+        style: AppTypography.serifAt(
           // Shrink so three-digit ranks still fit inside the circle.
-          fontSize: rank >= 100 ? 36 : 48,
-          fontWeight: FontWeight.bold,
-        ),
+          rank >= 100 ? 36 : 48,
+          weight: FontWeight.w700,
+        ).copyWith(color: AppColors.onMapPin),
       ),
       textDirection: TextDirection.ltr,
     )..layout();
@@ -204,11 +207,13 @@ class _RestaurantMapViewState extends State<RestaurantMapView> {
     if (_plottable.isEmpty) {
       return Center(
         child: Padding(
-          padding: const EdgeInsets.all(24),
+          padding: const EdgeInsets.all(AppSpacing.xl),
           child: Text(
             "None of these restaurants have a location we can map.",
             textAlign: TextAlign.center,
-            style: Theme.of(context).textTheme.bodyLarge,
+            style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                ),
           ),
         ),
       );
@@ -217,6 +222,10 @@ class _RestaurantMapViewState extends State<RestaurantMapView> {
     return GoogleMap(
       initialCameraPosition: _initialCamera,
       markers: _markers,
+      // Otherwise the map is the one blazing-white rectangle in a dark app.
+      style: Theme.of(context).brightness == Brightness.dark
+          ? MapStyle.dark
+          : null,
       onMapCreated: (controller) {
         _controller = controller;
         _fitToMarkers();

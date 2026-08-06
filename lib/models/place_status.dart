@@ -28,13 +28,25 @@ extension PlaceStatusDisplay on PlaceStatus {
         PlaceStatus.wantToGo => Icons.flag,
       };
 
-  Color get color => switch (this) {
-        PlaceStatus.loved => const Color(0xFFE53935),
-        // Blue, not yellow: the cards already show an amber star for the
-        // Google rating, and two yellow stars would read as one metric.
-        PlaceStatus.starred => const Color(0xFF1E7BE0),
-        PlaceStatus.wantToGo => const Color(0xFF2E9E4F),
-      };
+  /// The marker's colour for the current scheme.
+  ///
+  /// These are the app's only colours that carry meaning rather than
+  /// hierarchy, so they are named here rather than derived from the theme — but
+  /// the light values are all mid-tone, and mid-tone on a near-black card is
+  /// the one thing that reads as broken. Hence a pair.
+  Color colorFor(Brightness brightness) {
+    final dark = brightness == Brightness.dark;
+    return switch (this) {
+      PlaceStatus.loved =>
+        dark ? const Color(0xFFFF7B72) : const Color(0xFFE53935),
+      // Blue, not yellow: the cards already show an amber star for the
+      // Google rating, and two yellow stars would read as one metric.
+      PlaceStatus.starred =>
+        dark ? const Color(0xFF6BB6FF) : const Color(0xFF1E7BE0),
+      PlaceStatus.wantToGo =>
+        dark ? const Color(0xFF5FD07F) : const Color(0xFF2E9E4F),
+    };
+  }
 
   /// Used for the tap-to-clear semantics label and any undo messaging.
   String get label => switch (this) {

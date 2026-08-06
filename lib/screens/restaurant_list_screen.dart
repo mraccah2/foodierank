@@ -13,6 +13,12 @@ import '../widgets/time_picker_sheet.dart';
 import '../services/auth_service.dart';
 import '../services/location_service.dart';
 import '../services/place_status_store.dart';
+import '../theme/app_motion.dart';
+import '../theme/app_spacing.dart';
+import '../theme/app_typography.dart';
+import '../widgets/filter_rail.dart';
+import '../widgets/restaurant_list_skeleton.dart';
+import '../widgets/state_views.dart';
 import 'account_screen.dart';
 
 enum SortOption { rank, distance }
@@ -335,63 +341,71 @@ class _RestaurantListScreenState extends State<RestaurantListScreen>
               });
             }
 
-            return Container(
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  const Text(
-                    'Select Price Range',
-                    style: TextStyle(
-                      fontSize: 20,
-                      fontWeight: FontWeight.bold,
-                      color: Colors.black,
+            return SafeArea(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(
+                  AppSpacing.gutter,
+                  AppSpacing.sm,
+                  AppSpacing.gutter,
+                  AppSpacing.xl,
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Price range',
+                      style: Theme.of(context).textTheme.headlineSmall,
                     ),
-                  ),
-                  const SizedBox(height: 16),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                    children: ['\$', '\$\$', '\$\$\$', '\$\$\$\$'].map((price) {
-                      final isSelected = _selectedPriceLevels.contains(price);
-                      return InkWell(
-                        onTap: () {
-                          setModalState(() {
-                            if (isSelected) {
-                              _selectedPriceLevels.remove(price);
-                            } else {
-                              _selectedPriceLevels.add(price);
-                            }
-                            updatePriceRange(); // Auto-fill gaps after each selection
-                          });
-                        },
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 20, vertical: 10),
-                          decoration: BoxDecoration(
-                            color: isSelected ? Colors.grey : Colors.white,
-                            borderRadius: BorderRadius.circular(20),
-                            border: Border.all(color: Colors.black),
-                          ),
-                          child: Text(
-                            price,
-                            style: TextStyle(
-                              color: isSelected ? Colors.white : Colors.black,
-                              fontWeight: FontWeight.bold,
+                    const SizedBox(height: AppSpacing.lg),
+                    Row(
+                      children: ['\$', '\$\$', '\$\$\$', '\$\$\$\$'].map((price) {
+                        final isSelected = _selectedPriceLevels.contains(price);
+                        return Expanded(
+                          child: Padding(
+                            padding: const EdgeInsets.only(right: AppSpacing.sm),
+                            child: FilterChip(
+                              label: SizedBox(
+                                width: double.infinity,
+                                child: Text(price, textAlign: TextAlign.center),
+                              ),
+                              selected: isSelected,
+                              labelStyle: Theme.of(context)
+                                  .textTheme
+                                  .labelLarge
+                                  ?.copyWith(
+                                    color: isSelected
+                                        ? Theme.of(context).colorScheme.onPrimary
+                                        : Theme.of(context).colorScheme.onSurface,
+                                  ),
+                              onSelected: (_) {
+                                setModalState(() {
+                                  if (isSelected) {
+                                    _selectedPriceLevels.remove(price);
+                                  } else {
+                                    _selectedPriceLevels.add(price);
+                                  }
+                                  updatePriceRange(); // Auto-fill gaps after each selection
+                                });
+                              },
                             ),
                           ),
-                        ),
-                      );
-                    }).toList(),
-                  ),
-                  const SizedBox(height: 16),
-                  ElevatedButton(
-                    onPressed: () {
-                      Navigator.pop(context);
-                      _initializeAndLoad();
-                    },
-                    child: const Text('Apply'),
-                  ),
-                ],
+                        );
+                      }).toList(),
+                    ),
+                    const SizedBox(height: AppSpacing.xl),
+                    SizedBox(
+                      width: double.infinity,
+                      child: FilledButton(
+                        onPressed: () {
+                          Navigator.pop(context);
+                          _initializeAndLoad();
+                        },
+                        child: const Text('Apply'),
+                      ),
+                    ),
+                  ],
+                ),
               ),
             );
           },
@@ -411,26 +425,39 @@ class _RestaurantListScreenState extends State<RestaurantListScreen>
           maxChildSize: 0.9,
           expand: false,
           builder: (_, controller) {
-            return Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            return Padding(
+              padding: const EdgeInsets.symmetric(
+                  horizontal: AppSpacing.gutter, vertical: AppSpacing.sm),
               child: Column(
                 mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    'Select Type',
-                    style: Theme.of(context).textTheme.titleLarge,
+                    'Cuisine',
+                    style: Theme.of(context).textTheme.headlineSmall,
                   ),
-                  const SizedBox(height: 12),
+                  const SizedBox(height: AppSpacing.lg),
                   Expanded(
                     child: SingleChildScrollView(
                       controller: controller,
                       child: Wrap(
-                        spacing: 6,
-                        runSpacing: 6,
+                        spacing: AppSpacing.sm,
+                        runSpacing: AppSpacing.sm,
                         children: RestaurantService.cuisineTypes.map((type) {
                           final isSelected = _selectedType == type;
-                          return OutlinedButton(
-                            onPressed: () {
+                          final scheme = Theme.of(context).colorScheme;
+                          return ChoiceChip(
+                            label: Text(type == 'All' ? 'All types' : type),
+                            selected: isSelected,
+                            labelStyle: Theme.of(context)
+                                .textTheme
+                                .labelLarge
+                                ?.copyWith(
+                                  color: isSelected
+                                      ? scheme.onPrimary
+                                      : scheme.onSurface,
+                                ),
+                            onSelected: (_) {
                               if (type == 'Other') {
                                 _showCustomTypeDialog();
                               } else {
@@ -441,32 +468,12 @@ class _RestaurantListScreenState extends State<RestaurantListScreen>
                                 _initializeAndLoad();
                               }
                             },
-                            style: OutlinedButton.styleFrom(
-                              backgroundColor:
-                                  isSelected ? Colors.grey : Colors.white,
-                              side: const BorderSide(
-                                  color: Colors.black, width: 1),
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 12,
-                                vertical: 6,
-                              ),
-                              minimumSize: Size.zero,
-                              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                            ),
-                            child: Text(
-                              type == 'All' ? 'All types' : type,
-                              style: TextStyle(
-                                color: Colors.black,
-                                fontWeight: isSelected
-                                    ? FontWeight.bold
-                                    : FontWeight.normal,
-                              ),
-                            ),
                           );
                         }).toList(),
                       ),
                     ),
                   ),
+                  const SizedBox(height: AppSpacing.sm),
                 ],
               ),
             );
@@ -481,12 +488,11 @@ class _RestaurantListScreenState extends State<RestaurantListScreen>
       context: context,
       builder: (BuildContext context) {
         return AlertDialog(
-          title: const Text('Search keyword:'),
+          title: const Text('Search keyword'),
           content: TextField(
             controller: _customTypeController,
-            decoration: const InputDecoration(
-              border: OutlineInputBorder(),
-            ),
+            autofocus: true,
+            decoration: const InputDecoration(hintText: 'e.g. ramen'),
             // Only allow single word input
             onChanged: (value) {
               if (value.contains(' ')) {
@@ -502,7 +508,7 @@ class _RestaurantListScreenState extends State<RestaurantListScreen>
               onPressed: () => Navigator.pop(context),
               child: const Text('Cancel'),
             ),
-            TextButton(
+            FilledButton(
               onPressed: () {
                 if (_customTypeController.text.isNotEmpty) {
                   setState(() {
@@ -755,12 +761,19 @@ class _RestaurantListScreenState extends State<RestaurantListScreen>
     return Scaffold(
       key: _scaffoldKey,
       resizeToAvoidBottomInset: false,
-      backgroundColor: Colors.grey[200],
       appBar: AppBar(
-        centerTitle: true,
-        title: Image.asset('assets/logo.png'),
-        backgroundColor: Colors.grey[200],
-        elevation: 0,
+        // A wordmark set in the app's own display face, rather than a bitmap
+        // that could not follow the theme into dark mode and shipped at one
+        // fixed size.
+        title: Text(
+          'FoodieRank',
+          style: AppTypography.serifAt(
+            24,
+            weight: FontWeight.w600,
+            letterSpacing: -0.6,
+          ).copyWith(color: Theme.of(context).colorScheme.onSurface),
+        ),
+        titleSpacing: AppSpacing.gutter,
         actions: [
           // Signed-in users get their avatar; everyone else a neutral icon, so
           // the optional sign-in never reads as something the app requires.
@@ -800,28 +813,10 @@ class _RestaurantListScreenState extends State<RestaurantListScreen>
 
   Widget _buildBody() {
     if (_isLoading) {
-      return Container(
-        color: Colors.grey[200],
-        child: Center(
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              const CircularProgressIndicator(),
-              if (_searchStatus != null) ...[
-                const SizedBox(height: 16),
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 24),
-                  child: Text(
-                    _searchStatus!,
-                    textAlign: TextAlign.center,
-                    style: Theme.of(context).textTheme.bodyMedium,
-                  ),
-                ),
-              ],
-            ],
-          ),
-        ),
-      );
+      // A screenful of the shape that is coming, rather than one spinner in the
+      // middle of an empty page. Same trigger, same `_searchStatus` message —
+      // only the placeholder changed.
+      return RestaurantListSkeleton(status: _searchStatus);
     }
 
     // Helper function to get the appropriate message
@@ -844,71 +839,30 @@ class _RestaurantListScreenState extends State<RestaurantListScreen>
       bool isDefaultSearch = _selectedType == 'All' &&
           _selectedPriceLevel == null &&
           _searchQuery.isEmpty;
-      return Center(
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Text(
-                getErrorMessage(),
-                textAlign: TextAlign.center,
-                style: Theme.of(context).textTheme.bodyLarge,
-              ),
-              const SizedBox(height: 16),
-              ElevatedButton(
-                onPressed: () {
-                  if (!isDefaultSearch) {
-                    setState(() {
-                      _selectedPriceLevel = null;
-                      _selectedType = 'All';
-                    });
-                  }
-                  _initializeAndLoad();
-                },
-                child: const Text('Go back'), // Always show "Go back"
-              ),
-            ],
-          ),
-        ),
+      return StateView(
+        icon: Icons.search_off_rounded,
+        message: getErrorMessage(),
+        actionLabel: 'Go back', // Always show "Go back"
+        onAction: () {
+          if (!isDefaultSearch) {
+            setState(() {
+              _selectedPriceLevel = null;
+              _selectedType = 'All';
+            });
+          }
+          _initializeAndLoad();
+        },
       );
     }
 
     if (_restaurants?.isEmpty ?? true) {
-      return Center(
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Text(
-                getErrorMessage(),
-                style: Theme.of(context).textTheme.headlineSmall,
-              ),
-              const SizedBox(height: 16),
-              ElevatedButton(
-                onPressed: _initializeAndLoad,
-                child: const Text('Retry'),
-              ),
-            ],
-          ),
-        ),
+      return StateView(
+        icon: Icons.restaurant_rounded,
+        message: getErrorMessage(),
+        actionLabel: 'Retry',
+        onAction: _initializeAndLoad,
       );
     }
-
-    // Define button style outside the widget tree
-    final buttonStyle = ElevatedButton.styleFrom(
-      backgroundColor: Colors.white,
-      elevation: 0,
-      padding: const EdgeInsets.symmetric(
-          horizontal: 8), // Reduce horizontal padding
-      side: const BorderSide(
-        color: Colors.black,
-        width: 1,
-      ),
-      minimumSize: const Size(0, 28), // Only fix the height
-      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-    );
 
     return RefreshIndicator(
       // The indicator is the progress; blanking the list to a spinner behind it
@@ -916,136 +870,75 @@ class _RestaurantListScreenState extends State<RestaurantListScreen>
       onRefresh: () => _initializeAndLoad(silent: true),
       child: Column(
         children: [
-          Container(
-            color: Colors.grey[200],
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          Padding(
+            padding: const EdgeInsets.only(bottom: AppSpacing.sm),
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                // Filter Buttons Row
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 18),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      // Type filter (always visible now)
-                      ElevatedButton(
-                        onPressed: _showTypeFilter,
-                        style: buttonStyle,
-                        child: Text(
-                          _selectedType == 'All' ? 'All types' : _selectedType!,
-                          style:
-                              Theme.of(context).textTheme.bodyLarge?.copyWith(
-                                    color: Colors.black,
-                                  ),
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      ElevatedButton(
-                        onPressed: _showPriceRangeDialog,
-                        style: buttonStyle,
-                        child: Text(
-                          _getPriceLevelDisplay(),
-                          style:
-                              Theme.of(context).textTheme.bodyLarge?.copyWith(
-                                    color: Colors.black,
-                                  ),
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      ElevatedButton(
-                        onPressed: () {
-                          setState(() {
-                            _sortOption = _sortOption == SortOption.rank
-                                ? SortOption.distance
-                                : SortOption.rank;
-                            _sortRestaurants();
-                          });
-                        },
-                        style: buttonStyle,
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Icon(
-                              _sortOption == SortOption.rank
-                                  ? Icons.star
-                                  : Icons.directions_walk,
-                              color: Colors.black,
-                              size: 20,
-                            ),
-                            const SizedBox(width: 2),
-                            Transform.rotate(
-                              angle:
-                                  _sortOption == SortOption.rank ? 0 : 3.14159,
-                              child: const Icon(
-                                Icons.sort,
-                                color: Colors.black,
-                                size: 20,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      ElevatedButton(
-                        onPressed: _toggleViewMode,
-                        style: buttonStyle,
-                        child: Icon(
-                          _viewMode == ViewMode.card
-                              ? Icons.view_list_sharp
-                              : Icons
-                                  .crop_portrait, // Changed from view_agenda to crop_portrait
-                          color: Colors.black,
-                          size: 20,
-                        ),
-                      ),
-                    ],
-                  ),
+                // Nine controls that used to be two centred rows fighting over
+                // a phone's width. Every callback below is the handler that was
+                // already there.
+                FilterRail(
+                  typeLabel:
+                      _selectedType == 'All' ? 'All types' : _selectedType!,
+                  onType: _showTypeFilter,
+                  priceLabel: _getPriceLevelDisplay(),
+                  onPrice: _showPriceRangeDialog,
+                  sortByRank: _sortOption == SortOption.rank,
+                  onToggleSort: () {
+                    setState(() {
+                      _sortOption = _sortOption == SortOption.rank
+                          ? SortOption.distance
+                          : SortOption.rank;
+                      _sortRestaurants();
+                    });
+                  },
+                  locationLabel: _searchContext.locationDisplay,
+                  locationIsCustom: _searchContext.isCustomLocation,
+                  onLocation: _openLocationPicker,
+                  onClearLocation:
+                      _searchContext.isCustomLocation ? _resetLocation : null,
+                  timeLabel: _searchContext.timeDisplay,
+                  timeIsCustom: _searchContext.isCustomTime,
+                  onTime: _openTimePicker,
+                  onClearTime:
+                      _searchContext.isCustomTime ? _resetTime : null,
+                  searchActive: _isSearchVisible,
+                  onToggleSearch: _toggleSearch,
+                  taggedOnly: _taggedOnly,
+                  onToggleTagged: _toggleTaggedFilter,
+                  mapActive: _viewMode == ViewMode.map,
+                  onToggleMap: _toggleMapView,
+                  cardView: _viewMode == ViewMode.card,
+                  onToggleView: _toggleViewMode,
                 ),
-                const SizedBox(height: 8),
-                // Where & when context row
-                _buildContextRow(),
 
-                // Search Bar (only visible when search is active)
-                if (_isSearchVisible) ...[
-                  const SizedBox(height: 8),
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 16),
-                    child: SizedBox(
-                      height: 28,
-                      child: Container(
-                        decoration: BoxDecoration(
-                          color: Colors.white,
-                          borderRadius: BorderRadius.circular(20),
-                          border: Border.all(
-                            color: Colors.black,
-                            width: 1,
+                // Search field, expanding in place below the rail.
+                ExpandFade(
+                  child: !_isSearchVisible
+                      ? const SizedBox(width: double.infinity)
+                      : Padding(
+                          padding: const EdgeInsets.fromLTRB(
+                            AppSpacing.gutter,
+                            AppSpacing.sm,
+                            AppSpacing.gutter,
+                            0,
                           ),
-                        ),
-                        child: Center(
                           child: TextField(
                             controller: _searchController,
                             focusNode: _searchFocusNode,
-                            textAlignVertical: TextAlignVertical.center,
-                            style:
-                                Theme.of(context).textTheme.bodyLarge?.copyWith(
-                                      color: Colors.black,
-                                      fontSize: 14,
-                                    ),
+                            textInputAction: TextInputAction.search,
+                            style: Theme.of(context).textTheme.bodyMedium,
                             decoration: InputDecoration(
-                              isDense: true,
-                              hintText: 'Search for...',
-                              hintStyle: Theme.of(context)
-                                  .textTheme
-                                  .bodyLarge
-                                  ?.copyWith(
-                                    color: Colors.grey,
-                                    fontStyle: FontStyle.italic,
-                                    fontSize: 14,
-                                  ),
+                              hintText: 'Search for a dish or a name',
+                              prefixIcon: const Icon(Icons.search_rounded,
+                                  size: 20),
                               suffixIcon: _searchQuery.isNotEmpty
-                                  ? InkWell(
-                                      onTap: () {
+                                  ? IconButton(
+                                      tooltip: 'Clear search',
+                                      icon: const Icon(Icons.close_rounded,
+                                          size: 18),
+                                      onPressed: () {
                                         _searchController.clear();
                                         setState(() {
                                           _searchQuery = '';
@@ -1054,19 +947,8 @@ class _RestaurantListScreenState extends State<RestaurantListScreen>
                                         });
                                         _initializeAndLoad();
                                       },
-                                      child: const Padding(
-                                        padding: EdgeInsets.all(6),
-                                        child: Icon(
-                                          Icons.clear,
-                                          color: Colors.grey,
-                                          size: 16,
-                                        ),
-                                      ),
                                     )
                                   : null,
-                              border: InputBorder.none,
-                              contentPadding:
-                                  const EdgeInsets.symmetric(horizontal: 16),
                             ),
                             onSubmitted: (value) {
                               // The controller listener keeps _searchQuery in
@@ -1077,91 +959,20 @@ class _RestaurantListScreenState extends State<RestaurantListScreen>
                             },
                           ),
                         ),
-                      ),
-                    ),
-                  ),
-                ],
+                ),
               ],
             ),
           ),
 
-          // Restaurant Cards with padding
+          // The three views are peers with no spatial relationship, so they
+          // cross-fade rather than cut. Keyed by mode so the switcher can tell
+          // them apart.
           Expanded(
-            child: Container(
-              color: Colors.grey[200],
-              child: _viewMode == ViewMode.map
-                  ? RestaurantMapView(
-                      restaurants: _visibleRestaurants,
-                      currentLat: _currentLat,
-                      currentLng: _currentLng,
-                      onRestaurantTap: _showRestaurantCard,
-                    )
-                  : _viewMode == ViewMode.card
-                      ? PageView.builder(
-                          controller: _pageController,
-                          scrollDirection: Axis.vertical,
-                          pageSnapping: true,
-                          physics: const PageScrollPhysics(),
-                          itemCount: _visibleRestaurants.length,
-                          // No `onPageChanged` here on purpose: it used to hold
-                          // an empty `setState`, which rebuilt the header, the
-                          // filters and every card on each swipe. Nothing in
-                          // this subtree reads the current page.
-                          itemBuilder: (context, index) {
-                            final restaurant = _visibleRestaurants[index];
-                            return Column(
-                              children: [
-                                const SizedBox(height: 5.0), // Keep top padding
-
-                                Expanded(
-                                  child: Padding(
-                                    padding: const EdgeInsets.symmetric(
-                                            horizontal: 16.0)
-                                        .copyWith(
-                                      top: 8.0,
-                                      bottom: 8.0,
-                                    ),
-                                    child: RestaurantCard(
-                                      restaurant: restaurant,
-                                      onPhotoTap: () {
-                                        Navigator.of(context).push(
-                                          MaterialPageRoute(
-                                            builder: (context) =>
-                                                RestaurantPhotoViewer(
-                                              restaurant: restaurant,
-                                              initialIndex: 0,
-                                            ),
-                                          ),
-                                        );
-                                      },
-                                      ranking: restaurant.rank ?? index + 1,
-                                      currentLat: _currentLat,
-                                      currentLng: _currentLng,
-                                    ),
-                                  ),
-                                ),
-
-                                const SizedBox(
-                                    height: 30.0), // Keep bottom padding
-                              ],
-                            );
-                          },
-                        )
-                      : ListView.builder(
-                          padding: const EdgeInsets.only(
-                              top: 3), // Added top padding
-                          itemCount: _visibleRestaurants.length,
-                          itemBuilder: (context, index) {
-                            final restaurant = _visibleRestaurants[index];
-                            return MinimalRestaurantCard(
-                              restaurant: restaurant,
-                              ranking: restaurant.rank ?? index + 1,
-                              currentLat: _currentLat,
-                              currentLng: _currentLng,
-                              onTap: () => _showRestaurantCard(index),
-                            );
-                          },
-                        ),
+            child: FadeThrough(
+              child: KeyedSubtree(
+                key: ValueKey(_viewMode),
+                child: _buildViewForMode(),
+              ),
             ),
           ),
         ],
@@ -1169,131 +980,90 @@ class _RestaurantListScreenState extends State<RestaurantListScreen>
     );
   }
 
-  /// The "where & when" pills, bracketed by the search and map toggles. The
-  /// pills stay collapsed to a single line to keep the header uncluttered;
-  /// detail lives in the sheets.
-  Widget _buildContextRow() {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.center,
-      children: [
-        _iconPill(
-          icon: Icons.search,
-          active: _isSearchVisible,
-          onTap: _toggleSearch,
-        ),
-        const SizedBox(width: 8),
-        Flexible(
-          child: _contextPill(
-            icon: Icons.place_outlined,
-            label: _searchContext.locationDisplay,
-            // Both filters are always applied — "Near me" and "Open now" are
-            // the defaults, not the absence of a filter — so the pills read as
-            // on from a cold start. Only a *customised* pill offers a clear.
-            active: true,
-            onTap: _openLocationPicker,
-            onClear: _searchContext.isCustomLocation ? _resetLocation : null,
-          ),
-        ),
-        const SizedBox(width: 8),
-        Flexible(
-          child: _contextPill(
-            icon: Icons.schedule,
-            label: _searchContext.timeDisplay,
-            active: true,
-            onTap: _openTimePicker,
-            onClear: _searchContext.isCustomTime ? _resetTime : null,
-          ),
-        ),
-        const SizedBox(width: 8),
-        _iconPill(
-          icon: _taggedOnly ? Icons.flag : Icons.flag_outlined,
-          active: _taggedOnly,
-          onTap: _toggleTaggedFilter,
-        ),
-        const SizedBox(width: 8),
-        _iconPill(
-          icon: Icons.map_outlined,
-          active: _viewMode == ViewMode.map,
-          onTap: _toggleMapView,
-        ),
-      ],
-    );
-  }
+  /// Whichever of the three views [_viewMode] currently selects.
+  ///
+  /// Split out of `_buildBody` so the transition wrapper has a single child to
+  /// swap, and so the nesting stays readable — this was a nested ternary four
+  /// levels deep inside the layout.
+  Widget _buildViewForMode() {
+    switch (_viewMode) {
+      case ViewMode.map:
+        return RestaurantMapView(
+          restaurants: _visibleRestaurants,
+          currentLat: _currentLat,
+          currentLng: _currentLng,
+          onRestaurantTap: _showRestaurantCard,
+        );
 
-  /// A round icon toggle sized to sit flush with [_contextPill].
-  Widget _iconPill({
-    required IconData icon,
-    required bool active,
-    required VoidCallback onTap,
-  }) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(20),
-      child: Container(
-        width: 32,
-        height: 32,
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(20),
-          border: Border.all(color: Colors.black, width: 1),
-        ),
-        child: Icon(
-          icon,
-          size: 18,
-          color: active ? Colors.blue[900] : Colors.black,
-        ),
-      ),
-    );
-  }
-
-  Widget _contextPill({
-    required IconData icon,
-    required String label,
-    required bool active,
-    required VoidCallback onTap,
-    VoidCallback? onClear,
-  }) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(20),
-      child: Container(
-        padding: EdgeInsets.only(left: 12, right: onClear != null ? 6 : 12),
-        height: 32,
-        decoration: BoxDecoration(
-          color: active ? Colors.black : Colors.white,
-          borderRadius: BorderRadius.circular(20),
-          border: Border.all(color: Colors.black, width: 1),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(icon, size: 16, color: active ? Colors.white : Colors.black),
-            const SizedBox(width: 6),
-            Flexible(
-              child: Text(
-                label,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  fontSize: 13,
-                  fontWeight: active ? FontWeight.bold : FontWeight.normal,
-                  color: active ? Colors.white : Colors.black,
+      case ViewMode.card:
+        return PageView.builder(
+          controller: _pageController,
+          scrollDirection: Axis.vertical,
+          pageSnapping: true,
+          physics: const PageScrollPhysics(),
+          itemCount: _visibleRestaurants.length,
+          // No `onPageChanged` here on purpose: it used to hold an empty
+          // `setState`, which rebuilt the header, the filters and every card on
+          // each swipe. Nothing in this subtree reads the current page.
+          itemBuilder: (context, index) {
+            final restaurant = _visibleRestaurants[index];
+            return Padding(
+              padding: const EdgeInsets.fromLTRB(
+                AppSpacing.gutter,
+                AppSpacing.sm,
+                AppSpacing.gutter,
+                AppSpacing.xxl,
+              ),
+              // PageView hands its children tight constraints, which forced the
+              // card to the full height of the page however little it had to
+              // say. Aligning it loosens them: a short card now hugs its
+              // content, and a long one still fills the page and scrolls
+              // inside itself.
+              child: Align(
+                alignment: Alignment.topCenter,
+                child: RestaurantCard(
+                  restaurant: restaurant,
+                  onPhotoTap: (photoIndex) {
+                    Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (context) => RestaurantPhotoViewer(
+                          restaurant: restaurant,
+                          initialIndex: photoIndex,
+                        ),
+                      ),
+                    );
+                  },
+                  ranking: restaurant.rank ?? index + 1,
+                  currentLat: _currentLat,
+                  currentLng: _currentLng,
                 ),
               ),
-            ),
-            if (onClear != null)
-              GestureDetector(
-                onTap: onClear,
-                child: Padding(
-                  padding: const EdgeInsets.only(left: 4),
-                  child: Icon(Icons.close,
-                      size: 16, color: active ? Colors.white : Colors.black),
-                ),
-              ),
-          ],
-        ),
-      ),
-    );
+            );
+          },
+        );
+
+      case ViewMode.list:
+        return ListView.separated(
+          padding: const EdgeInsets.only(bottom: AppSpacing.xl),
+          itemCount: _visibleRestaurants.length,
+          // A hairline between rows, instead of every row being its own
+          // floating card on a grey plate.
+          separatorBuilder: (_, __) => const Divider(
+            indent: AppSpacing.gutter,
+            endIndent: AppSpacing.gutter,
+          ),
+          itemBuilder: (context, index) {
+            final restaurant = _visibleRestaurants[index];
+            return MinimalRestaurantCard(
+              restaurant: restaurant,
+              ranking: restaurant.rank ?? index + 1,
+              currentLat: _currentLat,
+              currentLng: _currentLng,
+              onTap: () => _showRestaurantCard(index),
+            );
+          },
+        );
+    }
   }
 
   String _getPriceLevelDisplay() {

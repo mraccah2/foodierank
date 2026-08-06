@@ -71,10 +71,18 @@ class ShimmerBox extends StatefulWidget {
 }
 
 class _ShimmerBoxState extends State<ShimmerBox> {
-  static const Color _base = Color(0xFFE0E0E0); // grey 300
-  static const Color _highlight = Color(0xFFF5F5F5); // grey 100
-
   bool _subscribed = false;
+
+  /// Taken from the theme so a placeholder is a shade of the surface it sits
+  /// on, rather than a fixed pair of light-mode greys that would glow on a
+  /// near-black page.
+  ///
+  /// `Theme.of` falls back to a default light theme when there is no `Theme`
+  /// ancestor, which is what keeps this usable in the widget tests.
+  (Color, Color) _tones(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return (scheme.surfaceContainerHigh, scheme.surfaceContainerHighest);
+  }
 
   @override
   void didChangeDependencies() {
@@ -102,11 +110,13 @@ class _ShimmerBoxState extends State<ShimmerBox> {
 
   @override
   Widget build(BuildContext context) {
+    final (base, highlight) = _tones(context);
+
     if (!_subscribed) {
       return Container(
         width: widget.width,
         height: widget.height,
-        color: _base,
+        color: base,
         child: widget.child,
       );
     }
@@ -122,7 +132,7 @@ class _ShimmerBoxState extends State<ShimmerBox> {
             gradient: LinearGradient(
               begin: Alignment(x - 0.7, -0.3),
               end: Alignment(x + 0.7, 0.3),
-              colors: const [_base, _highlight, _base],
+              colors: [base, highlight, base],
             ),
           ),
           child: child,

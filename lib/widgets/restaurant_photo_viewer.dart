@@ -4,6 +4,7 @@ import 'package:photo_view/photo_view.dart';
 import 'package:photo_view/photo_view_gallery.dart';
 import '../models/restaurant.dart';
 import '../services/proxy_service.dart';
+import '../theme/app_spacing.dart';
 import 'package:flutter/services.dart';
 
 class RestaurantPhotoViewer extends StatefulWidget {
@@ -72,15 +73,22 @@ class _RestaurantPhotoViewerState extends State<RestaurantPhotoViewer> {
           appBar: orientation == Orientation.portrait
               ? AppBar(
                   backgroundColor: Colors.transparent,
+                  surfaceTintColor: Colors.transparent,
                   elevation: 0,
+                  centerTitle: true,
                   leading: IconButton(
-                    icon: const Icon(Icons.arrow_back),
+                    icon: const Icon(Icons.arrow_back_rounded),
                     color: Colors.white,
                     onPressed: () => Navigator.pop(context),
                   ),
+                  // The gallery is always on black, so this bar is the one
+                  // place white is the right answer in both schemes.
                   title: Text(
-                    '${_currentIndex + 1}/${widget.restaurant.photoRefs.length}',
-                    style: const TextStyle(color: Colors.white),
+                    '${_currentIndex + 1} / ${widget.restaurant.photoRefs.length}',
+                    style: Theme.of(context)
+                        .textTheme
+                        .labelLarge
+                        ?.copyWith(color: Colors.white),
                   ),
                 )
               : null,
@@ -129,58 +137,32 @@ class _RestaurantPhotoViewerState extends State<RestaurantPhotoViewer> {
               if (orientation == Orientation.portrait) ...[
                 if (_currentIndex > 0)
                   Positioned(
-                    left: 16,
+                    left: AppSpacing.lg,
                     top: 0,
                     bottom: 0,
                     child: Center(
-                      child: GestureDetector(
+                      child: _NavArrow(
+                        icon: Icons.chevron_left_rounded,
+                        tooltip: 'Previous photo',
                         onTap: () => _pageController.previousPage(
                           duration: const Duration(milliseconds: 300),
                           curve: Curves.easeInOut,
-                        ),
-                        child: Container(
-                          padding: const EdgeInsets.all(8),
-                          decoration: BoxDecoration(
-                            color: Colors.black.withValues(alpha: 0.3),
-                            shape: BoxShape.circle,
-                          ),
-                          child: const Text(
-                            '<',
-                            style: TextStyle(
-                              color: Colors.white,
-                              fontSize: 24,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
                         ),
                       ),
                     ),
                   ),
                 if (_currentIndex < widget.restaurant.photoRefs.length - 1)
                   Positioned(
-                    right: 16,
+                    right: AppSpacing.lg,
                     top: 0,
                     bottom: 0,
                     child: Center(
-                      child: GestureDetector(
+                      child: _NavArrow(
+                        icon: Icons.chevron_right_rounded,
+                        tooltip: 'Next photo',
                         onTap: () => _pageController.nextPage(
                           duration: const Duration(milliseconds: 300),
                           curve: Curves.easeInOut,
-                        ),
-                        child: Container(
-                          padding: const EdgeInsets.all(8),
-                          decoration: BoxDecoration(
-                            color: Colors.black.withValues(alpha: 0.3),
-                            shape: BoxShape.circle,
-                          ),
-                          child: const Text(
-                            '>',
-                            style: TextStyle(
-                              color: Colors.white,
-                              fontSize: 24,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
                         ),
                       ),
                     ),
@@ -190,6 +172,43 @@ class _RestaurantPhotoViewerState extends State<RestaurantPhotoViewer> {
           ),
         );
       },
+    );
+  }
+}
+
+/// A circular step-through control.
+///
+/// These were the literal text characters `<` and `>` set in the body font at
+/// 24pt — which is why they sat slightly high in their circles and went
+/// noticeably lopsided at large text scales.
+class _NavArrow extends StatelessWidget {
+  final IconData icon;
+  final String tooltip;
+  final VoidCallback onTap;
+
+  const _NavArrow({
+    required this.icon,
+    required this.tooltip,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Tooltip(
+      message: tooltip,
+      child: Material(
+        color: Colors.black.withValues(alpha: 0.4),
+        shape: const CircleBorder(),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: onTap,
+          child: SizedBox(
+            width: AppSpacing.minTouch,
+            height: AppSpacing.minTouch,
+            child: Icon(icon, color: Colors.white, size: 28),
+          ),
+        ),
+      ),
     );
   }
 }

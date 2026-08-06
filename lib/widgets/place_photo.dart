@@ -134,12 +134,13 @@ class _PlacePhotoState extends State<PlacePhoto> {
   /// animation controllers. Every ShimmerBox shares one ticker.
   Widget _placeholder() {
     if (_failed) {
+      final scheme = Theme.of(context).colorScheme;
       return Container(
         width: widget.width,
         height: widget.height,
-        color: Colors.grey[300],
+        color: scheme.surfaceContainerHigh,
         child: Icon(Icons.image_not_supported_outlined,
-            size: widget.height * 0.3, color: Colors.grey[500]),
+            size: widget.height * 0.3, color: scheme.onSurfaceVariant),
       );
     }
     return ShimmerBox(width: widget.width, height: widget.height);

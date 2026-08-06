@@ -3,6 +3,9 @@ import 'package:flutter/material.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 
 import '../services/places_lookup_service.dart';
+import '../theme/app_colors.dart';
+import '../theme/app_spacing.dart';
+import '../theme/map_style.dart';
 
 /// Full-screen "drop a pin" picker. The map pans underneath a *fixed* centre pin
 /// (the standard, clutter-free pattern — no tap-to-place), the centre coordinate
@@ -79,14 +82,7 @@ class _MapPickerScreenState extends State<MapPickerScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        centerTitle: true,
-        title: const Text('Pick a point',
-            style: TextStyle(color: Colors.black, fontSize: 16)),
-        backgroundColor: Colors.grey[200],
-        elevation: 0,
-        iconTheme: const IconThemeData(color: Colors.black),
-      ),
+      appBar: AppBar(title: const Text('Pick a point')),
       body: Stack(
         alignment: Alignment.center,
         children: [
@@ -95,6 +91,9 @@ class _MapPickerScreenState extends State<MapPickerScreen> {
               target: LatLng(widget.initialLat, widget.initialLng),
               zoom: 15,
             ),
+            style: Theme.of(context).brightness == Brightness.dark
+                ? MapStyle.dark
+                : null,
             onCameraMove: _onCameraMove,
             onCameraIdle: _onCameraIdle,
             myLocationEnabled: true,
@@ -109,14 +108,14 @@ class _MapPickerScreenState extends State<MapPickerScreen> {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                const Icon(Icons.place, size: 44, color: Colors.red),
+                Icon(Icons.place, size: 44, color: AppColors.mapPin),
                 Container(
                   width: 8,
                   height: 4,
-                  margin: const EdgeInsets.only(top: 2),
+                  margin: const EdgeInsets.only(top: AppSpacing.xxs),
                   decoration: BoxDecoration(
-                    color: Colors.black26,
-                    borderRadius: BorderRadius.circular(4),
+                    color: Colors.black.withValues(alpha: 0.26),
+                    borderRadius: AppRadius.smAll,
                   ),
                 ),
                 const SizedBox(height: 44), // offset so the tip marks centre
@@ -126,28 +125,38 @@ class _MapPickerScreenState extends State<MapPickerScreen> {
 
           // Address card at the top.
           Positioned(
-            top: 12,
-            left: 12,
-            right: 12,
+            top: AppSpacing.md,
+            left: AppSpacing.md,
+            right: AppSpacing.md,
             child: Card(
               elevation: 3,
+              shadowColor: Colors.black.withValues(alpha: 0.25),
               child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                padding: const EdgeInsets.symmetric(
+                    horizontal: AppSpacing.md, vertical: AppSpacing.md),
                 child: Row(
                   children: [
-                    const Icon(Icons.location_on_outlined,
-                        size: 18, color: Colors.black54),
-                    const SizedBox(width: 8),
+                    Icon(Icons.location_on_outlined,
+                        size: 18,
+                        color: Theme.of(context).colorScheme.onSurfaceVariant),
+                    const SizedBox(width: AppSpacing.sm),
                     Expanded(
                       child: _resolving
-                          ? const Text('Finding address…',
-                              style: TextStyle(
-                                  fontSize: 13,
-                                  fontStyle: FontStyle.italic,
-                                  color: Colors.black54))
+                          ? Text('Finding address…',
+                              style: Theme.of(context)
+                                  .textTheme
+                                  .bodySmall
+                                  ?.copyWith(
+                                    fontStyle: FontStyle.italic,
+                                    color: Theme.of(context)
+                                        .colorScheme
+                                        .onSurfaceVariant,
+                                  ))
                           : Text(
-                              _address.isEmpty ? 'Move the map to a point' : _address,
-                              style: const TextStyle(fontSize: 13),
+                              _address.isEmpty
+                                  ? 'Move the map to a point'
+                                  : _address,
+                              style: Theme.of(context).textTheme.bodySmall,
                               maxLines: 2,
                               overflow: TextOverflow.ellipsis,
                             ),
@@ -160,20 +169,15 @@ class _MapPickerScreenState extends State<MapPickerScreen> {
 
           // Confirm button at the bottom.
           Positioned(
-            left: 16,
-            right: 16,
-            bottom: 24,
-            child: ElevatedButton.icon(
+            left: AppSpacing.gutter,
+            right: AppSpacing.gutter,
+            bottom: AppSpacing.xl,
+            child: FilledButton.icon(
               onPressed: _confirm,
-              icon: const Icon(Icons.search, size: 18),
+              icon: const Icon(Icons.search_rounded, size: 18),
               label: const Text('Search this area'),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.black,
-                foregroundColor: Colors.white,
-                minimumSize: const Size.fromHeight(48),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
-                ),
+              style: FilledButton.styleFrom(
+                minimumSize: const Size.fromHeight(52),
               ),
             ),
           ),

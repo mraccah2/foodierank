@@ -87,7 +87,10 @@ class PlaceStatusIcon extends StatelessWidget {
           child: Icon(
             Icons.outlined_flag,
             size: size,
-            color: Colors.grey.withValues(alpha: 0.55),
+            color: Theme.of(context)
+                .colorScheme
+                .onSurfaceVariant
+                .withValues(alpha: 0.55),
           ),
         ),
       ),
@@ -120,7 +123,7 @@ class PlaceStatusIcon extends StatelessWidget {
           child: Icon(
             status.icon,
             size: size,
-            color: status.color,
+            color: status.colorFor(Theme.of(context).brightness),
           ),
         ),
       ),
@@ -143,7 +146,7 @@ class PlaceStatusIcon extends StatelessWidget {
             Icon(
               Icons.bookmark,
               size: size * 0.9,
-              color: Colors.blueGrey[600],
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
             ),
             if (showListLabel) ...[
               const SizedBox(width: 3),
@@ -155,7 +158,7 @@ class PlaceStatusIcon extends StatelessWidget {
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
                     fontSize: size * 0.6,
-                    color: Colors.blueGrey[700],
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
                     fontWeight: FontWeight.w500,
                   ),
                 ),
@@ -166,7 +169,7 @@ class PlaceStatusIcon extends StatelessWidget {
                   ' +${names.length - 1}',
                   style: TextStyle(
                     fontSize: size * 0.6,
-                    color: Colors.blueGrey[500],
+                    color: Theme.of(context).colorScheme.outline,
                   ),
                 ),
             ],

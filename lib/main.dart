@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import 'screens/restaurant_list_screen.dart';
 import 'screens/splash_screen.dart';
 import 'services/api_usage_tracker.dart';
+import 'theme/app_theme.dart';
 import 'services/navigation_service.dart';
 import 'services/photo_disk_cache.dart';
 import 'services/restaurant_disk_cache.dart';
@@ -82,22 +83,9 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
       debugShowCheckedModeBanner: false,
       navigatorKey: NavigationService.navigatorKey,
       title: 'FoodieRank',
-      theme: ThemeData(
-        scaffoldBackgroundColor: Colors.white,
-        appBarTheme: const AppBarTheme(
-          backgroundColor: Colors.white,
-          surfaceTintColor: Colors.white,
-        ),
-        colorScheme: const ColorScheme.light(
-          primary: Colors.black,
-          secondary: Colors.black,
-          surface: Colors.white,
-          onPrimary: Colors.white,
-          onSecondary: Colors.white,
-          onSurface: Colors.black,
-        ),
-        useMaterial3: true,
-      ),
+      theme: AppTheme.light(),
+      darkTheme: AppTheme.dark(),
+      themeMode: ThemeMode.system,
       routes: {
         '/': (context) => const SplashScreen(),
         '/restaurant_list': (context) => const RestaurantListScreen(),

@@ -6,6 +6,9 @@ import '../services/bootstrap.dart';
 import '../services/location_service.dart';
 import '../services/restaurant_disk_cache.dart';
 import '../services/restaurant_service.dart';
+import '../theme/app_motion.dart';
+import '../theme/app_spacing.dart';
+import '../theme/app_typography.dart';
 import 'restaurant_list_screen.dart';
 
 /// The first screen: a brief, bounded warm-up before the list takes over.
@@ -62,11 +65,16 @@ class _SplashScreenState extends State<SplashScreen> {
     }
     if (!mounted) return;
 
+    // A fade rather than a push: the list is not somewhere you navigated to
+    // from the splash, it is what the splash was standing in for.
     Navigator.of(context).pushReplacement(
-      MaterialPageRoute(
-        builder: (context) => const RestaurantListScreen(
+      PageRouteBuilder(
+        transitionDuration: AppMotion.slow,
+        pageBuilder: (_, __, ___) => const RestaurantListScreen(
           key: ValueKey('restaurant_list'),
         ),
+        transitionsBuilder: (context, animation, _, child) =>
+            FadeTransition(opacity: animation, child: child),
       ),
     );
   }
@@ -74,7 +82,7 @@ class _SplashScreenState extends State<SplashScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: Colors.black,
       body: Stack(
         fit: StackFit.expand,
         children: [
@@ -85,12 +93,43 @@ class _SplashScreenState extends State<SplashScreen> {
             'assets/splash.jpg',
             fit: BoxFit.cover,
           ),
-          const Positioned(
-            bottom: 50,
-            left: 0,
-            right: 0,
-            child: Center(
-              child: CircularProgressIndicator(),
+          // The wordmark and spinner sit on a photograph, so they are white in
+          // both schemes — and the scrim is what guarantees they are legible
+          // whatever the photograph is doing underneath them.
+          const DecoratedBox(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.bottomCenter,
+                end: Alignment.center,
+                colors: [Colors.black87, Colors.transparent],
+              ),
+            ),
+          ),
+          Positioned(
+            bottom: 64,
+            left: AppSpacing.xxl,
+            right: AppSpacing.xxl,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  'FoodieRank',
+                  style: AppTypography.serifAt(
+                    34,
+                    weight: FontWeight.w600,
+                    letterSpacing: -0.8,
+                  ).copyWith(color: Colors.white),
+                ),
+                const SizedBox(height: AppSpacing.xl),
+                const SizedBox(
+                  width: 22,
+                  height: 22,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2.5,
+                    color: Colors.white,
+                  ),
+                ),
+              ],
             ),
           ),
         ],

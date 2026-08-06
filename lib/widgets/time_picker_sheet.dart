@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 
 import '../models/search_context.dart';
+import '../theme/app_motion.dart';
+import '../theme/app_spacing.dart';
 
 /// Outcome of the time picker. A null return from [showTimeContextPicker] means
 /// the sheet was dismissed with no change.
@@ -45,10 +47,6 @@ Future<TimePickResult?> showTimeContextPicker(
   return showModalBottomSheet<TimePickResult>(
     context: context,
     isScrollControlled: true,
-    backgroundColor: Colors.white,
-    shape: const RoundedRectangleBorder(
-      borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
-    ),
     builder: (_) => _TimePickerSheet(initiallyCustom: isCustom),
   );
 }
@@ -88,20 +86,30 @@ class _TimePickerSheetState extends State<_TimePickerSheet> {
   Widget build(BuildContext context) {
     return SafeArea(
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+        padding: const EdgeInsets.fromLTRB(
+          0,
+          0,
+          0,
+          AppSpacing.lg,
+        ),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Center(child: _grabHandle()),
-            const SizedBox(height: 12),
-            const Text('When?',
-                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-            const SizedBox(height: 8),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(
+                AppSpacing.gutter,
+                0,
+                AppSpacing.gutter,
+                AppSpacing.sm,
+              ),
+              child: Text('When?',
+                  style: Theme.of(context).textTheme.headlineSmall),
+            ),
 
             // Open now
             _option(
-              icon: Icons.schedule,
+              icon: Icons.schedule_rounded,
               title: 'Open now',
               onTap: () =>
                   Navigator.of(context).pop(const TimePickResult.now()),
@@ -109,7 +117,7 @@ class _TimePickerSheetState extends State<_TimePickerSheet> {
 
             // Meal presets (today)
             ..._presets.map((p) => _option(
-                  icon: Icons.restaurant_menu,
+                  icon: Icons.restaurant_menu_rounded,
                   title: p.label,
                   trailing: p.sub,
                   onTap: () => Navigator.of(context).pop(
@@ -119,9 +127,9 @@ class _TimePickerSheetState extends State<_TimePickerSheet> {
 
             // Pick a day & time (expandable)
             _option(
-              icon: Icons.event,
+              icon: Icons.event_rounded,
               title: 'Pick a day & time',
-              trailing: _showCustom ? null : '›',
+              expanded: _showCustom,
               onTap: () => setState(() => _showCustom = !_showCustom),
             ),
             if (_showCustom) _buildCustom(),
@@ -131,34 +139,43 @@ class _TimePickerSheetState extends State<_TimePickerSheet> {
     );
   }
 
-  Widget _grabHandle() => Container(
-        width: 40,
-        height: 4,
-        decoration: BoxDecoration(
-          color: Colors.black26,
-          borderRadius: BorderRadius.circular(2),
-        ),
-      );
-
   Widget _option({
     required IconData icon,
     required String title,
     String? trailing,
+    bool? expanded,
     required VoidCallback onTap,
   }) {
+    final theme = Theme.of(context);
+
     return InkWell(
       onTap: onTap,
       child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 12),
+        padding: const EdgeInsets.symmetric(
+          horizontal: AppSpacing.gutter,
+          vertical: AppSpacing.md,
+        ),
         child: Row(
           children: [
-            Icon(icon, size: 20, color: Colors.black87),
-            const SizedBox(width: 14),
-            Expanded(
-                child: Text(title, style: const TextStyle(fontSize: 15))),
+            Icon(icon, size: 20, color: theme.colorScheme.onSurfaceVariant),
+            const SizedBox(width: AppSpacing.lg),
+            Expanded(child: Text(title, style: theme.textTheme.bodyLarge)),
             if (trailing != null)
-              Text(trailing,
-                  style: const TextStyle(fontSize: 13, color: Colors.black54)),
+              Text(
+                trailing,
+                style: theme.textTheme.bodyMedium
+                    ?.copyWith(color: theme.colorScheme.onSurfaceVariant),
+              ),
+            // A rotating chevron, rather than a literal '›' character that
+            // vanished once the section was open.
+            if (expanded != null)
+              AnimatedRotation(
+                turns: expanded ? 0.25 : 0,
+                duration: AppMotion.fast,
+                curve: AppMotion.standard,
+                child: Icon(Icons.chevron_right_rounded,
+                    size: 20, color: theme.colorScheme.onSurfaceVariant),
+              ),
           ],
         ),
       ),
@@ -167,7 +184,12 @@ class _TimePickerSheetState extends State<_TimePickerSheet> {
 
   Widget _buildCustom() {
     return Padding(
-      padding: const EdgeInsets.only(left: 34, top: 4, bottom: 4),
+      padding: const EdgeInsets.fromLTRB(
+        AppSpacing.gutter + AppSpacing.xxl,
+        AppSpacing.xs,
+        AppSpacing.gutter,
+        AppSpacing.xs,
+      ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -190,26 +212,22 @@ class _TimePickerSheetState extends State<_TimePickerSheet> {
               );
             }),
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: AppSpacing.md),
           Row(
             children: [
               OutlinedButton.icon(
                 onPressed: _pickTime,
-                icon: const Icon(Icons.access_time, size: 18),
+                icon: const Icon(Icons.access_time_rounded, size: 18),
                 label: Text(SearchContext.formatClock(_selectedMinutes)),
               ),
               const Spacer(),
-              ElevatedButton(
+              FilledButton(
                 onPressed: () => Navigator.of(context).pop(
                   TimePickResult.custom(
                     _selectedDay,
                     _selectedMinutes,
                     SearchContext.formatDayTime(_selectedDay, _selectedMinutes),
                   ),
-                ),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.black,
-                  foregroundColor: Colors.white,
                 ),
                 child: const Text('Apply'),
               ),
