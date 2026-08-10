@@ -119,6 +119,58 @@ function keyOf(parts: unknown): string {
   return createHash('sha1').update(JSON.stringify(parts)).digest('hex');
 }
 
+export interface SearchKeyParams {
+  kind?: string;
+  textQuery?: string;
+  latitude: number;
+  longitude: number;
+  radius?: number;
+  maxResultCount?: number;
+  openNow?: boolean;
+  priceLevels?: string[];
+  fieldTier?: string;
+}
+
+/**
+ * The cache key for a search.
+ *
+ * Coordinates are rounded to three decimals — roughly 100m — so two people on
+ * the same street share one cached answer instead of each paying for their
+ * own. Everything that changes what Google returns is in the key; nothing that
+ * does not is, or the cache would fragment into single-use entries.
+ */
+export function searchCacheKey(p: SearchKeyParams): string {
+  return keyOf({
+    kind: p.kind ?? 'text',
+    textQuery: (p.textQuery ?? '').trim().toLowerCase(),
+    lat: p.latitude.toFixed(3),
+    lon: p.longitude.toFixed(3),
+    radius: p.radius ?? 1000,
+    maxResultCount: p.maxResultCount ?? 20,
+    openNow: !!p.openNow,
+    priceLevels: [...(p.priceLevels ?? [])].sort(),
+    fieldTier: p.fieldTier ?? 'atmosphere',
+  });
+}
+
+/**
+ * Where a cached photo lives.
+ *
+ * Note what is absent: the photo resource name. Google mints a fresh one on
+ * every search response, so a path built from it would be written once and
+ * never read again — the exact bug that made photos the largest line on the
+ * bill. placeId and index are stable, and the size is included because the
+ * list thumbnail and the card header are fetched at different dimensions.
+ */
+export function photoObjectPath(
+  placeId: string,
+  index: number,
+  maxWidthPx: number,
+  maxHeightPx: number
+): string {
+  return `places-photos/${placeId}/${index}_${maxWidthPx}x${maxHeightPx}.jpg`;
+}
+
 async function placesFetch(
   url: string,
   fieldMask: string,
@@ -186,17 +238,15 @@ export const placesSearch = onCall(
           'places.businessStatus,places.currentOpeningHours,places.regularOpeningHours,' +
           'places.editorialSummary,places.googleMapsUri';
 
-    // Coordinates are rounded into ~100m buckets before they reach the key, so
-    // two people on the same street share an entry instead of each minting one.
-    const cacheKey = keyOf({
+    const cacheKey = searchCacheKey({
       kind,
-      textQuery: (textQuery ?? '').trim().toLowerCase(),
-      lat: latitude.toFixed(3),
-      lon: longitude.toFixed(3),
+      textQuery,
+      latitude,
+      longitude,
       radius,
       maxResultCount,
-      openNow: !!openNow,
-      priceLevels: [...(priceLevels ?? [])].sort(),
+      openNow,
+      priceLevels,
       fieldTier,
     });
 
@@ -291,7 +341,7 @@ export const placesPhoto = onCall(
 
     if (!placeId) throw new HttpsError('invalid-argument', 'placeId is required');
 
-    const objectPath = `places-photos/${placeId}/${index}_${maxWidthPx}x${maxHeightPx}.jpg`;
+    const objectPath = photoObjectPath(placeId, index, maxWidthPx, maxHeightPx);
     const file = storage.bucket().file(objectPath);
 
     const [exists] = await file.exists().catch(() => [false]);
