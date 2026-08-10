@@ -28,6 +28,9 @@ import {
   newestExportParts,
 } from './drive';
 import { PLACES_API_KEY, resolvePlaces } from './placeResolve';
+// The browse path's server side. Re-exported so `firebase deploy` picks the
+// callables up; everything about them lives in placesProxy.ts.
+export { placesSearch, placesPhoto } from './placesProxy';
 import { parseTakeoutArchive } from './takeout';
 import {
   applyImport,

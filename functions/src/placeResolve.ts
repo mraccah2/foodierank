@@ -25,7 +25,7 @@ const auth = new GoogleAuth({
 
 let cachedToken: { value: string; expiresAt: number } | null = null;
 
-async function accessToken(): Promise<string> {
+export async function accessToken(): Promise<string> {
   // Tokens last an hour; a single import makes thousands of calls, so minting
   // one per request would dominate the run time.
   if (cachedToken && cachedToken.expiresAt > Date.now() + 60_000) {
