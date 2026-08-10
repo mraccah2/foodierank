@@ -73,9 +73,39 @@ def api(path: str, token: str) -> dict:
         raise  # unreachable; keeps type checkers happy
 
 
+def newest_matching(builds: dict, build_number: str, train: str | None):
+    """The most recently uploaded build matching the number and, if given, train.
+
+    A build number is **not unique** — App Store Connect scopes it per version
+    train, so 1.1.0 and 1.1.1 can both hold a build 41, and they did. Matching
+    on the number alone found the older one, reported it VALID within seconds
+    while the real upload was still processing, and sent the submit step off to
+    the wrong train entirely.
+    """
+    trains = {
+        item["id"]: item["attributes"]["version"]
+        for item in builds.get("included", [])
+        if item["type"] == "preReleaseVersions"
+    }
+    for build in builds.get("data") or []:
+        if build["attributes"].get("version") != build_number:
+            continue
+        if train is not None:
+            rel = (build.get("relationships", {})
+                   .get("preReleaseVersion", {})
+                   .get("data") or {})
+            if trains.get(rel.get("id")) != train:
+                continue
+        return build
+    return None
+
+
 def main() -> None:
     build_number = os.environ["BUILD_NUMBER"]
     bundle_id = os.environ["BUNDLE_ID"]
+    # The marketing version this build belongs to. Optional so an older caller
+    # still works, but without it a repeated build number is a coin toss.
+    train = os.environ.get("TRAIN_VERSION") or None
     token = make_token()
 
     apps = api(f"apps?filter[bundleId]={bundle_id}", token)
@@ -83,23 +113,28 @@ def main() -> None:
         fail(f"No app in App Store Connect with bundle id {bundle_id}")
     app_id = apps["data"][0]["id"]
 
-    print(f"Waiting for build {build_number} to finish processing…")
+    target = f"build {build_number}" + (f" of {train}" if train else "")
+    print(f"Waiting for {target} to finish processing…")
     deadline = time.time() + TIMEOUT_SECONDS
     started = time.time()
 
     while time.time() < deadline:
+        # Newest first, and wide enough to see past same-numbered builds on
+        # other trains — `filter[version]` alone is not a unique key.
         builds = api(
             f"builds?filter[app]={app_id}"
-            f"&filter[version]={build_number}&limit=1",
+            f"&filter[version]={build_number}"
+            f"&sort=-uploadedDate&limit=20&include=preReleaseVersion",
             token,
         )
-        data = builds.get("data") or []
+        match = newest_matching(builds, build_number, train)
+        data = [match] if match else []
 
         if not data:
             waited = time.time() - started
             if waited > APPEARANCE_GRACE_SECONDS:
                 fail(
-                    f"Build {build_number} never appeared in App Store Connect "
+                    f"{target.capitalize()} never appeared in App Store Connect "
                     f"after {int(waited)}s. Apple usually emails the reason — "
                     "check for an 'Action needed' message."
                 )
@@ -111,11 +146,11 @@ def main() -> None:
         print(f"  processingState={state}")
 
         if state == "VALID":
-            print(f"Build {build_number} is VALID and available in TestFlight.")
+            print(f"{target.capitalize()} is VALID and available in TestFlight.")
             return
         if state in ("INVALID", "FAILED"):
             fail(
-                f"App Store Connect rejected build {build_number} "
+                f"App Store Connect rejected {target} "
                 f"(processingState={state}). Apple emails the specific ITMS "
                 "code; fix it and upload a new build."
             )
@@ -123,7 +158,7 @@ def main() -> None:
         time.sleep(POLL_SECONDS)
 
     fail(
-        f"Build {build_number} was still processing after "
+        f"{target.capitalize()} was still processing after "
         f"{TIMEOUT_SECONDS // 60} minutes. Not failing the upload itself, but "
         "verify it in App Store Connect before relying on this build."
     )

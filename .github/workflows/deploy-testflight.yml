@@ -152,6 +152,10 @@ jobs:
           CURRENT_VERSION=$(grep '^version:' pubspec.yaml | sed 's/version: *//' | cut -d'+' -f1)
           sed -i '' "s/^version:.*/version: ${CURRENT_VERSION}+${BUILD_NUMBER}/" pubspec.yaml
           echo "Version: ${CURRENT_VERSION}+${BUILD_NUMBER}"
+          # Both App Store Connect steps need the train as well as the build
+          # number: the number repeats across trains, so on its own it selects
+          # a build by luck. See await_build_processing.newest_matching.
+          echo "train_version=${CURRENT_VERSION}" >> "$GITHUB_ENV"
 
       - name: Flutter pub get
         run: flutter pub get
@@ -328,6 +332,7 @@ jobs:
           ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
           ASC_PRIVATE_KEY: ${{ secrets.ASC_PRIVATE_KEY }}
           BUILD_NUMBER: ${{ github.run_number }}
+          TRAIN_VERSION: ${{ env.train_version }}
           BUNDLE_ID: ${{ vars.IOS_BUNDLE_ID || 'com.foodierank.foodierank' }}
         run: |
           VENV="$RUNNER_TEMP/verify-venv"
@@ -343,6 +348,7 @@ jobs:
           ASC_PRIVATE_KEY: ${{ secrets.ASC_PRIVATE_KEY }}
           ASC_RELEASE_TYPE: AFTER_APPROVAL
           ASC_BUILD_VERSION: ${{ github.run_number }}
+          ASC_TRAIN_VERSION: ${{ env.train_version }}
         run: |
           python3 -m pip install --quiet --user --break-system-packages pyjwt cryptography || \
             python3 -m pip install --quiet --user pyjwt cryptography

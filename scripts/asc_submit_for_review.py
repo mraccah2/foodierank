@@ -34,6 +34,9 @@ BUNDLE_ID = os.environ.get("ASC_BUNDLE_ID", "com.foodierank.foodierank")
 RELEASE_TYPE = os.environ.get("ASC_RELEASE_TYPE", "AFTER_APPROVAL")
 WHATS_NEW = os.environ.get("ASC_WHATS_NEW", "Bug fixes and improvements.")
 TARGET_BUILD = os.environ.get("ASC_BUILD_VERSION")  # optional specific build_number
+# The marketing version (CFBundleShortVersionString) the target build belongs
+# to. Build numbers repeat across trains, so this is what makes the pair unique.
+TARGET_TRAIN = os.environ.get("ASC_TRAIN_VERSION")
 MAX_WAIT = int(os.environ.get("ASC_MAX_WAIT_SECS", "1800"))
 
 
@@ -109,15 +112,32 @@ def find_app():
     return apps["data"][0]
 
 
-def wait_for_valid_build(app_id, target_build_number=None):
+def wait_for_valid_build(app_id, target_build_number=None, target_train=None):
     """Poll until at least one VALID, non-expired build exists.
 
     If target_build_number is given, wait specifically for that build.
     Otherwise, accept the latest non-expired VALID build.
+
+    A build number is **not unique**: App Store Connect scopes it per version
+    train, so 1.1.0 and 1.1.1 can each hold a build 41 — and on 2026-08-10 they
+    did. Matching on the number alone picked the four-day-old 1.1.0 build
+    (already VALID) while the real upload was still processing, so the
+    submission went to a train that was already released and 409'd on a
+    duplicate version string. [target_train] disambiguates; without it this
+    falls back to newest-first, which is right but racy.
     """
     started = time.time()
     while True:
-        builds = api("GET", f"/v1/builds?filter[app]={app_id}&sort=-uploadedDate&limit=10")
+        builds = api(
+            "GET",
+            f"/v1/builds?filter[app]={app_id}&sort=-uploadedDate&limit=20"
+            "&include=preReleaseVersion",
+        )
+        trains = {
+            item["id"]: item["attributes"]["version"]
+            for item in builds.get("included", [])
+            if item["type"] == "preReleaseVersions"
+        }
         candidates = []
         for b in builds["data"]:
             attr = b["attributes"]
@@ -125,6 +145,12 @@ def wait_for_valid_build(app_id, target_build_number=None):
                 continue
             if target_build_number and attr["version"] != target_build_number:
                 continue
+            if target_train:
+                rel = (b.get("relationships", {})
+                       .get("preReleaseVersion", {})
+                       .get("data") or {})
+                if trains.get(rel.get("id")) != target_train:
+                    continue
             candidates.append(b)
         if candidates:
             valid = [b for b in candidates if b["attributes"]["processingState"] == "VALID"]
@@ -143,8 +169,9 @@ def main():
     app_id = app["id"]
     print(f"App: {app['attributes']['name']} (id={app_id})")
 
-    print(f"Waiting for VALID build (target={TARGET_BUILD or 'latest'})…")
-    build = wait_for_valid_build(app_id, TARGET_BUILD)
+    print(f"Waiting for VALID build (target={TARGET_BUILD or 'latest'}"
+          f"{', train ' + TARGET_TRAIN if TARGET_TRAIN else ''})…")
+    build = wait_for_valid_build(app_id, TARGET_BUILD, TARGET_TRAIN)
     build_id = build["id"]
     build_version = build["attributes"]["version"]
     train = build["attributes"]["preReleaseVersion"]["data"]["id"] if False else None  # not used
