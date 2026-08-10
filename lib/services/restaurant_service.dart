@@ -54,6 +54,21 @@ class RestaurantSearchSnapshot {
   }
 }
 
+/// One remembered answer, with enough context to know when it stops applying.
+class _MemoisedSearch {
+  final List<Map<String, dynamic>> places;
+  final double latitude;
+  final double longitude;
+  final DateTime fetchedAt;
+
+  const _MemoisedSearch({
+    required this.places,
+    required this.latitude,
+    required this.longitude,
+    required this.fetchedAt,
+  });
+}
+
 class RestaurantService implements PhotoSource {
   static final RestaurantService instance = RestaurantService._internal();
   List<Map<String, dynamic>>? _cachedRestaurants;
@@ -101,6 +116,29 @@ class RestaurantService implements PhotoSource {
   Future<Uint8List?> Function(String key)? photoCacheRead;
   Future<void> Function(String key, Uint8List bytes)? photoCacheWrite;
 
+  /// Recent result sets, keyed by query and rounded location.
+  ///
+  /// Only ONE result set used to be remembered, in [_lastQueryKey]. Every
+  /// filter change therefore threw the previous one away, so going Italian →
+  /// Sushi → Italian paid for Italian twice: four to twelve Text Search calls
+  /// at $35–40 per thousand, plus a fresh round of photo prefetching. Trying
+  /// filters is the single most common thing anyone does in this app, and it
+  /// was the most expensive.
+  ///
+  /// Deliberately in memory only. The on-disk snapshot answers "what should a
+  /// cold start show"; this answers "has this exact question been asked in the
+  /// last few minutes", which is a different question with a much shorter
+  /// useful life.
+  final LinkedHashMap<String, _MemoisedSearch> _resultMemo = LinkedHashMap();
+  static const int _resultMemoLimit = 12;
+
+  /// Short enough that "open now" cannot drift far, long enough to cover a
+  /// session of trying filters against one place on the map.
+  static const Duration _resultMemoMaxAge = Duration(minutes: 20);
+
+  /// Past this the map has moved enough to be a different question.
+  static const double _resultMemoMaxDriftM = 250;
+
   factory RestaurantService() {
     return instance;
   }
@@ -125,6 +163,43 @@ class RestaurantService implements PhotoSource {
     if (error is! PlacesApiException) return;
     if (error.isUnavailable || lastSearchFailure == null) {
       lastSearchFailure = error.userMessage;
+    }
+  }
+
+  /// A remembered answer for [key], if one still applies here and now.
+  ///
+  /// Both conditions matter and neither is sufficient. Age alone would serve a
+  /// Rome result set to someone who has since landed in Naples; distance alone
+  /// would keep serving "open now" long after the kitchens shut.
+  _MemoisedSearch? _memoHit(String key, double latitude, double longitude) {
+    final entry = _resultMemo.remove(key);
+    if (entry == null) return null;
+    if (DateTime.now().difference(entry.fetchedAt) > _resultMemoMaxAge) {
+      return null; // dropped: removed above and not put back
+    }
+    if (_calculateDistance(
+            entry.latitude, entry.longitude, latitude, longitude) >
+        _resultMemoMaxDriftM) {
+      // Kept, not dropped — the same question from somewhere else is still a
+      // good answer for wherever it was asked from.
+      _resultMemo[key] = entry;
+      return null;
+    }
+    _resultMemo[key] = entry; // re-inserting on read is what makes it an LRU
+    return entry;
+  }
+
+  void _memoRemember(String key, List<Map<String, dynamic>> places,
+      double latitude, double longitude) {
+    _resultMemo.remove(key);
+    _resultMemo[key] = _MemoisedSearch(
+      places: places,
+      latitude: latitude,
+      longitude: longitude,
+      fetchedAt: DateTime.now(),
+    );
+    while (_resultMemo.length > _resultMemoLimit) {
+      _resultMemo.remove(_resultMemo.keys.first);
     }
   }
 
@@ -167,6 +242,31 @@ class RestaurantService implements PhotoSource {
       String? contextKey,
       void Function(int count, String type, double radius)?
           onSearchUpdate}) async {
+    final key = queryKey(
+      priceLevels: priceLevels,
+      cuisineType: cuisineType,
+      openNow: openNow,
+      searchQuery: searchQuery,
+      targetDay: targetDay,
+      targetMinutes: targetMinutes,
+      contextKey: contextKey,
+    );
+
+    // Asked this already, recently, from about here? Then it is the same
+    // question and Google has already been paid for the answer.
+    final memo = _memoHit(key, latitude, longitude);
+    if (memo != null) {
+      _lastFetchTime = memo.fetchedAt;
+      _lastFetchLatitude = latitude;
+      _lastFetchLongitude = longitude;
+      _lastQueryKey = key;
+      _cachedRestaurants = memo.places;
+      // Warmed anyway: those photos are already in memory or on disk, so it
+      // costs nothing and stops the list redrawing without its pictures.
+      unawaited(warmFirstPhotos());
+      return memo.places;
+    }
+
     final places = await getNearbyRestaurants(
       latitude,
       longitude,
@@ -185,16 +285,9 @@ class RestaurantService implements PhotoSource {
     _lastFetchTime = DateTime.now();
     _lastFetchLatitude = latitude;
     _lastFetchLongitude = longitude;
-    _lastQueryKey = queryKey(
-      priceLevels: priceLevels,
-      cuisineType: cuisineType,
-      openNow: openNow,
-      searchQuery: searchQuery,
-      targetDay: targetDay,
-      targetMinutes: targetMinutes,
-      contextKey: contextKey,
-    );
+    _lastQueryKey = key;
     _cachedRestaurants = places;
+    _memoRemember(key, places, latitude, longitude);
 
     unawaited(_persist(RestaurantSearchSnapshot(
       places: places,
@@ -265,7 +358,25 @@ class RestaurantService implements PhotoSource {
   static const double _initialRadius = 1000; // start ~1km
   static const double _radiusGrowth = 2.0; // double the search radius each round
   static const double _emptyRoundGrowth = 4.0; // step out harder over empty country
-  static const double maxRadius = 100000; // safety cap (~100km) for remote areas
+  /// How far out the widening loop will go before giving up.
+  ///
+  /// Was 100 km, which is not a distance anyone travels for lunch. Doubling
+  /// from 1 km, that allowed eight rounds — and every round is
+  /// [_sectorsPerSide]² billed Text Search requests, so a filtered search that
+  /// could never reach [_targetCount] (say vegan + $$ + open now in a quiet
+  /// town) spent up to **32 requests** discovering that, then offered results
+  /// an hour's drive away. 25 km caps it at five rounds and still reaches the
+  /// next town from anywhere suburban.
+  static const double maxRadius = 25000;
+
+  /// A hard ceiling on rounds, independent of the radius maths.
+  ///
+  /// Belt and braces: the growth factors and the clamp interact (an empty round
+  /// multiplies by four, a thin one by two, and both clamp to [maxRadius]), and
+  /// once radius pins at the cap a loop that keeps finding nothing new would
+  /// otherwise re-query the same box until the result count moved. It cannot,
+  /// if the places genuinely are not there.
+  static const int _maxSearchRounds = 5;
   static const int _sectorsPerSide = 2; // query the box as a 2×2 grid
 
   // Locality-signal tuning (see _applyLocalityScores).
@@ -383,8 +494,10 @@ class RestaurantService implements PhotoSource {
     // rural areas keep doubling the radius outward until they reach the
     // nearest populated towns. With a custom time we count only the places that
     // are open at that time toward the target.
+    var rounds = 0;
     while (allRestaurants.length < _targetCount) {
       if (radius.isNaN) break;
+      if (rounds++ >= _maxSearchRounds) break;
       final countBefore = allRestaurants.length;
 
       // Text Search ranks by Google's own "prominence" within the requested
@@ -879,16 +992,35 @@ class RestaurantService implements PhotoSource {
     _photosInFlight--;
   }
 
-  /// Pull the one photo each place displays, for *every* place in the current
-  /// result set — not just the first screenful.
+  /// How many photos are pulled before anyone has scrolled.
+  ///
+  /// This used to be every place in the result set, on the reasoning that
+  /// arriving at a column of empty placeholders looks broken. The billing
+  /// disagreed: Place Details Photos is **72% of this app's Google spend**
+  /// ($89.33 of $124 since 1 July, 14,183 calls), at 7.2 photos per search —
+  /// and a phone shows about five rows, so most of what was prefetched was
+  /// paid for and never looked at.
+  ///
+  /// Prefetching the rest is only free when the cache can absorb it, which
+  /// needs the same places to come back. That happens for someone re-browsing
+  /// one neighbourhood; it does not happen for this app's actual use, which is
+  /// a single person browsing a different city each time.
+  ///
+  /// Rows past this still get their photo — [PlacePhoto] fetches on build, and
+  /// those requests jump the queue via `priority` — they just get it when the
+  /// row is about to be seen rather than in advance.
+  static const int _eagerPhotoCount = 5;
+
+  /// Pull the one photo each place displays, for the first screenful.
   ///
   /// Nothing waits on this: [loadPhoto] already serves whatever has landed and
-  /// fetches the rest on demand. It exists so that scrolling down does not
-  /// arrive at a column of empty placeholders, and so a photo already on disk
-  /// is in memory before its row is ever built.
+  /// fetches the rest on demand. It exists so the list does not open on a
+  /// column of empty placeholders, and so a photo already on disk is in memory
+  /// before its row is ever built.
   Future<void> warmFirstPhotos() async {
     try {
-      await prefetchFirstPhotos(_firstPhotoRefs(_cachedRestaurants ?? const []));
+      final refs = _firstPhotoRefs(_cachedRestaurants ?? const []);
+      await prefetchFirstPhotos(refs.take(_eagerPhotoCount).toList());
     } catch (_) {
       // Warming is best effort, and both callers leave it unawaited — an
       // failure here must not surface as an unhandled async error.
