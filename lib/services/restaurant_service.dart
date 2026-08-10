@@ -109,6 +109,25 @@ class RestaurantService implements PhotoSource {
 
   List<Map<String, dynamic>>? get cachedRestaurants => _cachedRestaurants;
 
+  /// Why the last search could not reach Places, or null if it did.
+  ///
+  /// Read by the list screen to tell "the service refused us" apart from "there
+  /// is genuinely nothing open here" — two states that looked identical to a
+  /// user until now, and which call for opposite reactions.
+  String? lastSearchFailure;
+
+  /// Record a sector failure, keeping the most explanatory one.
+  ///
+  /// A search fans out over sectors and rounds, so several failures can arrive
+  /// per search. An "unavailable" beats a transient one: if any sector was
+  /// refused outright, that is the thing worth saying.
+  void _noteSearchFailure(Object error) {
+    if (error is! PlacesApiException) return;
+    if (error.isUnavailable || lastSearchFailure == null) {
+      lastSearchFailure = error.userMessage;
+    }
+  }
+
   /// Everything that changes what a search returns, folded into one string.
   /// Two searches with equal keys are interchangeable; anything else has to go
   /// back to the network.
@@ -337,6 +356,9 @@ class RestaurantService implements PhotoSource {
     if (latitude.isNaN || longitude.isNaN) {
       throw ArgumentError('Invalid coordinates provided');
     }
+    // Cleared per search, not per sector: a stale reason outliving the outage
+    // that caused it would keep blaming the budget for an empty street.
+    lastSearchFailure = null;
 
     // "Custom time" means the user asked for a specific day/time-of-day rather
     // than "open now". The Places `openNow` filter only knows the present, so we
@@ -387,7 +409,14 @@ class RestaurantService implements PhotoSource {
               searchQuery: searchQuery,
             ),
             fieldMask: fieldMask,
-          ).catchError((_) => <String, dynamic>{});
+          ).catchError((Object e) {
+            // Was `(_) => {}`, which flattened every failure into "no places
+            // found" — so an API that had been switched off read as an empty
+            // neighbourhood. A sector that fails is still skipped, but the
+            // reason is kept so the screen can say what actually happened.
+            _noteSearchFailure(e);
+            return <String, dynamic>{};
+          });
         }),
       );
 

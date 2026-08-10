@@ -18,6 +18,22 @@ class PlacesApiException implements Exception {
   /// worth another go.
   bool get isRetryable => statusCode == 429 || statusCode >= 500;
 
+  /// Whether Places refused us outright, as opposed to having nothing to say.
+  ///
+  /// 403 is the API switched off for the project, the key revoked, or its app
+  /// restrictions rejecting us; 429 is quota. None of those mean "no
+  /// restaurants here", which is exactly what an empty result set was being
+  /// reported as — on 2026-08-10 the API was disabled on a spend cap and every
+  /// user saw "No restaurants currently open in this area" instead.
+  bool get isUnavailable => statusCode == 403 || statusCode == 429;
+
+  /// What to tell someone looking at an empty screen.
+  String get userMessage => isUnavailable
+      ? 'Restaurant search is temporarily unavailable. This usually means the '
+          'app has reached its search budget for the month — it is not that '
+          'there is nothing open nearby.'
+      : 'Restaurant search is temporarily unavailable. Please try again shortly.';
+
   @override
   String toString() => 'Places API $endpoint failed with status $statusCode';
 }
