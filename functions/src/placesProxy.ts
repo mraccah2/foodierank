@@ -119,12 +119,30 @@ function keyOf(parts: unknown): string {
   return createHash('sha1').update(JSON.stringify(parts)).digest('hex');
 }
 
+export interface Rect {
+  lowLat: number;
+  lowLng: number;
+  highLat: number;
+  highLng: number;
+}
+
 export interface SearchKeyParams {
   kind?: string;
   textQuery?: string;
-  latitude: number;
-  longitude: number;
+  /** Circle-biased search. Ignored when [rect] is given. */
+  latitude?: number;
+  longitude?: number;
   radius?: number;
+  /**
+   * Rectangle restriction, which is what browse actually uses.
+   *
+   * Text Search ranks by Google's own prominence within the requested area, so
+   * one big query in a touristy city fills every slot with the famous places.
+   * The app splits the box into sectors and queries each, forcing every quarter
+   * of the map to contribute its own local best. Collapsing that to a circle
+   * here would quietly change which restaurants people see.
+   */
+  rect?: Rect;
   maxResultCount?: number;
   openNow?: boolean;
   priceLevels?: string[];
@@ -140,16 +158,26 @@ export interface SearchKeyParams {
  * does not is, or the cache would fragment into single-use entries.
  */
 export function searchCacheKey(p: SearchKeyParams): string {
+  const area = p.rect
+    ? {
+        lowLat: p.rect.lowLat.toFixed(3),
+        lowLng: p.rect.lowLng.toFixed(3),
+        highLat: p.rect.highLat.toFixed(3),
+        highLng: p.rect.highLng.toFixed(3),
+      }
+    : {
+        lat: (p.latitude ?? 0).toFixed(3),
+        lon: (p.longitude ?? 0).toFixed(3),
+        radius: p.radius ?? 1000,
+      };
   return keyOf({
     kind: p.kind ?? 'text',
     textQuery: (p.textQuery ?? '').trim().toLowerCase(),
-    lat: p.latitude.toFixed(3),
-    lon: p.longitude.toFixed(3),
-    radius: p.radius ?? 1000,
+    area,
     maxResultCount: p.maxResultCount ?? 20,
     openNow: !!p.openNow,
     priceLevels: [...(p.priceLevels ?? [])].sort(),
-    fieldTier: p.fieldTier ?? 'atmosphere',
+    fieldTier: p.fieldTier ?? 'browse',
   });
 }
 
@@ -216,27 +244,38 @@ export const placesSearch = onCall(
       latitude,
       longitude,
       radius = 1000,
+      rect,
       maxResultCount = 20,
       openNow,
       priceLevels,
-      fieldTier = 'atmosphere',
+      fieldTier = 'browse',
     } = (req.data ?? {}) as Record<string, any>;
 
-    if (typeof latitude !== 'number' || typeof longitude !== 'number') {
-      throw new HttpsError('invalid-argument', 'latitude and longitude are required');
+    const hasRect =
+      rect &&
+      ['lowLat', 'lowLng', 'highLat', 'highLng'].every(
+        (k) => typeof rect[k] === 'number' && Number.isFinite(rect[k])
+      );
+    if (!hasRect && (typeof latitude !== 'number' || typeof longitude !== 'number')) {
+      throw new HttpsError('invalid-argument', 'a rect, or latitude and longitude, is required');
     }
     if (kind === 'text' && !textQuery) {
       throw new HttpsError('invalid-argument', 'textQuery is required for a text search');
     }
 
-    const fieldMask =
-      fieldTier === 'essentials'
-        ? 'places.id,places.displayName,places.location,places.formattedAddress'
-        : 'places.id,places.displayName,places.location,places.formattedAddress,' +
-          'places.rating,places.userRatingCount,places.priceLevel,places.photos,' +
-          'places.types,places.primaryType,places.primaryTypeDisplayName,' +
-          'places.businessStatus,places.currentOpeningHours,places.regularOpeningHours,' +
-          'places.editorialSummary,places.googleMapsUri';
+    // Tiers mirror exactly what the app asks for, so moving browse behind this
+    // proxy changes neither the results nor the SKU it is billed at. Adding a
+    // field here is a price change; `browseHours` costs more than `browse` and
+    // is why the app only asks for it when a custom time is set.
+    const BROWSE_FIELDS =
+      'places.id,places.displayName,places.rating,places.userRatingCount,' +
+      'places.photos,places.priceLevel,places.types,places.formattedAddress,' +
+      'places.location,places.editorialSummary';
+    const fieldMask = {
+      essentials: 'places.id,places.displayName,places.location,places.formattedAddress',
+      browse: BROWSE_FIELDS,
+      browseHours: `${BROWSE_FIELDS},places.regularOpeningHours,places.utcOffsetMinutes`,
+    }[fieldTier as string] ?? BROWSE_FIELDS;
 
     const cacheKey = searchCacheKey({
       kind,
@@ -244,6 +283,7 @@ export const placesSearch = onCall(
       latitude,
       longitude,
       radius,
+      rect: hasRect ? rect : undefined,
       maxResultCount,
       openNow,
       priceLevels,
@@ -259,19 +299,34 @@ export const placesSearch = onCall(
       }
     }
 
+    // A rectangle is a *restriction* — nothing outside it comes back — where a
+    // circle is only a bias. The app relies on that: it splits the map into
+    // sectors and needs each query confined to its own sector, or every sector
+    // returns the same city-centre favourites.
+    const rectangle = hasRect
+      ? {
+          low: { latitude: rect.lowLat, longitude: rect.lowLng },
+          high: { latitude: rect.highLat, longitude: rect.highLng },
+        }
+      : null;
+
     const body: Record<string, unknown> =
       kind === 'nearby'
         ? {
-            locationRestriction: {
-              circle: { center: { latitude, longitude }, radius },
-            },
+            locationRestriction: rectangle
+              ? { rectangle }
+              : { circle: { center: { latitude, longitude }, radius } },
             maxResultCount,
           }
         : {
             textQuery,
-            locationBias: {
-              circle: { center: { latitude, longitude }, radius },
-            },
+            ...(rectangle
+              ? { locationRestriction: { rectangle } }
+              : {
+                  locationBias: {
+                    circle: { center: { latitude, longitude }, radius },
+                  },
+                }),
             maxResultCount,
             ...(openNow ? { openNow: true } : {}),
             ...(priceLevels?.length ? { priceLevels } : {}),

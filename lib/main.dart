@@ -9,7 +9,9 @@ import 'services/api_usage_tracker.dart';
 import 'theme/app_theme.dart';
 import 'services/navigation_service.dart';
 import 'services/photo_disk_cache.dart';
+import 'services/places_proxy_client.dart';
 import 'services/restaurant_disk_cache.dart';
+import 'services/restaurant_service.dart';
 import 'utils/debug_log.dart';
 
 void main() {
@@ -32,6 +34,17 @@ void main() {
     // the hooks is synchronous; the reading and writing they enable is not.
     RestaurantDiskCache.install();
     PhotoDiskCache.install();
+
+    // Send browse through the Cloud Functions rather than straight to Google.
+    // Installing the hooks is synchronous and costs nothing here; the Firebase
+    // initialisation they imply is deferred to the first search, inside
+    // PlacesProxyClient, so this stays off the cold-start path.
+    //
+    // `bin/foodierank.dart` shares RestaurantService and never runs this, which
+    // is exactly why these are hooks: the CLI has no Firebase and keeps talking
+    // to Places directly.
+    RestaurantService.instance.searchTransport = PlacesProxyClient.instance.search;
+    RestaurantService.instance.photoTransport = PlacesProxyClient.instance.photo;
 
     // Nothing is awaited before this line, and that is the point.
     //

@@ -67,6 +67,55 @@ test('anything that changes what Google returns changes the key', () => {
   assert.notEqual(searchCacheKey({ ...base, fieldTier: 'essentials' }), baseline);
 });
 
+test('each sector of the map is its own cache entry', () => {
+  // Browse splits the search box into sectors and queries each separately, so
+  // every quarter contributes its own local best instead of the whole box
+  // returning the same famous places. Sharing one entry between sectors would
+  // undo that.
+  const base = { textQuery: 'restaurant' };
+  const northWest = searchCacheKey({
+    ...base,
+    rect: { lowLat: 40.72, lowLng: -74.00, highLat: 40.73, highLng: -73.99 },
+  });
+  const southEast = searchCacheKey({
+    ...base,
+    rect: { lowLat: 40.71, lowLng: -73.99, highLat: 40.72, highLng: -73.98 },
+  });
+  assert.notEqual(northWest, southEast);
+});
+
+test('the same sector, asked for twice, is one entry', () => {
+  const rect = { lowLat: 40.72, lowLng: -74.0, highLat: 40.73, highLng: -73.99 };
+  assert.equal(
+    searchCacheKey({ textQuery: 'restaurant', rect }),
+    searchCacheKey({ textQuery: 'restaurant', rect })
+  );
+});
+
+test('a rectangle search never collides with a circle one', () => {
+  // Different Places semantics — a rectangle restricts, a circle only biases —
+  // so the two must not share an answer even over the same ground.
+  const rect = searchCacheKey({
+    textQuery: 'restaurant',
+    rect: { lowLat: 40.72, lowLng: -74.0, highLat: 40.73, highLng: -73.99 },
+  });
+  const circle = searchCacheKey({
+    textQuery: 'restaurant',
+    latitude: 40.725,
+    longitude: -73.995,
+    radius: 1000,
+  });
+  assert.notEqual(rect, circle);
+});
+
+test('asking for opening hours is a different entry, because it is a different price', () => {
+  const rect = { lowLat: 40.72, lowLng: -74.0, highLat: 40.73, highLng: -73.99 };
+  assert.notEqual(
+    searchCacheKey({ textQuery: 'restaurant', rect, fieldTier: 'browse' }),
+    searchCacheKey({ textQuery: 'restaurant', rect, fieldTier: 'browseHours' })
+  );
+});
+
 test('price filters match regardless of the order they arrive in', () => {
   const one = searchCacheKey({
     textQuery: 'sushi',

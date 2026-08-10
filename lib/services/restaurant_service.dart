@@ -101,6 +101,39 @@ class RestaurantService implements PhotoSource {
   Future<Uint8List?> Function(String key)? photoCacheRead;
   Future<void> Function(String key, Uint8List bytes)? photoCacheWrite;
 
+  /// How Places is reached, installed by the app (see `PlacesProxyClient`).
+  ///
+  /// A hook for the same reason the two above are: `bin/foodierank.dart` shares
+  /// this pipeline and has neither Flutter nor Firebase, so it cannot call a
+  /// callable. Null means "go to places.googleapis.com directly", which is what
+  /// the CLI gets and what the app did before the proxy existed.
+  ///
+  /// The app installs these so browse runs server-side, where the cache is
+  /// shared between users and a runaway can be stopped without an App Store
+  /// release.
+  /// Takes the sector rectangle, not a centre and radius: a rectangle is a
+  /// restriction and a circle is only a bias, and confining each sector query
+  /// to its own quarter of the map is what stops every sector returning the
+  /// same city-centre favourites.
+  Future<List<dynamic>> Function({
+    required ({double lowLat, double lowLng, double highLat, double highLng})
+        rect,
+    required String textQuery,
+    required bool openNow,
+    required bool wantHours,
+    List<String>? priceLevels,
+  })? searchTransport;
+
+  /// Returns null when the place simply has no photo — distinct from throwing,
+  /// which means Places could not be reached at all.
+  Future<Uint8List?> Function({
+    required String placeId,
+    required int index,
+    String? photoName,
+    int maxWidthPx,
+    int maxHeightPx,
+  })? photoTransport;
+
   factory RestaurantService() {
     return instance;
   }
@@ -394,22 +427,40 @@ class RestaurantService implements PhotoSource {
       // lower-prominence neighborhoods into the pool. A sector that fails
       // (after ProxyService's retries) contributes nothing rather than
       // aborting the round.
+      final transport = searchTransport;
       final responses = await Future.wait(
         _sectorRects(latitude, longitude, radius).map((rect) {
           ApiUsageTracker.instance.incrementTextSearch();
-          return ProxyService.placesApiGet(
-            'places:searchText',
-            _buildSearchParams(
-              rect,
-              cuisineType: cuisineType,
-              priceLevels: priceLevels,
-              // With a custom time we drop the server-side open filter and
-              // evaluate opening hours ourselves.
-              openNow: customTime ? false : openNow,
-              searchQuery: searchQuery,
-            ),
-            fieldMask: fieldMask,
-          ).catchError((Object e) {
+          // With a custom time we drop the server-side open filter and
+          // evaluate opening hours ourselves.
+          final effectiveOpenNow = customTime ? false : openNow;
+
+          final Future<Map<String, dynamic>> request = transport == null
+              // No transport installed: `bin/foodierank.dart`, which has
+              // neither Flutter nor Firebase and so cannot call a callable.
+              ? ProxyService.placesApiGet(
+                  'places:searchText',
+                  _buildSearchParams(
+                    rect,
+                    cuisineType: cuisineType,
+                    priceLevels: priceLevels,
+                    openNow: effectiveOpenNow,
+                    searchQuery: searchQuery,
+                  ),
+                  fieldMask: fieldMask,
+                )
+              : transport(
+                  rect: rect,
+                  textQuery: _searchPhraseFor(
+                    cuisineType: cuisineType,
+                    searchQuery: searchQuery,
+                  ),
+                  openNow: effectiveOpenNow,
+                  wantHours: customTime,
+                  priceLevels: priceLevels,
+                ).then((places) => <String, dynamic>{'places': places});
+
+          return request.catchError((Object e) {
             // Was `(_) => {}`, which flattened every failure into "no places
             // found" — so an API that had been switched off read as an empty
             // neighbourhood. A sector that fails is still skipped, but the
@@ -650,6 +701,18 @@ class RestaurantService implements PhotoSource {
     return false;
   }
 
+  /// The phrase Text Search is actually given.
+  ///
+  /// Extracted so the direct path and the proxy path cannot drift: they were
+  /// two copies of the same conditional, and a change to one would have
+  /// silently altered results only for the users on the other.
+  String _searchPhraseFor({String? cuisineType, String? searchQuery}) =>
+      searchQuery?.isNotEmpty == true
+          ? searchQuery!
+          : cuisineType != null && cuisineType != 'Other'
+              ? _cuisineQueryPhrase(cuisineType)
+              : 'restaurant';
+
   Map<String, dynamic> _buildSearchParams(
       ({double lowLat, double lowLng, double highLat, double highLng}) rect,
       {String? cuisineType,
@@ -664,11 +727,10 @@ class RestaurantService implements PhotoSource {
     }
 
     return {
-      'textQuery': searchQuery?.isNotEmpty == true
-          ? searchQuery
-          : cuisineType != null && cuisineType != 'Other'
-              ? _cuisineQueryPhrase(cuisineType)
-              : 'restaurant',
+      'textQuery': _searchPhraseFor(
+        cuisineType: cuisineType,
+        searchQuery: searchQuery,
+      ),
       'locationRestriction': {
         'rectangle': {
           'low': {
@@ -780,7 +842,8 @@ class RestaurantService implements PhotoSource {
     final existing = _photoRequests[key];
     if (existing != null) return existing;
 
-    final request = _fetchPhoto(photoRef, key, maxWidth, maxHeight, priority)
+    final request =
+        _fetchPhoto(photoRef, key, cacheId, maxWidth, maxHeight, priority)
         .whenComplete(() {
       // A block body, deliberately. `=> _photoRequests.remove(key)` returns the
       // removed value — and since this map's values *are* futures, that value
@@ -794,8 +857,8 @@ class RestaurantService implements PhotoSource {
     return request;
   }
 
-  Future<Uint8List?> _fetchPhoto(String photoRef, String key, int maxWidth,
-      int maxHeight, bool priority) async {
+  Future<Uint8List?> _fetchPhoto(String photoRef, String key, String? cacheId,
+      int maxWidth, int maxHeight, bool priority) async {
     // Disk before network, and before taking a slot — a local read is orders of
     // magnitude cheaper and has no business queueing behind six downloads.
     try {
@@ -814,6 +877,35 @@ class RestaurantService implements PhotoSource {
     await _acquirePhotoSlot(priority);
     try {
       ApiUsageTracker.instance.incrementPhoto();
+
+      // Server-side when the app installed a transport. The cache there is
+      // shared between every user, so a photo somebody else has already looked
+      // at costs storage egress rather than $7 per thousand — which is where
+      // most of this app's Google bill came from.
+      final transport = photoTransport;
+      if (transport != null) {
+        // `<placeId>:<index>` — the same stable identity the cache keys on.
+        // Absent it there is no place to ask the server about, so a bare
+        // caller falls through to the direct path below.
+        final split = (cacheId ?? '').lastIndexOf(':');
+        if (split > 0) {
+          final placeId = cacheId!.substring(0, split);
+          final index = int.tryParse(cacheId.substring(split + 1)) ?? 0;
+          final bytes = await transport(
+            placeId: placeId,
+            index: index,
+            photoName: photoRef,
+            maxWidthPx: maxWidth,
+            maxHeightPx: maxHeight,
+          );
+          if (bytes != null) {
+            _cachePhoto(key, bytes);
+            unawaited(photoCacheWrite?.call(key, bytes) ?? Future<void>.value());
+          }
+          return bytes;
+        }
+      }
+
       final uri = Uri.parse('${ProxyService.baseUrl}/$photoRef/media').replace(
         queryParameters: {
           'maxWidthPx': maxWidth.toString(),

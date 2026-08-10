@@ -75,3 +75,6 @@ app.*.map.json
 firebase-debug.log
 firestore-debug.log
 ui-debug.log
+
+# Personal Claude Code settings (may contain machine-specific permission rules)
+.claude/settings.local.json
