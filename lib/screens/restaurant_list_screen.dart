@@ -216,9 +216,13 @@ class _RestaurantListScreenState extends State<RestaurantListScreen>
 
       if (rawRestaurants.isEmpty) {
         setState(() {
-          _error = _searchContext.isCustomTime
-              ? 'No restaurants open ${_searchContext.timeDisplay.toLowerCase()} in this area'
-              : 'No restaurants currently open in this area';
+          // An empty list has two very different causes, and saying the wrong
+          // one sends people looking for a restaurant that the app simply
+          // could not ask about.
+          _error = RestaurantService.instance.lastSearchFailure ??
+              (_searchContext.isCustomTime
+                  ? 'No restaurants open ${_searchContext.timeDisplay.toLowerCase()} in this area'
+                  : 'No restaurants currently open in this area');
           _isLoading = false;
         });
         return;
@@ -817,6 +821,10 @@ class _RestaurantListScreenState extends State<RestaurantListScreen>
 
     // Helper function to get the appropriate message
     String getErrorMessage() {
+      // Places refusing us outranks every "nothing matched your filters"
+      // wording below — none of which is true when we never got an answer.
+      final unreachable = RestaurantService.instance.lastSearchFailure;
+      if (unreachable != null) return unreachable;
       if (_searchQuery.isNotEmpty) {
         return "There are no restaurants currently open around here that match your search.";
       } else if (_selectedType == 'All' && _selectedPriceLevel == null) {
