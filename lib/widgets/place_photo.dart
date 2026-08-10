@@ -22,6 +22,11 @@ import 'shimmer.dart';
 class PlacePhoto extends StatefulWidget {
   final String photoRef;
 
+  /// The stable identity to cache these bytes under — `'<placeId>:<index>'`.
+  /// [photoRef] cannot serve: Google rotates it on every search response, so
+  /// caching by reference re-downloaded every picture on every new search.
+  final String? cacheId;
+
   /// Null means "as wide as the parent allows" — the card header stretches,
   /// where a list thumbnail is a fixed box.
   final double? width;
@@ -41,6 +46,7 @@ class PlacePhoto extends StatefulWidget {
     super.key,
     required this.photoRef,
     required this.height,
+    this.cacheId,
     this.width,
     this.fit = BoxFit.cover,
     this.priority = false,
@@ -64,7 +70,13 @@ class _PlacePhotoState extends State<PlacePhoto> {
   @override
   void didUpdateWidget(PlacePhoto oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.photoRef != widget.photoRef) {
+    // A re-search hands the same picture a new reference, so comparing refs
+    // alone threw away bytes that were still perfectly good. What identifies
+    // the picture is the cache id; the ref only matters when there is none.
+    final changed = widget.cacheId == null
+        ? oldWidget.photoRef != widget.photoRef
+        : oldWidget.cacheId != widget.cacheId;
+    if (changed) {
       _bytes = null;
       _failed = false;
       _resolve();
@@ -74,7 +86,8 @@ class _PlacePhotoState extends State<PlacePhoto> {
   PhotoSource get _source => widget.source ?? RestaurantService.instance;
 
   void _resolve() {
-    final cached = _source.getCachedPhoto(widget.photoRef);
+    final cached =
+        _source.getCachedPhoto(widget.photoRef, cacheId: widget.cacheId);
     if (cached != null) {
       // Already in memory: assign directly, since both call sites are followed
       // by a build. Going through setState here would be a no-op rebuild.
@@ -88,7 +101,8 @@ class _PlacePhotoState extends State<PlacePhoto> {
   Future<void> _load(String ref) async {
     Uint8List? bytes;
     try {
-      bytes = await _source.loadPhoto(ref, priority: widget.priority);
+      bytes = await _source.loadPhoto(ref,
+          cacheId: widget.cacheId, priority: widget.priority);
     } catch (e) {
       // Awaited inside a try rather than chained off a bare `.then`, which
       // skips its callback when the future errors — that left the placeholder

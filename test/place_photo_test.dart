@@ -18,17 +18,20 @@ class FakePhotoSource implements PhotoSource {
   final List<({String ref, bool priority})> requests = [];
 
   @override
-  Uint8List? getCachedPhoto(String photoRef) => cached[photoRef];
+  Uint8List? getCachedPhoto(String photoRef, {String? cacheId}) =>
+      cached[cacheId ?? photoRef];
 
   @override
   Future<Uint8List?> loadPhoto(
     String photoRef, {
+    String? cacheId,
     int maxWidth = 800,
     int maxHeight = 450,
     bool priority = false,
   }) {
     requests.add((ref: photoRef, priority: priority));
-    return (_pending[photoRef] ??= Completer<Uint8List?>()).future;
+    final key = cacheId ?? photoRef;
+    return (_pending[key] ??= Completer<Uint8List?>()).future;
   }
 
   void complete(String photoRef, Uint8List? bytes) {

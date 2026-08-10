@@ -60,6 +60,7 @@ class MinimalRestaurantCard extends StatelessWidget {
                   borderRadius: AppRadius.mdAll,
                   child: PlacePhoto(
                     photoRef: restaurant.photoRefs.first,
+                    cacheId: '${restaurant.id}:0',
                     width: _thumb,
                     height: _thumb,
                     // The only photo a list row shows.

@@ -226,6 +226,7 @@ class _RestaurantCardState extends State<RestaurantCard> {
                   tag: 'restaurant_photo_${widget.restaurant.id}_$index',
                   child: PlacePhoto(
                     photoRef: widget.restaurant.photoRefs[index],
+                    cacheId: '${widget.restaurant.id}:$index',
                     height: _photoHeight,
                     width: double.infinity,
                     // The card opens on the first photo; the rest are only

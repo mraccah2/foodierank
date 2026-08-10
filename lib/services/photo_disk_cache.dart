@@ -63,13 +63,17 @@ class PhotoDiskCache {
     }();
   }
 
-  /// The bytes for [photoRef] if they are on disk and not past [maxAge].
-  static Future<Uint8List?> read(String photoRef) async {
+  /// The bytes for [key] if they are on disk and not past [maxAge].
+  ///
+  /// [key] is `RestaurantService.photoCacheKey`, never a Places photo
+  /// reference: references are minted fresh on every search response, so a
+  /// file named after one is written once and never looked up again.
+  static Future<Uint8List?> read(String key) async {
     try {
       final dir = _dir ?? await _directory();
       if (dir == null) return null;
 
-      final file = File('${dir.path}/${fileNameFor(photoRef)}');
+      final file = File('${dir.path}/${fileNameFor(key)}');
       if (!await file.exists()) return null;
 
       // An entry that outlived the window is treated as absent and removed,
@@ -86,14 +90,14 @@ class PhotoDiskCache {
     }
   }
 
-  static Future<void> write(String photoRef, Uint8List bytes) async {
+  static Future<void> write(String key, Uint8List bytes) async {
     try {
       final dir = _dir ?? await _directory();
       if (dir == null) return;
 
       // Write beside the target and rename, so a kill mid-write cannot leave a
       // truncated file that would later decode as a corrupt image.
-      final target = File('${dir.path}/${fileNameFor(photoRef)}');
+      final target = File('${dir.path}/${fileNameFor(key)}');
       final temp = File('${target.path}.part');
       await temp.writeAsBytes(bytes, flush: true);
       await temp.rename(target.path);
@@ -177,22 +181,23 @@ class PhotoDiskCache {
     _dirFuture = dir == null ? null : Future<Directory?>.value(dir);
   }
 
-  /// A filesystem-safe, collision-resistant name for [photoRef].
+  /// A filesystem-safe, collision-resistant name for [key].
   ///
-  /// Places photo references are ~200 characters of path, well past the 255
-  /// byte filename limit once escaped, so the name is hashed. FNV-1a over two
-  /// 32-bit lanes rather than [Object.hashCode], which carries no guarantee of
-  /// being stable across runs — a cache filename has to be.
+  /// Hashed rather than escaped: the key is short now, but it was a ~200
+  /// character photo reference and may grow again, and 255 bytes is the
+  /// filename limit. FNV-1a over two 32-bit lanes rather than
+  /// [Object.hashCode], which carries no guarantee of being stable across runs
+  /// — a cache filename has to be.
   @visibleForTesting
-  static String fileNameFor(String photoRef) {
+  static String fileNameFor(String key) {
     var h1 = 0x811c9dc5;
     var h2 = 0x01000193;
-    for (final byte in utf8.encode(photoRef)) {
+    for (final byte in utf8.encode(key)) {
       h1 = ((h1 ^ byte) * 0x01000193) & 0xFFFFFFFF;
       h2 = ((h2 ^ byte) * 0x811c9dc5) & 0xFFFFFFFF;
     }
     final hash = h1.toRadixString(16).padLeft(8, '0') +
         h2.toRadixString(16).padLeft(8, '0');
-    return '${hash}_${photoRef.length}';
+    return '${hash}_${key.length}';
   }
 }

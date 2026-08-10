@@ -95,8 +95,11 @@ class RestaurantService implements PhotoSource {
   /// The disk tier under [_photoCache], installed by `PhotoDiskCache` for the
   /// same reason [onResults] is a hook: it needs `path_provider`, which the CLI
   /// cannot load. Null simply means memory-only, which is what `bin/` gets.
-  Future<Uint8List?> Function(String photoRef)? photoCacheRead;
-  Future<void> Function(String photoRef, Uint8List bytes)? photoCacheWrite;
+  ///
+  /// Both take the [photoCacheKey], never a photo reference — a reference is a
+  /// per-response nonce, so a disk file named after one is never read again.
+  Future<Uint8List?> Function(String key)? photoCacheRead;
+  Future<void> Function(String key, Uint8List bytes)? photoCacheWrite;
 
   factory RestaurantService() {
     return instance;
@@ -192,10 +195,24 @@ class RestaurantService implements PhotoSource {
     return places;
   }
 
-  List<String> _firstPhotoRefs(List<Map<String, dynamic>> places) => places
-      .expand((r) => (r['photoRefs'] as List<dynamic>?)?.take(1) ?? const [])
-      .cast<String>()
-      .toList();
+  /// The one photo each place displays, paired with the stable key to cache it
+  /// under. The pairing has to happen here: by the time a bare list of refs
+  /// reaches [prefetchFirstPhotos] the place id that makes them cacheable is
+  /// gone, and the warm would write twenty files nothing could ever look up.
+  List<({String ref, String cacheId})> _firstPhotoRefs(
+          List<Map<String, dynamic>> places) =>
+      places
+          .map((r) {
+            final refs = r['photoRefs'] as List<dynamic>?;
+            if (refs == null || refs.isEmpty) return null;
+            final id = r['id'] as String?;
+            return (
+              ref: refs.first as String,
+              cacheId: id == null ? refs.first as String : '$id:0',
+            );
+          })
+          .whereType<({String ref, String cacheId})>()
+          .toList();
 
   /// Takes the snapshot by argument rather than re-reading the fields, so a
   /// second search starting while this one is still writing cannot swap the
@@ -681,16 +698,29 @@ class RestaurantService implements PhotoSource {
     }
   }
 
+  /// The key every cache tier remembers a picture under.
+  ///
+  /// Deliberately *not* the photo reference. Google rotates `photos[i].name`
+  /// on every search response, so a reference-keyed cache misses on everything
+  /// but a re-read of the same response — see [PhotoSource.loadPhoto]. The
+  /// place id and the photo's index within that place both survive, and the
+  /// size is folded in so a thumbnail and a card header cannot collide.
+  static String photoCacheKey(String photoRef, String? cacheId, int maxWidth,
+          int maxHeight) =>
+      '${cacheId ?? photoRef}@${maxWidth}x$maxHeight';
+
   /// The bytes for [photoRef] if they are already in memory. Cheap enough for a
   /// `build`; returns null rather than starting a download, so callers that can
   /// render a placeholder are not forced to wait.
   @override
-  Uint8List? getCachedPhoto(String photoRef) {
+  Uint8List? getCachedPhoto(String photoRef,
+      {String? cacheId, int maxWidth = 800, int maxHeight = 450}) {
+    final key = photoCacheKey(photoRef, cacheId, maxWidth, maxHeight);
     // Re-inserting on read is what makes the bounded map an LRU rather than a
     // "first sixty photos of the session" cache.
-    final bytes = _photoCache.remove(photoRef);
+    final bytes = _photoCache.remove(key);
     if (bytes == null) return null;
-    _photoCache[photoRef] = bytes;
+    _photoCache[key] = bytes;
     return bytes;
   }
 
@@ -705,35 +735,44 @@ class RestaurantService implements PhotoSource {
   /// twelve other restaurants have.
   @override
   Future<Uint8List?> loadPhoto(String photoRef,
-      {int maxWidth = 800, int maxHeight = 450, bool priority = false}) {
-    final cached = getCachedPhoto(photoRef);
+      {String? cacheId,
+      int maxWidth = 800,
+      int maxHeight = 450,
+      bool priority = false}) {
+    final key = photoCacheKey(photoRef, cacheId, maxWidth, maxHeight);
+
+    final cached = getCachedPhoto(photoRef,
+        cacheId: cacheId, maxWidth: maxWidth, maxHeight: maxHeight);
     if (cached != null) return Future.value(cached);
 
-    final existing = _photoRequests[photoRef];
+    // Keyed by cache key, not reference: two widgets showing the same picture
+    // from different search responses hold different references, and used to
+    // issue two downloads of identical bytes.
+    final existing = _photoRequests[key];
     if (existing != null) return existing;
 
-    final request = _fetchPhoto(photoRef, maxWidth, maxHeight, priority)
+    final request = _fetchPhoto(photoRef, key, maxWidth, maxHeight, priority)
         .whenComplete(() {
-      // A block body, deliberately. `=> _photoRequests.remove(photoRef)`
-      // returns the removed value — and since this map's values *are* futures,
-      // that value is this very request. `whenComplete` waits on any Future its
-      // callback returns, so the request awaited itself and never completed.
-      // The bytes still reached the cache, so a photo appeared if its widget
-      // happened to mount after the fetch, and shimmered forever otherwise.
-      _photoRequests.remove(photoRef);
+      // A block body, deliberately. `=> _photoRequests.remove(key)` returns the
+      // removed value — and since this map's values *are* futures, that value
+      // is this very request. `whenComplete` waits on any Future its callback
+      // returns, so the request awaited itself and never completed. The bytes
+      // still reached the cache, so a photo appeared if its widget happened to
+      // mount after the fetch, and shimmered forever otherwise.
+      _photoRequests.remove(key);
     });
-    _photoRequests[photoRef] = request;
+    _photoRequests[key] = request;
     return request;
   }
 
-  Future<Uint8List?> _fetchPhoto(
-      String photoRef, int maxWidth, int maxHeight, bool priority) async {
+  Future<Uint8List?> _fetchPhoto(String photoRef, String key, int maxWidth,
+      int maxHeight, bool priority) async {
     // Disk before network, and before taking a slot — a local read is orders of
     // magnitude cheaper and has no business queueing behind six downloads.
     try {
-      final fromDisk = await photoCacheRead?.call(photoRef);
+      final fromDisk = await photoCacheRead?.call(key);
       if (fromDisk != null) {
-        _cachePhoto(photoRef, fromDisk);
+        _cachePhoto(key, fromDisk);
         return fromDisk;
       }
     } catch (e) {
@@ -767,10 +806,10 @@ class RestaurantService implements PhotoSource {
       ).timeout(kPhotoTimeout);
 
       if (response.statusCode != 200) return null;
-      _cachePhoto(photoRef, response.bodyBytes);
+      _cachePhoto(key, response.bodyBytes);
       // Nothing waits on the write: the bytes are already in memory for this
       // session, and persisting them is for the next one.
-      unawaited(photoCacheWrite?.call(photoRef, response.bodyBytes) ??
+      unawaited(photoCacheWrite?.call(key, response.bodyBytes) ??
           Future<void>.value());
       return response.bodyBytes;
     } catch (e) {
@@ -780,8 +819,8 @@ class RestaurantService implements PhotoSource {
     }
   }
 
-  void _cachePhoto(String photoRef, Uint8List bytes) {
-    _photoCache[photoRef] = bytes;
+  void _cachePhoto(String key, Uint8List bytes) {
+    _photoCache[key] = bytes;
     while (_photoCache.length > _photoCacheLimit) {
       _photoCache.remove(_photoCache.keys.first);
     }
@@ -827,8 +866,10 @@ class RestaurantService implements PhotoSource {
     }
   }
 
-  Future<void> prefetchFirstPhotos(List<String> photoRefs) =>
-      Future.wait(photoRefs.map((ref) => loadPhoto(ref, priority: true)));
+  Future<void> prefetchFirstPhotos(
+          List<({String ref, String cacheId})> photos) =>
+      Future.wait(photos.map(
+          (p) => loadPhoto(p.ref, cacheId: p.cacheId, priority: true)));
 
   bool shouldRefreshData(double currentLat, double currentLng,
       {List<String>? priceLevels,
