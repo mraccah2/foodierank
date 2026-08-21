@@ -355,13 +355,24 @@ class RestaurantService implements PhotoSource {
   }
 
   static const int _targetCount = 20;
-  static const double _initialRadius = 1000; // start ~1km
+  /// The first ring. 500 m, not 1 km, because the dense case is the common one
+  /// and a city block has far more than 20 restaurants inside 500 m — a 1 km
+  /// first ring bought a wider net than [_targetCount] ever needed and pulled
+  /// in places a user would not walk to when better ones sat closer. Moshik,
+  /// 2026-08-21: *"we should only get 20 results - and use a widening perimiter
+  /// beginning with 500m (for urban density) and expanding only if needed."*
+  ///
+  /// This costs nothing in the urban case (still one round, still
+  /// [_sectorsPerSide]² requests) and buys tighter, more walkable results. It
+  /// only adds a round where 500 m genuinely is not enough, which is exactly
+  /// the "expanding only if needed" half of the instruction.
+  static const double _initialRadius = 500; // start 500m — urban density
   static const double _radiusGrowth = 2.0; // double the search radius each round
   static const double _emptyRoundGrowth = 4.0; // step out harder over empty country
   /// How far out the widening loop will go before giving up.
   ///
   /// Was 100 km, which is not a distance anyone travels for lunch. Doubling
-  /// from 1 km, that allowed eight rounds — and every round is
+  /// from the old 1 km first ring, that allowed eight rounds — and every round is
   /// [_sectorsPerSide]² billed Text Search requests, so a filtered search that
   /// could never reach [_targetCount] (say vegan + $$ + open now in a quiet
   /// town) spent up to **32 requests** discovering that, then offered results
@@ -376,7 +387,14 @@ class RestaurantService implements PhotoSource {
   /// once radius pins at the cap a loop that keeps finding nothing new would
   /// otherwise re-query the same box until the result count moved. It cannot,
   /// if the places genuinely are not there.
-  static const int _maxSearchRounds = 5;
+  ///
+  /// Six, not five, since [_initialRadius] dropped to 500 m: the thin-area
+  /// ladder doubles, so five rounds from 500 m would top out at 8 km where five
+  /// from 1 km reached 16 km. Halving the first ring must not halve how far a
+  /// suburban search can see. Worst case is [_sectorsPerSide]² × 6 = 24 billed
+  /// requests, against 32 before this file was touched — and the urban case,
+  /// which is nearly all of them, still finishes in one round.
+  static const int _maxSearchRounds = 6;
   static const int _sectorsPerSide = 2; // query the box as a 2×2 grid
 
   // Locality-signal tuning (see _applyLocalityScores).
