@@ -28,13 +28,14 @@ class Config {
       String.fromEnvironment('ANDROID_MAPS_API_KEY');
   static const String _iosApiKey = String.fromEnvironment('IOS_MAPS_API_KEY');
 
-  /// The Google Maps/Places API key for the current platform.
+  /// The Google Maps API key for the current platform.
   ///
-  /// On desktop — which in practice means the `bin/foodierank.dart` command-line
-  /// entry point — there is no build-time `--dart-define`, so the key comes from
-  /// the `GOOGLE_MAPS_API_KEY` environment variable instead. That key needs no
-  /// app restrictions, so it should be a separate, IP- or user-restricted key
-  /// rather than either mobile key.
+  /// No longer used for Places — that goes through the gateway, see
+  /// [placesGatewayKey]. What remains is the legacy reverse-geocode call in
+  /// `PlaceLookupService`; the map tiles read the same key natively.
+  ///
+  /// On desktop there is no build-time `--dart-define`, so the key comes from
+  /// the `GOOGLE_MAPS_API_KEY` environment variable instead.
   static String get googleMapsApiKey {
     if (Platform.isAndroid) {
       return _androidApiKey;
@@ -50,6 +51,39 @@ class Config {
       'No Google Maps API key: set GOOGLE_MAPS_API_KEY in the environment '
       '(or run on Android/iOS, where the key is supplied via --dart-define).',
     );
+  }
+
+  // ---------------------------------------------------------------------------
+  // Places gateway.
+  //
+  // Every Places call — Text/Nearby Search, Autocomplete, Place Details and
+  // photos — goes through our shared Places gateway rather than to Google.
+  // The gateway buys each place and photo from Google once, ever, and caches
+  // searches on the canonical request, so a street one user has browsed costs
+  // the next user nothing. The Maps keys above stay for map tiles and the
+  // legacy reverse-geocode call, neither of which the gateway serves.
+  //
+  // The key identifies FoodieRank to the gateway. It is injected the same way
+  // as the Maps keys: `--dart-define=PLACES_GATEWAY_KEY=...` on mobile, the
+  // `PLACES_GATEWAY_KEY` environment variable for `bin/foodierank.dart`.
+  // ---------------------------------------------------------------------------
+  static const String placesGatewayUrl = String.fromEnvironment(
+    'PLACES_GATEWAY_URL',
+    defaultValue:
+        'https://cndaivlyzonqndnvzilr.supabase.co/functions/v1/places',
+  );
+
+  static const String _placesGatewayKey =
+      String.fromEnvironment('PLACES_GATEWAY_KEY');
+
+  /// The gateway key: the build-time define when there is one, else the
+  /// `PLACES_GATEWAY_KEY` environment variable (the CLI's path). Empty when
+  /// neither is set — the gateway then answers 401, which surfaces as "search
+  /// unavailable" rather than a crash.
+  static String get placesGatewayKey {
+    if (_placesGatewayKey.isNotEmpty) return _placesGatewayKey;
+    if (Platform.isAndroid || Platform.isIOS) return '';
+    return Platform.environment['PLACES_GATEWAY_KEY'] ?? '';
   }
 
   // ---------------------------------------------------------------------------

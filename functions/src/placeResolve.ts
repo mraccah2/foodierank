@@ -1,41 +1,53 @@
 import { defineSecret } from 'firebase-functions/params';
-import { GoogleAuth } from 'google-auth-library';
 import { logger } from 'firebase-functions';
 import { rejectionReason } from './placeKind';
 import type { RawPlace, ResolvedPlace } from './types';
 
-export const PLACES_API_KEY = defineSecret('GOOGLE_PLACES_API_KEY');
+/**
+ * FoodieRank's app key for the shared Places gateway.
+ *
+ * Places is no longer called directly: every lookup goes through the gateway,
+ * which buys each place from Google once, ever, and caches searches on the
+ * canonical request. A monthly re-import of the same saved places therefore
+ * costs Google nothing even before the per-user resolution cache below.
+ */
+export const PLACES_GATEWAY_KEY = defineSecret('PLACES_GATEWAY_KEY');
 
-const SEARCH_TEXT_URL = 'https://places.googleapis.com/v1/places:searchText';
+export const PLACES_GATEWAY_URL =
+  'https://cndaivlyzonqndnvzilr.supabase.co/functions/v1/places';
 
 /**
- * Authenticate to Places with the function's own service account.
+ * POST `{op, ...body}` to the Places gateway.
  *
- * The API key worked too — imports were succeeding on it. OAuth is kept
- * because it means no long-lived key has to be stored, injected and rotated
- * for a backend that already has an identity of its own.
- *
- * `X-Goog-User-Project` must accompany it so usage is attributed to this
- * project; that requires the runtime service account to hold
- * roles/serviceusage.serviceUsageConsumer.
+ * A 503 means another caller is fetching the very same thing right now; one
+ * retry a second later usually finds it cached. Anything else non-2xx is
+ * thrown with the gateway's error text.
  */
-const auth = new GoogleAuth({
-  scopes: ['https://www.googleapis.com/auth/cloud-platform'],
-});
-
-let cachedToken: { value: string; expiresAt: number } | null = null;
-
-export async function accessToken(): Promise<string> {
-  // Tokens last an hour; a single import makes thousands of calls, so minting
-  // one per request would dominate the run time.
-  if (cachedToken && cachedToken.expiresAt > Date.now() + 60_000) {
-    return cachedToken.value;
+export async function placesGateway<T>(
+  op: string,
+  body: Record<string, unknown>,
+  appKey: string
+): Promise<T> {
+  for (let attempt = 0; ; attempt++) {
+    const response = await fetch(PLACES_GATEWAY_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-app-key': appKey },
+      body: JSON.stringify({ ...body, op }),
+    });
+    if (response.status === 503 && attempt === 0) {
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+      continue;
+    }
+    const payload = (await response.json().catch(() => ({}))) as T & {
+      error?: string;
+    };
+    if (!response.ok) {
+      throw new Error(
+        `Places gateway ${op} ${response.status}: ${payload.error ?? ''}`
+      );
+    }
+    return payload;
   }
-  const client = await auth.getClient();
-  const token = await client.getAccessToken();
-  if (!token.token) throw new Error('Could not mint an access token');
-  cachedToken = { value: token.token, expiresAt: Date.now() + 45 * 60_000 };
-  return cachedToken.value;
 }
 
 /** A text-search hit is only trusted as `exact` within this distance. */
@@ -84,7 +96,7 @@ export interface ResolveResult {
  */
 export async function resolvePlaces(
   places: RawPlace[],
-  apiKey: string,
+  gatewayKey: string,
   options: ResolveOptions
 ): Promise<ResolveResult> {
   const resolved: ResolvedPlace[] = [];
@@ -119,7 +131,7 @@ export async function resolvePlaces(
       break;
     }
 
-    const match = await resolveOne(place, apiKey);
+    const match = await resolveOne(place, gatewayKey);
     lookups++;
     learned.set(key, match?.placeId ?? null);
     if (match) {
@@ -133,11 +145,13 @@ export async function resolvePlaces(
 
 async function resolveOne(
   place: RawPlace,
-  apiKey: string
+  gatewayKey: string
 ): Promise<ResolvedPlace | null> {
   const hasCoords =
     typeof place.lat === 'number' && typeof place.lng === 'number';
 
+  // Google's own searchText body; the gateway returns every field, so types
+  // and businessStatus (used to drop streets and closed venues) come with it.
   const body: Record<string, unknown> = {
     textQuery: place.address ? `${place.name} ${place.address}` : place.name,
     maxResultCount: 1,
@@ -161,35 +175,19 @@ async function resolveOne(
       types?: string[];
       businessStatus?: string;
     }[];
-    error?: { message?: string };
   };
 
   try {
-    const response = await fetch(SEARCH_TEXT_URL, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${await accessToken()}`,
-        'X-Goog-User-Project': process.env.GCLOUD_PROJECT ?? '',
-        // types + businessStatus ride along on the call we already make, so
-        // filtering out streets and closed venues costs nothing extra.
-        'X-Goog-FieldMask':
-          'places.id,places.displayName,places.location,places.formattedAddress,' +
-          'places.types,places.businessStatus',
-      },
-      body: JSON.stringify(body),
-    });
-    payload = (await response.json()) as typeof payload;
-    if (!response.ok) {
-      logger.warn('Place text search failed', {
-        name: place.name,
-        status: response.status,
-        message: payload.error?.message,
-      });
-      return null;
-    }
+    payload = await placesGateway<typeof payload>(
+      'searchText',
+      body,
+      gatewayKey
+    );
   } catch (error) {
-    logger.warn('Place text search threw', { name: place.name, error });
+    logger.warn('Place text search failed', {
+      name: place.name,
+      message: error instanceof Error ? error.message : String(error),
+    });
     return null;
   }
 

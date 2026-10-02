@@ -5,7 +5,7 @@
 /// for the ordering — so a result here is the result the app would show.
 ///
 /// Usage:
-///   export GOOGLE_MAPS_API_KEY=...
+///   export PLACES_GATEWAY_KEY=...   # op read "op://Dev/Places Gateway App Keys/foodierank"
 ///   dart run bin/foodierank.dart "Chartres, France"
 ///   dart run bin/foodierank.dart --at 40.7484,-73.9967 --cuisine Italian
 ///   dart run bin/foodierank.dart "Nantes" --any-time --limit 10 --json
@@ -58,7 +58,8 @@ Options:
   --show-cost          Print the Places API call count and estimated cost.
   -h, --help           Show this message.
 
-The GOOGLE_MAPS_API_KEY environment variable must be set.
+The PLACES_GATEWAY_KEY environment variable must be set: every Places call
+goes through the shared Places gateway, not to Google directly.
 
 Examples — dish search for a reservoir/itinerary entry:
   dart run bin/foodierank.dart --at 46.156,-1.152 --query "galette" --any-time --json
@@ -80,8 +81,8 @@ Future<void> main(List<String> argv) async {
     return;
   }
 
-  if ((Platform.environment['GOOGLE_MAPS_API_KEY'] ?? '').isEmpty) {
-    stderr.writeln('error: GOOGLE_MAPS_API_KEY is not set.');
+  if ((Platform.environment['PLACES_GATEWAY_KEY'] ?? '').isEmpty) {
+    stderr.writeln('error: PLACES_GATEWAY_KEY is not set.');
     exit(78); // EX_CONFIG
   }
 
@@ -124,8 +125,11 @@ Future<void> main(List<String> argv) async {
     }
 
     if (options.showCost) {
-      stderr.writeln('\nPlaces API: '
-          '\$${ApiUsageTracker.instance.totalCost.toStringAsFixed(3)} estimated.');
+      // An upper bound: these are Google's list prices, and the gateway only
+      // pays them for what it has not already cached.
+      stderr.writeln('\nPlaces: at most '
+          '\$${ApiUsageTracker.instance.totalCost.toStringAsFixed(3)} '
+          '(Google list price if nothing was cached by the gateway).');
     }
   } on Exception catch (e) {
     stderr.writeln('error: $e');
@@ -277,10 +281,8 @@ List<String> _parsePriceLevels(String value) {
 /// CLI counterpart of the app's autocomplete-then-details flow.
 Future<({double lat, double lng, String label})> _geocode(String location) async {
   ApiUsageTracker.instance.incrementTextSearch();
-  final response = await ProxyService.placesApiGet(
-    'places:searchText',
+  final response = await ProxyService.searchText(
     {'textQuery': location, 'maxResultCount': 1},
-    fieldMask: 'places.location,places.formattedAddress',
   );
 
   final places = response['places'] as List<dynamic>?;

@@ -1,6 +1,9 @@
 {
   "_comment": "Copy this to dart_defines.json (gitignored) and fill in your own values. Run with: flutter run --dart-define-from-file=dart_defines.json",
 
+  "_gateway_comment": "Every Places call goes through the shared Places gateway. FoodieRank's key: op read \"op://Dev/Places Gateway App Keys/foodierank\"",
+  "PLACES_GATEWAY_KEY": "YOUR_PLACES_GATEWAY_KEY",
+
   "IOS_MAPS_API_KEY": "YOUR_IOS_GOOGLE_MAPS_API_KEY",
   "ANDROID_MAPS_API_KEY": "YOUR_ANDROID_GOOGLE_MAPS_API_KEY",
 

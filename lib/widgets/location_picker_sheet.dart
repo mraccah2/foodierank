@@ -49,7 +49,6 @@ class _LocationPickerSheet extends StatefulWidget {
 
 class _LocationPickerSheetState extends State<_LocationPickerSheet> {
   final TextEditingController _controller = TextEditingController();
-  final String _sessionToken = PlaceLookupService.newSessionToken();
   Timer? _debounce;
   List<PlacePrediction> _predictions = const [];
   List<PlaceResult> _recents = const [];
@@ -83,7 +82,6 @@ class _LocationPickerSheetState extends State<_LocationPickerSheet> {
     _debounce = Timer(const Duration(milliseconds: 300), () async {
       final results = await PlaceLookupService.instance.autocomplete(
         value,
-        sessionToken: _sessionToken,
         biasLat: widget.biasLat,
         biasLng: widget.biasLng,
       );
@@ -94,8 +92,8 @@ class _LocationPickerSheetState extends State<_LocationPickerSheet> {
 
   Future<void> _pickPrediction(PlacePrediction prediction) async {
     setState(() => _loading = true);
-    final place = await PlaceLookupService.instance
-        .placeDetails(prediction.placeId, sessionToken: _sessionToken);
+    final place =
+        await PlaceLookupService.instance.placeDetails(prediction.placeId);
     if (!mounted) return;
     setState(() => _loading = false);
     if (place == null) {

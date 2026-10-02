@@ -1,5 +1,4 @@
 import 'dart:convert';
-import 'dart:math';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -53,9 +52,10 @@ class PlaceResult {
 /// predictions, place details (→ coordinates), reverse-geocoding a dropped map
 /// pin, and a small persisted list of recent locations.
 ///
-/// Reuses [ProxyService] (the same Places API New REST client the restaurant
-/// search uses) so no new key or endpoint host is introduced for autocomplete
-/// and details.
+/// Autocomplete and details go through [ProxyService] — the Places gateway the
+/// restaurant search uses. Reverse geocoding is not a Places call and the
+/// gateway does not serve it, so it still goes to Google's Geocoding API with
+/// the platform Maps key.
 class PlaceLookupService {
   static final PlaceLookupService instance = PlaceLookupService._internal();
   PlaceLookupService._internal();
@@ -63,22 +63,16 @@ class PlaceLookupService {
   static const String _recentsKey = 'recent_search_locations';
   static const int _maxRecents = 6;
 
-  /// Autocomplete session tokens group as-you-type requests with the final
-  /// details fetch for billing; a token is minted per picker session.
-  static String newSessionToken() {
-    final rand = Random();
-    final buffer = StringBuffer();
-    for (var i = 0; i < 32; i++) {
-      buffer.write(rand.nextInt(16).toRadixString(16));
-    }
-    return buffer.toString();
-  }
-
   /// Live predictions for [input]. Returns an empty list on blank input or error
   /// (the picker degrades gracefully rather than surfacing a network error).
+  ///
+  /// No session token. Tokens existed to bundle the keystrokes with the final
+  /// Place Details for Google's billing, but the gateway buys a place once,
+  /// ever, so there is nothing left to bundle — and a random token in the body
+  /// would make every request unique, so "pizz" typed by two people, or twice
+  /// by one, could never share the gateway's cached answer.
   Future<List<PlacePrediction>> autocomplete(
     String input, {
-    required String sessionToken,
     double? biasLat,
     double? biasLng,
   }) async {
@@ -87,7 +81,6 @@ class PlaceLookupService {
     try {
       final params = <String, dynamic>{
         'input': input,
-        'sessionToken': sessionToken,
         'languageCode': 'en',
         if (biasLat != null && biasLng != null)
           'locationBias': {
@@ -99,12 +92,7 @@ class PlaceLookupService {
       };
 
       ApiUsageTracker.instance.incrementTextSearch();
-      final response = await ProxyService.placesApiGet(
-        'places:autocomplete',
-        params,
-        fieldMask:
-            'suggestions.placePrediction.placeId,suggestions.placePrediction.text,suggestions.placePrediction.structuredFormat',
-      );
+      final response = await ProxyService.autocomplete(params);
 
       final suggestions =
           (response['suggestions'] as List<dynamic>?) ?? const [];
@@ -140,17 +128,11 @@ class PlaceLookupService {
   }
 
   /// Resolves a chosen prediction to coordinates. Returns null on failure.
-  Future<PlaceResult?> placeDetails(
-    String placeId, {
-    String? sessionToken,
-  }) async {
+  Future<PlaceResult?> placeDetails(String placeId) async {
     try {
-      final response = await ProxyService.placesApiGetDetails(
-        'places/$placeId',
-        fieldMask: 'displayName,formattedAddress,location',
-        queryParameters:
-            sessionToken != null ? {'sessionToken': sessionToken} : null,
-      );
+      ApiUsageTracker.instance.incrementPlaceDetails();
+      final response = await ProxyService.placeDetails(placeId);
+      if (response == null) return null;
 
       final location = response['location'] as Map<String, dynamic>?;
       final lat = (location?['latitude'] as num?)?.toDouble();

@@ -63,16 +63,19 @@ console and a billing decision.
    `serverAuthCode` flow exchanges against a *web* client) in
    Google Cloud console → APIs & Services → Credentials.
 
-3. **Enable the APIs**: Data Portability API, Places API (New).
+3. **Enable the APIs**: Data Portability API. (Places is not called directly —
+   see the gateway key below.)
 
 4. **Set the secrets**:
    ```bash
    firebase functions:secrets:set GOOGLE_OAUTH_CLIENT_ID
    firebase functions:secrets:set GOOGLE_OAUTH_CLIENT_SECRET
-   firebase functions:secrets:set GOOGLE_PLACES_API_KEY
+   op read "op://Dev/Places Gateway App Keys/foodierank" | \
+     firebase functions:secrets:set PLACES_GATEWAY_KEY --data-file=-
    ```
-   The Places key is a **server** key — restrict it by IP, not by app, since
-   it is used from Cloud Functions.
+   Place resolution goes through the shared Places gateway, which buys each
+   place from Google once, ever; `PLACES_GATEWAY_KEY` is FoodieRank's key for
+   it. The old `GOOGLE_PLACES_API_KEY` secret is no longer read.
 
 5. **OAuth consent screen**: add the scope
    `https://www.googleapis.com/auth/dataportability.maps.starred_places`.
