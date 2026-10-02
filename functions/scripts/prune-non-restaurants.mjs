@@ -7,16 +7,18 @@
  * ("Rue de Bretagne"), neighbourhoods and permanently closed venues. Future
  * imports filter these at resolution time; this cleans up what is already there.
  *
- * Reads each place's types from Places API, then deletes the ones that fail
- * `shouldKeepPlace` and annotates the survivors.
+ * Reads each place's types through the shared Places gateway (never Google
+ * directly), then deletes the ones that fail `shouldKeepPlace` and annotates
+ * the survivors. The gateway buys a place from Google once, ever, so a re-run
+ * costs nothing.
  *
  * Dry run by default — pass --apply to actually write.
  *
+ *   export PLACES_GATEWAY_KEY=$(op read "op://Dev/Places Gateway App Keys/foodierank")
  *   node scripts/prune-non-restaurants.mjs [--apply] [--uid <uid>]
  */
 import { initializeApp, applicationDefault } from 'firebase-admin/app';
 import { getFirestore } from 'firebase-admin/firestore';
-import { GoogleAuth } from 'google-auth-library';
 import { shouldKeepPlace, rejectionReason } from '../lib/placeKind.js';
 
 const APPLY = process.argv.includes('--apply');
@@ -27,39 +29,44 @@ const PROJECT = process.env.GCLOUD_PROJECT || 'foodierank-bb880';
 initializeApp({ credential: applicationDefault(), projectId: PROJECT });
 const db = getFirestore();
 
-const auth = new GoogleAuth({
-  scopes: ['https://www.googleapis.com/auth/cloud-platform'],
-});
-const client = await auth.getClient();
-const { token } = await client.getAccessToken();
+const GATEWAY_URL = 'https://cndaivlyzonqndnvzilr.supabase.co/functions/v1/places';
+const GATEWAY_KEY = process.env.PLACES_GATEWAY_KEY;
+if (!GATEWAY_KEY) {
+  console.error('PLACES_GATEWAY_KEY is not set.');
+  process.exit(78);
+}
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 /**
- * Place Details enforces a per-minute rate limit, and an unthrottled sweep of
- * ~1800 ids trips it hard — a first pass left 503 of them unchecked on 429.
- * A small gap between calls plus backoff on 429 gets the whole set through.
+ * Place Details through the gateway. Google's per-minute limit still applies
+ * to whatever the gateway has not bought yet — a first direct pass left 503
+ * ids unchecked on 429 — so keep a small gap between calls and back off on
+ * 429, and on the gateway's 503 ("someone else is fetching this right now").
  */
 async function details(placeId, attempt = 0) {
   await sleep(60);
 
-  const response = await fetch(`https://places.googleapis.com/v1/places/${placeId}`, {
-    headers: {
-      Authorization: `Bearer ${token}`,
-      'X-Goog-User-Project': PROJECT,
-      'X-Goog-FieldMask': 'id,displayName,types,businessStatus',
-    },
+  const response = await fetch(GATEWAY_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'x-app-key': GATEWAY_KEY },
+    body: JSON.stringify({ op: 'details', placeId }),
   });
 
-  if (response.status === 429 && attempt < 5) {
-    await sleep(2000 * 2 ** attempt);
+  if ((response.status === 429 || response.status === 503) && attempt < 5) {
+    await sleep(response.status === 503 ? 1000 : 2000 * 2 ** attempt);
     return details(placeId, attempt + 1);
   }
-  if (response.status === 404) return { gone: true };
+  const text = await response.text();
+  // A place_id Google no longer recognises comes back as notFound, or as
+  // Google's 404 relayed through the gateway.
+  if (/^\{"error":"Google 404/.test(text)) return { gone: true };
   if (!response.ok) {
-    throw new Error(`${response.status} ${(await response.text()).slice(0, 120)}`);
+    throw new Error(`${response.status} ${text.slice(0, 120)}`);
   }
-  return response.json();
+  const { place, notFound } = JSON.parse(text);
+  if (notFound || !place) return { gone: true };
+  return place;
 }
 
 const snapshot = await db.collection('users').doc(UID).collection('savedPlaces').get();

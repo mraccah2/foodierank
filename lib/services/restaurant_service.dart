@@ -1,5 +1,4 @@
 import 'package:foodierank/services/proxy_service.dart';
-import 'package:foodierank/config.dart';
 import 'dart:collection';
 import 'dart:typed_data';
 import 'dart:async';
@@ -490,18 +489,18 @@ class RestaurantService implements PhotoSource {
     lastSearchFailure = null;
 
     // "Custom time" means the user asked for a specific day/time-of-day rather
-    // than "open now". The Places `openNow` filter only knows the present, so we
-    // must instead request each place's opening hours and filter client-side.
+    // than "open now", and is evaluated client-side from opening hours.
     final bool customTime = targetDay != null && targetMinutes != null;
 
-    // Opening-hours fields are a billable Enterprise-SKU add-on, so only request
-    // them when a custom time is active; the default "open now" path keeps its
-    // cheaper field mask unchanged.
-    const String baseFieldMask =
-        'places.id,places.displayName,places.rating,places.userRatingCount,places.photos,places.priceLevel,places.types,places.formattedAddress,places.location,places.editorialSummary';
-    final String fieldMask = customTime
-        ? '$baseFieldMask,places.regularOpeningHours,places.utcOffsetMinutes'
-        : baseFieldMask;
+    // "Open now" is evaluated client-side too, never sent as Google's
+    // `openNow` filter. The Places gateway caches a search forever on its
+    // canonical request, so an `openNow: true` answer captured at lunchtime
+    // would be served unchanged at midnight. Opening hours come back on every
+    // place anyway (the gateway always returns all fields), so filtering here
+    // costs nothing, stays correct at any hour, and lets the open-now and
+    // custom-time searches share one cached request.
+    final bool filterOpenNow = openNow && !customTime;
+    final DateTime nowUtc = DateTime.now().toUtc();
 
     double radius = _initialRadius;
     final Set<String> foundIds = {};
@@ -528,18 +527,13 @@ class RestaurantService implements PhotoSource {
       final responses = await Future.wait(
         _sectorRects(latitude, longitude, radius).map((rect) {
           ApiUsageTracker.instance.incrementTextSearch();
-          return ProxyService.placesApiGet(
-            'places:searchText',
+          return ProxyService.searchText(
             _buildSearchParams(
               rect,
               cuisineType: cuisineType,
               priceLevels: priceLevels,
-              // With a custom time we drop the server-side open filter and
-              // evaluate opening hours ourselves.
-              openNow: customTime ? false : openNow,
               searchQuery: searchQuery,
             ),
-            fieldMask: fieldMask,
           ).catchError((Object e) {
             // Was `(_) => {}`, which flattened every failure into "no places
             // found" — so an API that had been switched off read as an empty
@@ -562,10 +556,14 @@ class RestaurantService implements PhotoSource {
                 _mapPlace(place as Map<String, dynamic>, priceLevels);
             if (mappedPlace == null) continue;
 
+            final periods = (mappedPlace['regularOpeningHours']
+                as Map<String, dynamic>?)?['periods'] as List<dynamic>?;
             if (customTime) {
-              final periods = (mappedPlace['regularOpeningHours']
-                  as Map<String, dynamic>?)?['periods'] as List<dynamic>?;
               if (!isOpenAt(periods, targetDay, targetMinutes)) continue;
+            } else if (filterOpenNow) {
+              final local = placeLocalTime(
+                  nowUtc, (mappedPlace['utcOffsetMinutes'] as num?)?.toInt());
+              if (!isOpenAt(periods, local.day, local.minutes)) continue;
             }
 
             allRestaurants.add(mappedPlace);
@@ -697,8 +695,7 @@ class RestaurantService implements PhotoSource {
       {required String type}) async {
     try {
       ApiUsageTracker.instance.incrementNearbySearch();
-      final response = await ProxyService.placesApiGet(
-        'places:searchNearby',
+      final response = await ProxyService.searchNearby(
         {
           'includedTypes': [type],
           'maxResultCount': 20,
@@ -710,7 +707,6 @@ class RestaurantService implements PhotoSource {
             },
           },
         },
-        fieldMask: 'places.location',
       );
 
       final places = (response['places'] as List<dynamic>?) ?? const [];
@@ -781,11 +777,45 @@ class RestaurantService implements PhotoSource {
     return false;
   }
 
+  /// The weekday (`0 = Sunday … 6 = Saturday`) and minutes since midnight at a
+  /// place whose clock is [utcOffsetMinutes] from UTC, at [nowUtc] — the
+  /// arguments [isOpenAt] wants for "open now". A place with no offset falls
+  /// back to the device's own clock, which is right for the common case of
+  /// searching where you are.
+  static ({int day, int minutes}) placeLocalTime(
+      DateTime nowUtc, int? utcOffsetMinutes) {
+    final local = utcOffsetMinutes == null
+        ? nowUtc.toLocal()
+        : nowUtc.toUtc().add(Duration(minutes: utcOffsetMinutes));
+    return (day: local.weekday % 7, minutes: local.hour * 60 + local.minute);
+  }
+
+  /// The only fields a place keeps once mapped.
+  ///
+  /// The gateway returns every field Google has — reviews, address components,
+  /// entrances, the lot — and a result set rides along in the in-memory memo
+  /// and the on-disk snapshot. These are what [Restaurant.fromJson] and the
+  /// filters actually read; the old request field mask, in effect, applied on
+  /// arrival instead of on request.
+  static const Set<String> _keptPlaceFields = {
+    'id',
+    'displayName',
+    'rating',
+    'userRatingCount',
+    'photos',
+    'priceLevel',
+    'types',
+    'formattedAddress',
+    'location',
+    'editorialSummary',
+    'regularOpeningHours',
+    'utcOffsetMinutes',
+  };
+
   Map<String, dynamic> _buildSearchParams(
       ({double lowLat, double lowLng, double highLat, double highLng}) rect,
       {String? cuisineType,
       List<String>? priceLevels,
-      bool openNow = true,
       String? searchQuery}) {
     if (rect.lowLat.isNaN ||
         rect.lowLng.isNaN ||
@@ -814,7 +844,6 @@ class RestaurantService implements PhotoSource {
       },
       'maxResultCount': _targetCount,
       'languageCode': 'en',
-      if (openNow) 'openNow': openNow,
       if (priceLevels != null) ...{
         'priceLevels': priceLevels,
       },
@@ -823,16 +852,21 @@ class RestaurantService implements PhotoSource {
 
   Map<String, dynamic>? _mapPlace(
       Map<String, dynamic> place, List<String>? targetPriceLevels) {
-    final photos = place['photos'] as List<dynamic>?;
-    final photoRefs =
-        photos?.map((photo) => photo['name'] as String).toList() ?? [];
+    final photos = (place['photos'] as List<dynamic>?)
+        ?.map((photo) => {'name': photo['name'] as String})
+        .toList();
+    final photoRefs = photos?.map((photo) => photo['name']!).toList() ?? [];
 
     // Extract country from formatted address
     final formattedAddress = place['formattedAddress'] as String;
     final country = formattedAddress.split(',').last.trim();
 
     return {
-      ...Map<String, dynamic>.from(place),
+      for (final entry in place.entries)
+        if (_keptPlaceFields.contains(entry.key)) entry.key: entry.value,
+      // Only the resource name: a slot is the photo's index, and nothing
+      // reads the attributions or dimensions Google sends alongside.
+      if (photos != null) 'photos': photos,
       'photoRefs': photoRefs,
       'location': {
         ...place['location'] as Map<String, dynamic>,
@@ -911,8 +945,8 @@ class RestaurantService implements PhotoSource {
     final existing = _photoRequests[key];
     if (existing != null) return existing;
 
-    final request = _fetchPhoto(photoRef, key, maxWidth, maxHeight, priority)
-        .whenComplete(() {
+    final request =
+        _fetchPhoto(photoRef, cacheId, key, priority).whenComplete(() {
       // A block body, deliberately. `=> _photoRequests.remove(key)` returns the
       // removed value — and since this map's values *are* futures, that value
       // is this very request. `whenComplete` waits on any Future its callback
@@ -925,8 +959,25 @@ class RestaurantService implements PhotoSource {
     return request;
   }
 
-  Future<Uint8List?> _fetchPhoto(String photoRef, String key, int maxWidth,
-      int maxHeight, bool priority) async {
+  /// Which gateway photo [photoRef] / [cacheId] names: the place id and the
+  /// photo's slot (its index in the place's `photos`), or null.
+  ///
+  /// [cacheId] is `'<placeId>:<index>'` from every app caller and carries both.
+  /// A bare Google resource name (`places/<id>/photos/<nonce>`) carries the
+  /// place but not the slot, and guessing slot 0 would show a place's first
+  /// photo in place of whichever one was asked for — so that is a miss.
+  static ({String placeId, int slot})? gatewayPhotoTarget(
+      String photoRef, String? cacheId) {
+    if (cacheId == null) return null;
+    final split = cacheId.lastIndexOf(':');
+    if (split <= 0) return null;
+    final slot = int.tryParse(cacheId.substring(split + 1));
+    if (slot == null || slot < 0) return null;
+    return (placeId: cacheId.substring(0, split), slot: slot);
+  }
+
+  Future<Uint8List?> _fetchPhoto(
+      String photoRef, String? cacheId, String key, bool priority) async {
     // Disk before network, and before taking a slot — a local read is orders of
     // magnitude cheaper and has no business queueing behind six downloads.
     try {
@@ -942,24 +993,22 @@ class RestaurantService implements PhotoSource {
       // would leave a placeholder on screen forever with nothing logged.
     }
 
+    // The gateway knows a photo by place id and slot, never by Google's
+    // rotating resource name, so without both there is nothing to ask for.
+    final target = gatewayPhotoTarget(photoRef, cacheId);
+    if (target == null) return null;
+
     await _acquirePhotoSlot(priority);
     try {
       ApiUsageTracker.instance.incrementPhoto();
-      final uri = Uri.parse('${ProxyService.baseUrl}/$photoRef/media').replace(
-        queryParameters: {
-          'maxWidthPx': maxWidth.toString(),
-          'maxHeightPx': maxHeight.toString(),
-        },
-      );
+      final url = await ProxyService.photoUrl(target.placeId, target.slot);
+      if (url == null) return null;
 
+      // A permanent public URL (≤1600px) the gateway has already bought from
+      // Google once; [PlacePhoto] decodes it near the size it is drawn at.
       final response = await appHttpClient.get(
-        uri,
-        headers: {
-          // The key travels in the header only. It used to also be repeated as
-          // a `key` query parameter, which put it in the URL of every photo
-          // request and so into any intermediary's access log.
-          'X-Goog-Api-Key': Config.googleMapsApiKey,
-          ...Config.appAttestationHeaders,
+        Uri.parse(url),
+        headers: const {
           'Accept': 'image/*',
           'User-Agent': 'FoodieRank/1.0',
         },

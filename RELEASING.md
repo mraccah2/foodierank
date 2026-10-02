@@ -17,8 +17,8 @@ touches app code, and on manual dispatch. It:
 1. Installs the signing certificate + provisioning profile from GitHub secrets.
 2. Cross-checks the cert/profile against Apple before building
    (`scripts/verify_ios_signing.py`).
-3. Builds the Flutter framework, injecting the runtime API key via
-   `--dart-define`, and writes `ios/Flutter/Secrets.xcconfig` from
+3. Builds the Flutter framework, injecting the Places gateway key and the
+   runtime Google key via `--dart-define`, and writes `ios/Flutter/Secrets.xcconfig` from
    `IOS_MAPS_API_KEY` so the embedded Maps SDK (map picker) is keyed natively.
 4. Archives with `xcodebuild`, exports an IPA, and uploads to TestFlight.
 5. Submits the build for App Store review
@@ -45,7 +45,8 @@ own.**
 
 | Secret | Purpose |
 |--------|---------|
-| `IOS_MAPS_API_KEY` | Google Places API key baked into the release build. |
+| `PLACES_GATEWAY_KEY` | FoodieRank's key for the shared Places gateway, baked into the build. Every Places search, detail and photo goes through it. |
+| `IOS_MAPS_API_KEY` | Google key for the Maps SDK and reverse geocoding (no longer used for Places). |
 | `IOS_CERTIFICATE_P12` | Base64-encoded Apple Distribution certificate (`.p12`). |
 | `IOS_CERTIFICATE_PASSWORD` | Password for the `.p12`. |
 | `IOS_PROVISIONING_PROFILE` | Base64-encoded distribution provisioning profile. |
@@ -95,7 +96,8 @@ every push to `main` (app-code paths) and uploads them as workflow artifacts.
 
 | Name | Type | Purpose |
 |------|------|---------|
-| `ANDROID_MAPS_API_KEY` | secret | Places API key baked into the Android build (runtime + native manifest). |
+| `PLACES_GATEWAY_KEY` | secret | FoodieRank's key for the shared Places gateway (all Places calls). |
+| `ANDROID_MAPS_API_KEY` | secret | Google key for the native map and reverse geocoding (no longer used for Places). |
 | `ANDROID_PACKAGE_NAME` | variable (optional) | Defaults to `com.foodierank.foodierank`. |
 | `ANDROID_CERT_SHA1` | variable (optional) | Signing-cert SHA-1 the key is restricted to (public by design). |
 

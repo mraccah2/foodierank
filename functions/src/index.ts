@@ -27,10 +27,7 @@ import {
   listTakeoutArchives,
   newestExportParts,
 } from './drive';
-import { PLACES_API_KEY, resolvePlaces } from './placeResolve';
-// The browse path's server side. Re-exported so `firebase deploy` picks the
-// callables up; everything about them lives in placesProxy.ts.
-export { placesSearch, placesPhoto } from './placesProxy';
+import { PLACES_GATEWAY_KEY, resolvePlaces } from './placeResolve';
 import { parseTakeoutArchive } from './takeout';
 import {
   applyImport,
@@ -180,7 +177,7 @@ export const pollImportJobs = onSchedule(
   {
     region: REGION,
     schedule: 'every 15 minutes',
-    secrets: [OAUTH_CLIENT_ID, OAUTH_CLIENT_SECRET, PLACES_API_KEY],
+    secrets: [OAUTH_CLIENT_ID, OAUTH_CLIENT_SECRET, PLACES_GATEWAY_KEY],
     timeoutSeconds: 540,
     memory: '512MiB',
   },
@@ -217,7 +214,7 @@ export const pollImportJobs = onSchedule(
 
         const raw = await downloadStarredPlaces(urls);
         const cache = await loadResolutionCache(uid);
-        const result = await resolvePlaces(raw, PLACES_API_KEY.value(), {
+        const result = await resolvePlaces(raw, PLACES_GATEWAY_KEY.value(), {
           cache,
           deadline: Date.now() + RESOLVE_BUDGET_MS,
         });
@@ -362,7 +359,7 @@ export const syncTakeoutFromDrive = onSchedule(
   {
     region: REGION,
     schedule: 'every 12 hours',
-    secrets: [OAUTH_CLIENT_ID, OAUTH_CLIENT_SECRET, PLACES_API_KEY],
+    secrets: [OAUTH_CLIENT_ID, OAUTH_CLIENT_SECRET, PLACES_GATEWAY_KEY],
     timeoutSeconds: 540,
     memory: '2GiB',
   },
@@ -447,7 +444,7 @@ export const syncTakeoutFromDrive = onSchedule(
         }
 
         const cache = await loadResolutionCache(uid);
-        const result = await resolvePlaces(places, PLACES_API_KEY.value(), {
+        const result = await resolvePlaces(places, PLACES_GATEWAY_KEY.value(), {
           cache,
           deadline: Date.now() + RESOLVE_BUDGET_MS,
         });
@@ -499,7 +496,7 @@ export const syncTakeoutFromDrive = onSchedule(
 export const onTakeoutUploaded = onObjectFinalized(
   {
     region: REGION,
-    secrets: [PLACES_API_KEY],
+    secrets: [PLACES_GATEWAY_KEY],
     timeoutSeconds: 540,
     memory: '2GiB',
   },
@@ -526,7 +523,7 @@ export const onTakeoutUploaded = onObjectFinalized(
       }
 
       const cache = await loadResolutionCache(uid);
-      const result = await resolvePlaces(places, PLACES_API_KEY.value(), {
+      const result = await resolvePlaces(places, PLACES_GATEWAY_KEY.value(), {
         cache,
         deadline: Date.now() + RESOLVE_BUDGET_MS,
       });

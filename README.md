@@ -105,9 +105,16 @@ Or pass keys individually:
 
 ```bash
 flutter run \
+  --dart-define=PLACES_GATEWAY_KEY=YOUR_GATEWAY_KEY \
   --dart-define=IOS_MAPS_API_KEY=YOUR_IOS_KEY \
   --dart-define=ANDROID_MAPS_API_KEY=YOUR_ANDROID_KEY
 ```
+
+Places (search, autocomplete, details, photos) goes through our shared Places
+gateway, never to Google from the device; `PLACES_GATEWAY_KEY` is FoodieRank's
+key for it (`op read "op://Dev/Places Gateway App Keys/foodierank"`). The Google
+keys remain for the map tiles and reverse geocoding, which the gateway does not
+serve.
 
 **Android native manifest key** — the Android build also reads a key for the
 `com.google.android.geo.API_KEY` manifest entry. Add it to
@@ -136,8 +143,10 @@ keys in the Google Cloud console (in addition to the Places API).
 
 | Key | Where | Purpose |
 |-----|-------|---------|
-| `IOS_MAPS_API_KEY` | `--dart-define` | Places API key used by the iOS app at runtime |
-| `ANDROID_MAPS_API_KEY` | `--dart-define` | Places API key used by the Android app at runtime |
+| `PLACES_GATEWAY_KEY` | `--dart-define` (app) / env (CLI) | FoodieRank's app key for the shared Places gateway — every Places search, detail and photo goes through it |
+| `PLACES_GATEWAY_URL` | `--dart-define` (optional) | Overrides the gateway endpoint (defaults to the production gateway) |
+| `IOS_MAPS_API_KEY` | `--dart-define` | Google key used by the iOS app for reverse geocoding (Places goes through the gateway) |
+| `ANDROID_MAPS_API_KEY` | `--dart-define` | Google key used by the Android app for reverse geocoding |
 | `MAPS_API_KEY` | `android/local.properties` or env | Native Android manifest map key |
 | `GOOGLE_MAPS_IOS_API_KEY` | `ios/Flutter/Secrets.xcconfig` | Native iOS Maps SDK key for the map picker |
 | `IOS_BUNDLE_ID` | `--dart-define` (optional) | Sent as `X-Ios-Bundle-Identifier` for key restrictions |
@@ -193,7 +202,7 @@ a terminal — useful for comparing rankings across cities, or scripting. It is
 plain Dart, so it needs no simulator or device:
 
 ```bash
-export GOOGLE_MAPS_API_KEY=...      # see note below
+export PLACES_GATEWAY_KEY=...       # see note below
 dart run bin/foodierank.dart "Times Square, New York" --any-time
 dart run bin/foodierank.dart --at 40.7484,-73.9967 --cuisine Italian --json
 ```
@@ -223,10 +232,9 @@ Venue-kind cuisine filters return the right kind of place, not restaurants:
 map to their natural search phrase instead of `"<name> restaurant"`, which for
 Coffee returned pizzerias.
 
-Because there is no build-time `--dart-define` on desktop, the CLI takes its key
-from `GOOGLE_MAPS_API_KEY`. It sends no app-attestation headers, so this must be
-a key restricted by IP or left unrestricted — **not** either mobile key, which
-are locked to the app's bundle id / SHA-1 and will be rejected.
+Because there is no build-time `--dart-define` on desktop, the CLI takes its
+Places gateway key from the `PLACES_GATEWAY_KEY` environment variable. It needs
+no Google key at all: every call goes through the gateway.
 
 ---
 

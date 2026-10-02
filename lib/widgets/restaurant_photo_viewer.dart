@@ -24,7 +24,10 @@ class RestaurantPhotoViewer extends StatefulWidget {
 class _RestaurantPhotoViewerState extends State<RestaurantPhotoViewer> {
   late PageController _pageController;
   late int _currentIndex;
-  final Map<String, String> _loadedPhotos = {};
+
+  /// One lookup per slot for the life of the viewer, so a FutureBuilder
+  /// rebuilt on every page change does not ask again.
+  final Map<int, Future<String?>> _photoUrls = {};
 
   @override
   void initState() {
@@ -47,22 +50,19 @@ class _RestaurantPhotoViewerState extends State<RestaurantPhotoViewer> {
     super.dispose();
   }
 
-  Future<String> _loadPhoto(String photoRef) async {
-    if (_loadedPhotos.containsKey(photoRef)) {
-      return _loadedPhotos[photoRef]!;
-    }
-
-    final photoUrl = await ProxyService.getPlacePhoto(
-      photoRef,
-      1200, // width
-      800, // height
-    );
-
-    if (photoUrl.isNotEmpty) {
-      _loadedPhotos[photoRef] = photoUrl;
-    }
-    return photoUrl;
-  }
+  /// The gateway's public URL for photo [index] of this place.
+  ///
+  /// Keyed on place id and slot, not on `photoRefs[index]`: Google mints a
+  /// fresh resource name for the same photo on every search response, so the
+  /// name identifies nothing. The URL is permanent; [ProxyService] remembers it
+  /// and [CachedNetworkImageProvider] keeps the bytes on disk.
+  Future<String?> _photoUrl(int index) => _photoUrls.putIfAbsent(
+      index,
+      () => ProxyService.photoUrl(
+          widget.restaurant.placeId.isNotEmpty
+              ? widget.restaurant.placeId
+              : widget.restaurant.id,
+          index));
 
   @override
   Widget build(BuildContext context) {
@@ -103,9 +103,8 @@ class _RestaurantPhotoViewerState extends State<RestaurantPhotoViewer> {
                     return PhotoViewGalleryPageOptions.customChild(
                       child: GestureDetector(
                         onTap: () {},
-                        child: FutureBuilder<String>(
-                          future:
-                              _loadPhoto(widget.restaurant.photoRefs[index]),
+                        child: FutureBuilder<String?>(
+                          future: _photoUrl(index),
                           builder: (context, snapshot) {
                             if (snapshot.hasData && snapshot.data!.isNotEmpty) {
                               return PhotoView(
@@ -120,6 +119,15 @@ class _RestaurantPhotoViewerState extends State<RestaurantPhotoViewer> {
                                 maxScale: PhotoViewComputedScale.covered * 2,
                                 scaleStateController:
                                     PhotoViewScaleStateController(),
+                              );
+                            }
+                            // A lookup that finished empty-handed is a
+                            // missing photo, not one still on its way.
+                            if (snapshot.connectionState ==
+                                ConnectionState.done) {
+                              return const Center(
+                                child: Icon(Icons.broken_image_outlined,
+                                    color: Colors.white54, size: 48),
                               );
                             }
                             return const Center(
