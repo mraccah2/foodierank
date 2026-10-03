@@ -1,9 +1,8 @@
-import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:photo_view/photo_view.dart';
 import 'package:photo_view/photo_view_gallery.dart';
 import '../models/restaurant.dart';
-import '../services/proxy_service.dart';
+import '../services/restaurant_service.dart';
 import '../theme/app_spacing.dart';
 import 'package:flutter/services.dart';
 
@@ -25,9 +24,9 @@ class _RestaurantPhotoViewerState extends State<RestaurantPhotoViewer> {
   late PageController _pageController;
   late int _currentIndex;
 
-  /// One lookup per slot for the life of the viewer, so a FutureBuilder
+  /// One load per slot for the life of the viewer, so a FutureBuilder
   /// rebuilt on every page change does not ask again.
-  final Map<int, Future<String?>> _photoUrls = {};
+  final Map<int, Future<Uint8List?>> _photos = {};
 
   @override
   void initState() {
@@ -50,19 +49,20 @@ class _RestaurantPhotoViewerState extends State<RestaurantPhotoViewer> {
     super.dispose();
   }
 
-  /// The gateway's public URL for photo [index] of this place.
+  /// Photo [index] of this place, through the same loader and caches as the
+  /// list rows and the card.
   ///
-  /// Keyed on place id and slot, not on `photoRefs[index]`: Google mints a
-  /// fresh resource name for the same photo on every search response, so the
-  /// name identifies nothing. The URL is permanent; [ProxyService] remembers it
-  /// and [CachedNetworkImageProvider] keeps the bytes on disk.
-  Future<String?> _photoUrl(int index) => _photoUrls.putIfAbsent(
+  /// Keyed on place id and slot (the card's own cache id), not on
+  /// `photoRefs[index]`: Google mints a fresh resource name for the same photo
+  /// on every search response, so the name identifies nothing. Sharing the
+  /// card's cache id means the photo the card was already showing opens
+  /// instantly instead of being downloaded a second time.
+  Future<Uint8List?> _photo(int index) => _photos.putIfAbsent(
       index,
-      () => ProxyService.photoUrl(
-          widget.restaurant.placeId.isNotEmpty
-              ? widget.restaurant.placeId
-              : widget.restaurant.id,
-          index));
+      () => RestaurantService.instance.loadPhoto(
+          widget.restaurant.photoRefs[index],
+          cacheId: '${widget.restaurant.id}:$index',
+          priority: true));
 
   @override
   Widget build(BuildContext context) {
@@ -103,18 +103,15 @@ class _RestaurantPhotoViewerState extends State<RestaurantPhotoViewer> {
                     return PhotoViewGalleryPageOptions.customChild(
                       child: GestureDetector(
                         onTap: () {},
-                        child: FutureBuilder<String?>(
-                          future: _photoUrl(index),
+                        child: FutureBuilder<Uint8List?>(
+                          future: _photo(index),
                           builder: (context, snapshot) {
-                            if (snapshot.hasData && snapshot.data!.isNotEmpty) {
+                            if (snapshot.hasData) {
                               return PhotoView(
-                                // Cached on disk, so reopening the gallery — or
-                                // swiping back to a photo — does not re-download
-                                // a full-size image. A bare NetworkImage kept
-                                // only the decoded frame, and only until the
-                                // image cache evicted it.
-                                imageProvider:
-                                    CachedNetworkImageProvider(snapshot.data!),
+                                // From the shared memory and disk caches, so
+                                // reopening the gallery — or swiping back to a
+                                // photo — does not download it again.
+                                imageProvider: MemoryImage(snapshot.data!),
                                 minScale: PhotoViewComputedScale.contained,
                                 maxScale: PhotoViewComputedScale.covered * 2,
                                 scaleStateController:

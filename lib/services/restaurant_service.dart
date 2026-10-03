@@ -998,31 +998,51 @@ class RestaurantService implements PhotoSource {
     final target = gatewayPhotoTarget(photoRef, cacheId);
     if (target == null) return null;
 
-    await _acquirePhotoSlot(priority);
-    try {
+    // Straight from Storage first: the gateway keeps a held photo at a fixed
+    // path, so for every photo it already has there is nothing to ask it.
+    var download = await _downloadPhoto(
+        ProxyService.storedPhotoUrl(target.placeId, target.slot), priority);
+
+    // Not stored yet (Storage says 400), or stored under another extension:
+    // the gateway buys and stores it, and says where. Done without holding a
+    // download slot — it is a lookup, and could take seconds on a first buy.
+    if (download.missing) {
       ApiUsageTracker.instance.incrementPhoto();
       final url = await ProxyService.photoUrl(target.placeId, target.slot);
       if (url == null) return null;
+      download = await _downloadPhoto(Uri.parse(url), priority);
+    }
 
-      // A permanent public URL (≤1600px) the gateway has already bought from
-      // Google once; [PlacePhoto] decodes it near the size it is drawn at.
+    final bytes = download.bytes;
+    if (bytes == null) return null;
+    _cachePhoto(key, bytes);
+    // Nothing waits on the write: the bytes are already in memory for this
+    // session, and persisting them is for the next one.
+    unawaited(photoCacheWrite?.call(key, bytes) ?? Future<void>.value());
+    return bytes;
+  }
+
+  /// One photo download, holding a slot only for the transfer itself.
+  ///
+  /// [missing] means the server answered that nothing is there (Storage uses
+  /// 400 for that, not 404) — worth asking the gateway about. A timeout or a
+  /// server fault is not: the photo may well exist, so it is just a failure.
+  Future<({Uint8List? bytes, bool missing})> _downloadPhoto(
+      Uri url, bool priority) async {
+    await _acquirePhotoSlot(priority);
+    try {
       final response = await appHttpClient.get(
-        Uri.parse(url),
+        url,
         headers: const {
           'Accept': 'image/*',
           'User-Agent': 'FoodieRank/1.0',
         },
       ).timeout(kPhotoTimeout);
-
-      if (response.statusCode != 200) return null;
-      _cachePhoto(key, response.bodyBytes);
-      // Nothing waits on the write: the bytes are already in memory for this
-      // session, and persisting them is for the next one.
-      unawaited(photoCacheWrite?.call(key, response.bodyBytes) ??
-          Future<void>.value());
-      return response.bodyBytes;
+      final status = response.statusCode;
+      if (status == 200) return (bytes: response.bodyBytes, missing: false);
+      return (bytes: null, missing: status == 400 || status == 404);
     } catch (e) {
-      return null;
+      return (bytes: null, missing: false);
     } finally {
       _releasePhotoSlot();
     }
