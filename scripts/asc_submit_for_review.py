@@ -105,6 +105,68 @@ def set_whats_new(loc_id, text, attempts=5):
     print("  ⚠️  Could not set whatsNew after retries; continuing without updating release notes.")
 
 
+REVIEW_CONTACT_FIELDS = ("contactFirstName", "contactLastName", "contactEmail", "contactPhone")
+
+
+def _review_detail(version_id):
+    """The version's appStoreReviewDetail resource, or None if it has none."""
+    r = api("GET", f"/v1/appStoreVersions/{version_id}/appStoreReviewDetail",
+            tolerate=(404,))
+    if "__error__" in r:
+        return None
+    return r.get("data")
+
+
+def ensure_review_contact(version_id, versions):
+    """Make sure the version carries App Review contact details.
+
+    They live on each version's appStoreReviewDetail, and a version created
+    through the API starts without them. Apple then refuses the submission with
+    a bare 409 on reviewSubmissionItems (ENTITY_ERROR.ATTRIBUTE.REQUIRED on
+    contactFirstName/LastName/Email/Phone), which is how 1.3.0 failed on
+    2026-08-21 and 2026-10-02 after building and uploading fine both times.
+
+    Copied from the most recent other version that has them, so the contact is
+    whoever it was last time and never invented here.
+    """
+    current = _review_detail(version_id)
+    have = (current or {}).get("attributes") or {}
+    if all(have.get(f) for f in REVIEW_CONTACT_FIELDS):
+        return
+
+    source = None
+    for v in versions:
+        if v["id"] == version_id:
+            continue
+        detail = _review_detail(v["id"])
+        attrs = (detail or {}).get("attributes") or {}
+        if all(attrs.get(f) for f in REVIEW_CONTACT_FIELDS):
+            source = (v["attributes"]["versionString"], attrs)
+            break
+    if source is None:
+        sys.exit("No earlier version has App Review contact details to copy. Fill in "
+                 "App Review Information (first/last name, email, phone as +<country code> ...) "
+                 "on this version in App Store Connect, then re-run.")
+
+    from_version, attrs = source
+    fields = {f: attrs[f] for f in REVIEW_CONTACT_FIELDS}
+    if current:
+        api("PATCH", f"/v1/appStoreReviewDetails/{current['id']}", {
+            "data": {"type": "appStoreReviewDetails", "id": current["id"], "attributes": fields},
+        })
+    else:
+        api("POST", "/v1/appStoreReviewDetails", {
+            "data": {
+                "type": "appStoreReviewDetails",
+                "attributes": {**fields, "demoAccountRequired": bool(attrs.get("demoAccountRequired"))},
+                "relationships": {
+                    "appStoreVersion": {"data": {"type": "appStoreVersions", "id": version_id}},
+                },
+            }
+        })
+    print(f"Copied App Review contact details from version {from_version}")
+
+
 def find_app():
     apps = api("GET", f"/v1/apps?filter[bundleId]={BUNDLE_ID}")
     if not apps["data"]:
@@ -254,6 +316,8 @@ def main():
     if locs["data"]:
         loc_id = locs["data"][0]["id"]
         set_whats_new(loc_id, WHATS_NEW)
+
+    ensure_review_contact(version_id, versions["data"])
 
     submissions = api("GET", f"/v1/reviewSubmissions?filter[app]={app_id}&filter[state]=READY_FOR_REVIEW")
     if submissions["data"]:
