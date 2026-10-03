@@ -119,13 +119,69 @@ class ProxyService {
 
   /// Google's Text Search. [params] is Google's request body; the result has
   /// Google's `places` array.
-  static Future<Map<String, dynamic>> searchText(Map<String, dynamic> params) =>
-      gateway('searchText', params);
+  ///
+  /// [fields] cuts each place down to what the caller reads (`'photos.name'`
+  /// keeps only the name of each photo). A full place is ~30 KB, mostly
+  /// reviews and photo attributions, so an untrimmed sector search is ~650 KB
+  /// — and a screen waits on four of them. The gateway trims the response
+  /// only; its cache key ignores this.
+  ///
+  /// [heldPhotos] asks which photo slots the gateway already stores, which
+  /// [isPhotoHeld] then answers for the photo loader.
+  static Future<Map<String, dynamic>> searchText(Map<String, dynamic> params,
+          {List<String>? fields, bool heldPhotos = false}) =>
+      _search('searchText', params, fields, heldPhotos);
 
   /// Google's Nearby Search, same contract as [searchText].
-  static Future<Map<String, dynamic>> searchNearby(
-          Map<String, dynamic> params) =>
-      gateway('searchNearby', params);
+  static Future<Map<String, dynamic>> searchNearby(Map<String, dynamic> params,
+          {List<String>? fields, bool heldPhotos = false}) =>
+      _search('searchNearby', params, fields, heldPhotos);
+
+  static Future<Map<String, dynamic>> _search(
+      String op,
+      Map<String, dynamic> params,
+      List<String>? fields,
+      bool heldPhotos) async {
+    final response = await gateway(op, {
+      ...params,
+      if (fields != null) 'fields': fields,
+      if (heldPhotos) 'heldPhotos': true,
+    });
+    recordHeldPhotos(response['heldPhotos']);
+    return response;
+  }
+
+  /// Takes in a search's `heldPhotos` map (`{placeId: [slots]}`). Anything
+  /// else — an older gateway that did not send one — is ignored, which leaves
+  /// those places "unknown" and the loader probing Storage as before.
+  static void recordHeldPhotos(Object? held) {
+    if (held is! Map) return;
+    held.forEach((placeId, slots) {
+      if (placeId is! String || slots is! List) return;
+      _heldPhotoSlots[placeId] = {
+        for (final s in slots)
+          if (s is num) s.toInt(),
+      };
+    });
+  }
+
+  /// Photo slots the gateway said it stores, by place id, from the searches
+  /// that asked. A place absent here has simply not been asked about.
+  static final Map<String, Set<int>> _heldPhotoSlots = {};
+
+  /// Whether the gateway already stores photo [slot] of [placeId]: true, false,
+  /// or null when no search this session has said.
+  ///
+  /// A cold photo used to cost three requests in series — a Storage probe that
+  /// answered 400 (~0.75 s), the `photo` op that stored it (~1.5 s), then the
+  /// download. Knowing up front skips the probe for those, and still lets a
+  /// held photo go straight to Storage without asking the gateway anything.
+  static bool? isPhotoHeld(String placeId, int slot) =>
+      _heldPhotoSlots[placeId]?.contains(slot);
+
+  /// Records that the gateway has just stored photo [slot] of [placeId].
+  static void notePhotoHeld(String placeId, int slot) =>
+      (_heldPhotoSlots[placeId] ??= {}).add(slot);
 
   /// Google's Autocomplete; the result has Google's `suggestions` array.
   static Future<Map<String, dynamic>> autocomplete(

@@ -68,6 +68,12 @@ class _MemoisedSearch {
   });
 }
 
+/// Tourist attractions and hotels around a search, for the locality scores.
+typedef _Pois = ({
+  List<({double lat, double lng})> attractions,
+  List<({double lat, double lng})> hotels,
+});
+
 class RestaurantService implements PhotoSource {
   static final RestaurantService instance = RestaurantService._internal();
   List<Map<String, dynamic>>? _cachedRestaurants;
@@ -506,6 +512,13 @@ class RestaurantService implements PhotoSource {
     final Set<String> foundIds = {};
     final List<Map<String, dynamic>> allRestaurants = [];
 
+    // The locality lookups only need a centre and a radius, and in a dense area
+    // the first round's radius is the final one. Started here, they run
+    // alongside the first round instead of after the last — they used to add
+    // 1-2 s, in series, before the list or any photo could appear.
+    var pois = _fetchPois(latitude, longitude, radius);
+    final poisRadius = radius;
+
     // Keep widening the search until we have enough places or we hit the
     // safety cap. Dense areas are satisfied on the first (smallest) round;
     // rural areas keep doubling the radius outward until they reach the
@@ -534,6 +547,8 @@ class RestaurantService implements PhotoSource {
               priceLevels: priceLevels,
               searchQuery: searchQuery,
             ),
+            fields: _searchFields,
+            heldPhotos: true,
           ).catchError((Object e) {
             // Was `(_) => {}`, which flattened every failure into "no places
             // found" — so an API that had been switched off read as an empty
@@ -591,7 +606,10 @@ class RestaurantService implements PhotoSource {
       radius = (radius * growth).clamp(_initialRadius, maxRadius);
     }
 
-    await _applyLocalityScores(allRestaurants, latitude, longitude, radius);
+    // The search had to widen, so the POIs fetched for the first ring cover
+    // too little of it.
+    if (radius != poisRadius) pois = _fetchPois(latitude, longitude, radius);
+    _applyLocalityScores(allRestaurants, await pois);
 
     return allRestaurants;
   }
@@ -626,17 +644,12 @@ class RestaurantService implements PhotoSource {
   ///    traffic of an already-busy strip.
   ///  * `frTouristPenalty` — 0..1 saturation of tourist attractions and
   ///    hotels within ~250m, i.e. how captive the audience is.
-  Future<void> _applyLocalityScores(List<Map<String, dynamic>> restaurants,
-      double latitude, double longitude, double searchRadius) async {
+  void _applyLocalityScores(
+      List<Map<String, dynamic>> restaurants, _Pois pois) {
     if (restaurants.isEmpty) return;
 
-    final pois = await Future.wait([
-      _fetchPoiLocations(latitude, longitude, searchRadius,
-          type: 'tourist_attraction'),
-      _fetchPoiLocations(latitude, longitude, searchRadius, type: 'lodging'),
-    ]);
-    final attractions = pois[0];
-    final hotels = pois[1];
+    final attractions = pois.attractions;
+    final hotels = pois.hotels;
 
     final positions = [
       for (final r in restaurants)
@@ -687,6 +700,18 @@ class RestaurantService implements PhotoSource {
     }
   }
 
+  /// Tourist attractions and hotels within [searchRadius], for
+  /// [_applyLocalityScores]. Never throws: each half degrades to empty.
+  Future<_Pois> _fetchPois(
+      double latitude, double longitude, double searchRadius) async {
+    final pois = await Future.wait([
+      _fetchPoiLocations(latitude, longitude, searchRadius,
+          type: 'tourist_attraction'),
+      _fetchPoiLocations(latitude, longitude, searchRadius, type: 'lodging'),
+    ]);
+    return (attractions: pois[0], hotels: pois[1]);
+  }
+
   /// Best-effort fetch of nearby POI coordinates of [type] via Nearby Search.
   /// Returns an empty list on any failure so ranking degrades to "no penalty"
   /// instead of failing the whole restaurant search.
@@ -707,6 +732,8 @@ class RestaurantService implements PhotoSource {
             },
           },
         },
+        // Only the coordinates are read; a full hotel is ~30 KB.
+        fields: const ['location'],
       );
 
       final places = (response['places'] as List<dynamic>?) ?? const [];
@@ -811,6 +838,12 @@ class RestaurantService implements PhotoSource {
     'regularOpeningHours',
     'utcOffsetMinutes',
   };
+
+  /// What a search asks the gateway for: [_keptPlaceFields], with each photo
+  /// cut to its `name` — the only part [_mapPlace] keeps.
+  static final List<String> _searchFields = [
+    for (final f in _keptPlaceFields) f == 'photos' ? 'photos.name' : f,
+  ];
 
   Map<String, dynamic> _buildSearchParams(
       ({double lowLat, double lowLng, double highLat, double highLng}) rect,
@@ -998,10 +1031,15 @@ class RestaurantService implements PhotoSource {
     final target = gatewayPhotoTarget(photoRef, cacheId);
     if (target == null) return null;
 
-    // Straight from Storage first: the gateway keeps a held photo at a fixed
-    // path, so for every photo it already has there is nothing to ask it.
-    var download = await _downloadPhoto(
-        ProxyService.storedPhotoUrl(target.placeId, target.slot), priority);
+    // Straight from Storage when the photo is, or may be, held: the gateway
+    // keeps it at a fixed path, so there is nothing to ask it. When the search
+    // already said it is not held, that probe could only answer 400, so go
+    // straight to the gateway.
+    final held = ProxyService.isPhotoHeld(target.placeId, target.slot);
+    var download = held == false
+        ? (bytes: null, missing: true)
+        : await _downloadPhoto(
+            ProxyService.storedPhotoUrl(target.placeId, target.slot), priority);
 
     // Not stored yet (Storage says 400), or stored under another extension:
     // the gateway buys and stores it, and says where. Done without holding a
@@ -1010,6 +1048,7 @@ class RestaurantService implements PhotoSource {
       ApiUsageTracker.instance.incrementPhoto();
       final url = await ProxyService.photoUrl(target.placeId, target.slot);
       if (url == null) return null;
+      ProxyService.notePhotoHeld(target.placeId, target.slot);
       download = await _downloadPhoto(Uri.parse(url), priority);
     }
 
