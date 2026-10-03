@@ -140,7 +140,31 @@ class ProxyService {
     return response['place'] as Map<String, dynamic>?;
   }
 
+  /// Where the gateway keeps photo [slot] of [placeId] once it holds it.
+  ///
+  /// The path is fixed by the gateway (`photos/<placeId>/<slot>.jpg`), so a
+  /// photo already stored — nearly all of them, after the first person to see
+  /// a place — can be fetched straight from Storage's CDN without first asking
+  /// the gateway for its URL. That ask cost 0.8 s even when the gateway already
+  /// had the photo, in series before every download. Storage answers 400 for a
+  /// photo not stored yet (or stored as the rare PNG); [photoUrl] covers both.
+  static Uri storedPhotoUrl(String placeId, int slot) =>
+      Uri.parse(Config.placesGatewayUrl).replace(
+        pathSegments: [
+          'storage',
+          'v1',
+          'object',
+          'public',
+          'photos',
+          placeId,
+          '$slot.jpg',
+        ],
+      );
+
   /// The permanent public URL of photo [slot] of [placeId], or null.
+  ///
+  /// Asks the gateway, which buys and stores the photo if it has not yet. Try
+  /// [storedPhotoUrl] first; this is the fallback.
   ///
   /// A slot is the photo's index in that place's `photos` array — Google's
   /// photo resource names are minted fresh on every response, so they cannot

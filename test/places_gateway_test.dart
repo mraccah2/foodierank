@@ -36,6 +36,19 @@ void main() {
     });
   });
 
+  group('storedPhotoUrl', () {
+    test('is the gateway\'s fixed Storage path, on the gateway\'s host', () {
+      final url = ProxyService.storedPhotoUrl('ChIJs0_cUCw1GQ0RKWxVUZplTmQ', 2);
+      expect(url.toString(),
+          'https://cndaivlyzonqndnvzilr.supabase.co/storage/v1/object/public/photos/ChIJs0_cUCw1GQ0RKWxVUZplTmQ/2.jpg');
+    });
+
+    test('keeps a place id\'s URL-safe characters intact', () {
+      final url = ProxyService.storedPhotoUrl('ChIJ-a_b', 0);
+      expect(url.path, '/storage/v1/object/public/photos/ChIJ-a_b/0.jpg');
+    });
+  });
+
   group('placeLocalTime', () {
     // 2026-10-02 is a Friday.
     final nowUtc = DateTime.utc(2026, 10, 2, 23, 30);
