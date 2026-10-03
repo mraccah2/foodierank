@@ -1153,6 +1153,33 @@ class RestaurantService implements PhotoSource {
     }
   }
 
+  /// How far ahead of the photo on screen a place's later photos are loaded.
+  ///
+  /// Those photos are rarely stored by the gateway yet — viewers only ever
+  /// reached slot 0 — so each one is a gateway buy (~1.5 s) and then a
+  /// download (~1 s). Started on the swipe that shows it, that wait is
+  /// on screen every time. Started ahead, it has happened by the time the
+  /// photo is reached.
+  ///
+  /// One on opening a card, since most people never swipe; five once they do,
+  /// since someone browsing photos swipes faster than one a second.
+  static const int photosAheadOnOpen = 1;
+  static const int photosAheadWhileBrowsing = 5;
+
+  /// Starts loading the [count] photos of a place after [current], if it has
+  /// them. Nothing waits: [loadPhoto] shares each download with the widget
+  /// that later shows it, and remembers the bytes for when it does.
+  ///
+  /// [placeId] and [photoRefs] are the place's id and refs, and each photo is
+  /// cached as `'<placeId>:<index>'`, the same id the card and the gallery use.
+  void prefetchPhotosAhead(
+      String placeId, List<String> photoRefs, int current, int count) {
+    final end = min(current + 1 + count, photoRefs.length);
+    for (var i = current + 1; i < end; i++) {
+      unawaited(loadPhoto(photoRefs[i], cacheId: '$placeId:$i'));
+    }
+  }
+
   Future<void> prefetchFirstPhotos(
           List<({String ref, String cacheId})> photos) =>
       Future.wait(photos.map(

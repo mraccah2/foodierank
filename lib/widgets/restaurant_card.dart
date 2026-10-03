@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher_string.dart';
 
 import '../models/restaurant.dart';
+import '../services/restaurant_service.dart';
 import '../theme/app_spacing.dart';
 import 'place_photo.dart';
 import 'place_status_icon.dart';
@@ -74,7 +75,12 @@ class _RestaurantCardState extends State<RestaurantCard> {
         RestaurantCard._lastViewedIndices[widget.restaurant.id] ?? 0;
     _photoIndex = ValueNotifier<int>(initial);
     _pageController = PageController(initialPage: initial);
+    _prefetchAhead(initial, RestaurantService.photosAheadOnOpen);
   }
+
+  void _prefetchAhead(int current, int count) =>
+      RestaurantService.instance.prefetchPhotosAhead(widget.restaurant.id,
+          widget.restaurant.photoRefs, current, count);
 
   @override
   void dispose() {
@@ -212,11 +218,14 @@ class _RestaurantCardState extends State<RestaurantCard> {
           child: PageView.builder(
             controller: _pageController,
             itemCount: widget.restaurant.photoRefs.length,
-            // PageView.builder builds the neighbouring page as you swipe, and
-            // PlacePhoto fetches on build, so the next photo is already on its
-            // way. The old explicit prefetch pulled every remaining photo the
-            // moment the card was touched.
-            onPageChanged: (index) => _photoIndex.value = index,
+            // PageView only builds the next page once a drag has begun, so a
+            // photo fetched on build started its 1.5 s+ wait at the swipe that
+            // showed it. The next one is loaded when the card opens, and once
+            // someone is browsing, the next several.
+            onPageChanged: (index) {
+              _photoIndex.value = index;
+              _prefetchAhead(index, RestaurantService.photosAheadWhileBrowsing);
+            },
             itemBuilder: (context, index) {
               return GestureDetector(
                 // A tap opens the gallery; the PageView keeps the horizontal

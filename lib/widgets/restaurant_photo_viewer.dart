@@ -33,12 +33,21 @@ class _RestaurantPhotoViewerState extends State<RestaurantPhotoViewer> {
     super.initState();
     _currentIndex = widget.initialIndex;
     _pageController = PageController(initialPage: _currentIndex);
+    // Opening the gallery is browsing photos.
+    _prefetchAhead(_currentIndex);
     SystemChrome.setPreferredOrientations([
       DeviceOrientation.portraitUp,
       DeviceOrientation.landscapeLeft,
       DeviceOrientation.landscapeRight,
     ]);
   }
+
+  void _prefetchAhead(int current) =>
+      RestaurantService.instance.prefetchPhotosAhead(
+          widget.restaurant.id,
+          widget.restaurant.photoRefs,
+          current,
+          RestaurantService.photosAheadWhileBrowsing);
 
   @override
   void dispose() {
@@ -136,6 +145,7 @@ class _RestaurantPhotoViewerState extends State<RestaurantPhotoViewer> {
                   },
                   onPageChanged: (index) {
                     setState(() => _currentIndex = index);
+                    _prefetchAhead(index);
                   },
                 ),
               ),
