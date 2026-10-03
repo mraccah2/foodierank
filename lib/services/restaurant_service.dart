@@ -1042,14 +1042,21 @@ class RestaurantService implements PhotoSource {
             ProxyService.storedPhotoUrl(target.placeId, target.slot), priority);
 
     // Not stored yet (Storage says 400), or stored under another extension:
-    // the gateway buys and stores it, and says where. Done without holding a
-    // download slot — it is a lookup, and could take seconds on a first buy.
+    // the gateway buys and stores it, and hands back the photo itself — or,
+    // if it turned out to hold it already, says where. Done without holding a
+    // download slot — it could take seconds on a first buy.
     if (download.missing) {
       ApiUsageTracker.instance.incrementPhoto();
-      final url = await ProxyService.photoUrl(target.placeId, target.slot);
-      if (url == null) return null;
+      final got = await ProxyService.photo(target.placeId, target.slot);
+      final url = got.url;
+      if (got.bytes != null) {
+        download = (bytes: got.bytes, missing: false);
+      } else if (url != null) {
+        download = await _downloadPhoto(Uri.parse(url), priority);
+      } else {
+        return null;
+      }
       ProxyService.notePhotoHeld(target.placeId, target.slot);
-      download = await _downloadPhoto(Uri.parse(url), priority);
     }
 
     final bytes = download.bytes;
