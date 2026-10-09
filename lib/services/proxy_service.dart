@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:typed_data';
 
 import '../config.dart';
 import 'app_http.dart';
@@ -86,7 +87,8 @@ class ProxyService {
   /// Public photo URLs by `'<placeId>:<slot>'`. The gateway's URLs are
   /// permanent, so once known one never needs asking for again this session.
   static final Map<String, String> _photoUrlCache = {};
-  static final Map<String, Future<String?>> _photoUrlRequests = {};
+  static final Map<String, Future<({Uint8List? bytes, String? url})>>
+      _photoRequests = {};
 
   /// POSTs `{op, ...body}` to the gateway and returns the decoded envelope.
   static Future<Map<String, dynamic>> gateway(
@@ -119,13 +121,69 @@ class ProxyService {
 
   /// Google's Text Search. [params] is Google's request body; the result has
   /// Google's `places` array.
-  static Future<Map<String, dynamic>> searchText(Map<String, dynamic> params) =>
-      gateway('searchText', params);
+  ///
+  /// [fields] cuts each place down to what the caller reads (`'photos.name'`
+  /// keeps only the name of each photo). A full place is ~30 KB, mostly
+  /// reviews and photo attributions, so an untrimmed sector search is ~650 KB
+  /// — and a screen waits on four of them. The gateway trims the response
+  /// only; its cache key ignores this.
+  ///
+  /// [heldPhotos] asks which photo slots the gateway already stores, which
+  /// [isPhotoHeld] then answers for the photo loader.
+  static Future<Map<String, dynamic>> searchText(Map<String, dynamic> params,
+          {List<String>? fields, bool heldPhotos = false}) =>
+      _search('searchText', params, fields, heldPhotos);
 
   /// Google's Nearby Search, same contract as [searchText].
-  static Future<Map<String, dynamic>> searchNearby(
-          Map<String, dynamic> params) =>
-      gateway('searchNearby', params);
+  static Future<Map<String, dynamic>> searchNearby(Map<String, dynamic> params,
+          {List<String>? fields, bool heldPhotos = false}) =>
+      _search('searchNearby', params, fields, heldPhotos);
+
+  static Future<Map<String, dynamic>> _search(
+      String op,
+      Map<String, dynamic> params,
+      List<String>? fields,
+      bool heldPhotos) async {
+    final response = await gateway(op, {
+      ...params,
+      if (fields != null) 'fields': fields,
+      if (heldPhotos) 'heldPhotos': true,
+    });
+    recordHeldPhotos(response['heldPhotos']);
+    return response;
+  }
+
+  /// Takes in a search's `heldPhotos` map (`{placeId: [slots]}`). Anything
+  /// else — an older gateway that did not send one — is ignored, which leaves
+  /// those places "unknown" and the loader probing Storage as before.
+  static void recordHeldPhotos(Object? held) {
+    if (held is! Map) return;
+    held.forEach((placeId, slots) {
+      if (placeId is! String || slots is! List) return;
+      _heldPhotoSlots[placeId] = {
+        for (final s in slots)
+          if (s is num) s.toInt(),
+      };
+    });
+  }
+
+  /// Photo slots the gateway said it stores, by place id, from the searches
+  /// that asked. A place absent here has simply not been asked about.
+  static final Map<String, Set<int>> _heldPhotoSlots = {};
+
+  /// Whether the gateway already stores photo [slot] of [placeId]: true, false,
+  /// or null when no search this session has said.
+  ///
+  /// A cold photo used to cost three requests in series — a Storage probe that
+  /// answered 400 (~0.75 s), the `photo` op that stored it (~1.5 s), then the
+  /// download. Knowing up front skips the probe for those, and still lets a
+  /// held photo go straight to Storage without asking the gateway anything.
+  static bool? isPhotoHeld(String placeId, int slot) =>
+      _heldPhotoSlots[placeId]?.contains(slot);
+
+  /// Records that the gateway has just stored photo [slot] of [placeId].
+  static void notePhotoHeld(String placeId, int slot) =>
+      (_heldPhotoSlots[placeId] ??= {}).add(slot);
 
   /// Google's Autocomplete; the result has Google's `suggestions` array.
   static Future<Map<String, dynamic>> autocomplete(
@@ -147,7 +205,7 @@ class ProxyService {
   /// a place — can be fetched straight from Storage's CDN without first asking
   /// the gateway for its URL. That ask cost 0.8 s even when the gateway already
   /// had the photo, in series before every download. Storage answers 400 for a
-  /// photo not stored yet (or stored as the rare PNG); [photoUrl] covers both.
+  /// photo not stored yet (or stored as the rare PNG); [photo] covers both.
   static Uri storedPhotoUrl(String placeId, int slot) =>
       Uri.parse(Config.placesGatewayUrl).replace(
         pathSegments: [
@@ -161,42 +219,78 @@ class ProxyService {
         ],
       );
 
-  /// The permanent public URL of photo [slot] of [placeId], or null.
+  /// Photo [slot] of [placeId]: the image itself when the gateway has just
+  /// bought it, its permanent public URL when the gateway already held it, or
+  /// neither when it cannot be had.
   ///
   /// Asks the gateway, which buys and stores the photo if it has not yet. Try
   /// [storedPhotoUrl] first; this is the fallback.
+  ///
+  /// It asks with `bytes: true`. Without it, a photo the gateway had to buy
+  /// came back as a URL and the app then downloaded, from a CDN that had not
+  /// seen the file yet, the bytes the gateway had just held in memory: a
+  /// second round trip, ~1 s, on every photo nobody had looked at before.
   ///
   /// A slot is the photo's index in that place's `photos` array — Google's
   /// photo resource names are minted fresh on every response, so they cannot
   /// identify a picture; the place id and index can.
   ///
   /// Never throws: a photo that cannot be had is a placeholder, not an error.
-  static Future<String?> photoUrl(String placeId, int slot) {
+  static Future<({Uint8List? bytes, String? url})> photo(
+      String placeId, int slot) {
     final key = '$placeId:$slot';
     final cached = _photoUrlCache[key];
-    if (cached != null) return Future.value(cached);
-    final pending = _photoUrlRequests[key];
+    if (cached != null) return Future.value((bytes: null, url: cached));
+    final pending = _photoRequests[key];
     if (pending != null) return pending;
 
     final request = () async {
       try {
-        final response =
-            await gateway('photo', {'placeId': placeId, 'slot': slot});
-        final url = (response['photo'] as Map<String, dynamic>?)?['public_url']
-            as String?;
+        final result = await _withRetries(() async {
+          final response = await appHttpClient
+              .post(
+                Uri.parse(Config.placesGatewayUrl),
+                headers: {
+                  'Content-Type': 'application/json',
+                  'x-app-key': Config.placesGatewayKey,
+                },
+                body: jsonEncode({
+                  'op': 'photo',
+                  'placeId': placeId,
+                  'slot': slot,
+                  'bytes': true
+                }),
+              )
+              .timeout(kPhotoTimeout);
+          if (response.statusCode != 200) {
+            throw PlacesApiException('photo', response.statusCode);
+          }
+          final type = response.headers['content-type'] ?? '';
+          if (type.startsWith('image/')) {
+            return (
+              bytes: response.bodyBytes,
+              url: response.headers['x-photo-url'],
+            );
+          }
+          final json = jsonDecode(response.body) as Map<String, dynamic>;
+          final url = (json['photo'] as Map<String, dynamic>?)?['public_url']
+              as String?;
+          return (bytes: null, url: url);
+        });
         // Only a real URL is worth remembering; caching a miss would make a
         // single transient failure permanent for the life of the process.
+        final url = result.url;
         if (url != null && url.isNotEmpty) _photoUrlCache[key] = url;
-        return url;
+        return result;
       } catch (_) {
-        return null;
+        return (bytes: null, url: null);
       }
     }();
-    _photoUrlRequests[key] = request;
+    _photoRequests[key] = request;
     // A block body: `=> remove(key)` would hand the removed future — this very
     // request — back to whenComplete, which would then wait on itself.
     request.whenComplete(() {
-      _photoUrlRequests.remove(key);
+      _photoRequests.remove(key);
     });
     return request;
   }

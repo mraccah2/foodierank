@@ -3,9 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../services/bootstrap.dart';
-import '../services/location_service.dart';
-import '../services/restaurant_disk_cache.dart';
-import '../services/restaurant_service.dart';
+import '../services/startup.dart';
 import '../theme/app_motion.dart';
 import '../theme/app_spacing.dart';
 import '../theme/app_typography.dart';
@@ -13,11 +11,14 @@ import 'restaurant_list_screen.dart';
 
 /// The first screen: a brief, bounded warm-up before the list takes over.
 ///
-/// It restores the last session's results, starts the saved-places feature and
-/// resolves a position — none of which the list screen strictly needs, because
-/// it resolves whatever is missing itself and has its own error and retry. So
-/// this screen never blocks on any of it: whatever has not finished by
-/// [_deadline] simply happens later.
+/// It starts the saved-places feature and holds until `Startup` — begun in
+/// `main`, before this screen existed — has content for the list: the last
+/// session's results, or the launch search's first places and their photos.
+/// Opening the list any earlier only swapped one waiting screen for another, a
+/// skeleton. None of it is strictly needed by the list screen, which resolves
+/// whatever is missing itself and has its own error and retry, so this screen
+/// still never blocks past [_deadline]: on a slow network the list's own
+/// progress is the better thing to be looking at.
 ///
 /// It used to await a full Places search here — and before that, `main` awaited
 /// one too — with no ceiling on either, which is how a slow network turned into
@@ -45,15 +46,10 @@ class _SplashScreenState extends State<SplashScreen> {
     // alongside rather than in front of it.
     unawaited(Bootstrap.start());
 
-    // Whatever the last session left behind, so the list has something to draw
-    // before the network answers. The list screen decides whether it is still
-    // current (see RestaurantService.shouldRefreshData) and refreshes quietly
-    // underneath if not.
-    final cached = await RestaurantDiskCache.load();
-    if (cached != null) RestaurantService.instance.hydrate(cached);
-
-    // Warm the position so the list does not open on a GPS wait.
-    await LocationService.instance.current();
+    // Content for the list — restored results, or the launch search's first
+    // places with their photos — all begun in `main`, so this only waits on
+    // what is still outstanding.
+    await Startup.ready;
   }
 
   Future<void> _start() async {

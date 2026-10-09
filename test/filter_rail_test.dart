@@ -16,12 +16,26 @@ import 'package:foodierank/widgets/filter_rail.dart';
 void main() {
   late ColorScheme scheme;
 
+  // Wide enough that every chip is laid out at once; the chips scroll between
+  // the pinned controls, so on a narrow surface the later ones are not built.
+  setUp(() {
+    final view =
+        TestWidgetsFlutterBinding.instance.platformDispatcher.views.first;
+    view.physicalSize = const Size(1600, 600);
+    view.devicePixelRatio = 1;
+  });
+  tearDown(() => TestWidgetsFlutterBinding
+      .instance.platformDispatcher.views.first
+      .reset());
+
   Widget wrap({
     String typeLabel = 'All types',
     bool typeIsCustom = false,
     String priceLabel = r'$-$$$$',
     bool priceIsCustom = false,
     bool sortByRank = true,
+    ViewMode view = ViewMode.list,
+    ValueChanged<ViewMode>? onSelectView,
   }) {
     final theme = AppTheme.light();
     scheme = theme.colorScheme;
@@ -49,10 +63,8 @@ void main() {
           onToggleSearch: () {},
           taggedOnly: false,
           onToggleTagged: () {},
-          mapActive: false,
-          onToggleMap: () {},
-          cardView: false,
-          onToggleView: () {},
+          view: view,
+          onSelectView: onSelectView ?? (_) {},
         ),
       ),
     );
@@ -97,5 +109,40 @@ void main() {
 
     await tester.pumpWidget(wrap(sortByRank: false));
     expect(labelColour(tester, 'Distance'), scheme.onPrimary);
+  });
+
+  testWidgets('search and the view switcher stay put while the chips scroll',
+      (tester) async {
+    tester.view.physicalSize = const Size(375, 800);
+    await tester.pumpWidget(wrap());
+
+    final search = tester.getTopLeft(find.byIcon(Icons.search_rounded));
+    final cards = tester.getTopLeft(find.byTooltip('Cards view'));
+
+    await tester.drag(find.text('Near me'), const Offset(-120, 0));
+    await tester.pumpAndSettle();
+
+    expect(tester.getTopLeft(find.byIcon(Icons.search_rounded)), search);
+    expect(tester.getTopLeft(find.byTooltip('Cards view')), cards);
+    final chips = tester.state<ScrollableState>(find.byType(Scrollable).first);
+    expect(chips.position.pixels, greaterThan(0));
+
+    // Both pinned controls sit together at the leading edge, before the chips.
+    expect(cards.dx, lessThan(tester.getTopLeft(find.text('Open now')).dx));
+  });
+
+  testWidgets('the view switcher fills the current view and selects others',
+      (tester) async {
+    ViewMode? picked;
+    await tester
+        .pumpWidget(wrap(view: ViewMode.card, onSelectView: (v) => picked = v));
+
+    Color? iconColour(IconData icon) =>
+        tester.widget<Icon>(find.byIcon(icon)).color;
+    expect(iconColour(Icons.crop_portrait_rounded), scheme.onPrimary);
+    expect(iconColour(Icons.view_list_rounded), scheme.onSurfaceVariant);
+
+    await tester.tap(find.byTooltip('Map view'));
+    expect(picked, ViewMode.map);
   });
 }

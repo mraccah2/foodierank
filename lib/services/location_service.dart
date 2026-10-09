@@ -21,6 +21,18 @@ class LocationService {
   /// waiting on a cold GPS lock.
   static const Duration _fixTimeout = Duration(seconds: 8);
 
+  /// A fix this recent is the answer, rather than a reason to ask again.
+  ///
+  /// The splash resolved a position and the list screen then asked for a fresh
+  /// one before it could search — a second GPS wait, back to back with the
+  /// first, between launch and anything on screen.
+  static const Duration _reuseFor = Duration(minutes: 2);
+
+  /// The fix being resolved right now, shared by everyone who asks meanwhile:
+  /// the splash gives up on its fix at its deadline, and the list screen used
+  /// to start another one beside it.
+  Future<Position?>? _inFlight;
+
   /// A position for the user, or null when there is none to be had.
   ///
   /// Never throws. Every caller treats "no location" as a state to handle
@@ -34,7 +46,17 @@ class LocationService {
   Future<Position?> current({
     LocationAccuracy accuracy = LocationAccuracy.medium,
     Duration? timeout,
-  }) async {
+  }) {
+    final last = _last;
+    if (last != null && DateTime.now().difference(last.timestamp) < _reuseFor) {
+      return Future.value(last);
+    }
+    return _inFlight ??= _resolve(accuracy, timeout).whenComplete(() {
+      _inFlight = null;
+    });
+  }
+
+  Future<Position?> _resolve(LocationAccuracy accuracy, Duration? timeout) async {
     try {
       var permission = await Geolocator.checkPermission();
       if (permission == LocationPermission.denied) {

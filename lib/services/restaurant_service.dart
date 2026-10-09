@@ -68,6 +68,29 @@ class _MemoisedSearch {
   });
 }
 
+/// A search under way, which a second caller asking the same question from
+/// about the same place joins instead of starting its own.
+class _SharedSearch {
+  final String key;
+  final double latitude;
+  final double longitude;
+  late final Future<List<Map<String, dynamic>>> result;
+
+  /// The most recent partial result set, handed straight to a late joiner so
+  /// it can draw what the search has found so far.
+  List<Map<String, dynamic>>? latest;
+  final List<void Function(List<Map<String, dynamic>>)> onPartial = [];
+  final List<void Function(int, String, double)> onUpdate = [];
+
+  _SharedSearch(this.key, this.latitude, this.longitude);
+}
+
+/// Tourist attractions and hotels around a search, for the locality scores.
+typedef _Pois = ({
+  List<({double lat, double lng})> attractions,
+  List<({double lat, double lng})> hotels,
+});
+
 class RestaurantService implements PhotoSource {
   static final RestaurantService instance = RestaurantService._internal();
   List<Map<String, dynamic>>? _cachedRestaurants;
@@ -82,7 +105,12 @@ class RestaurantService implements PhotoSource {
   /// photo ever fetched for the life of the process, so a few changes of
   /// cuisine or city accumulated tens of megabytes nothing would look at again.
   final LinkedHashMap<String, Uint8List> _photoCache = LinkedHashMap();
-  static const int _photoCacheLimit = 60;
+
+  /// Room for a full result set's list photos (~25) plus several cards' worth
+  /// of browsing (ten each) — at sixty, opening three cards pushed the list's
+  /// own thumbnails out, and scrolling back re-read them from disk behind a
+  /// shimmer. Photos average ~150 KB, so this is ~15 MB.
+  static const int _photoCacheLimit = 100;
 
   /// In-flight photo requests, so a list row, its card and any prefetch share
   /// one download of the same photo rather than racing three.
@@ -115,6 +143,11 @@ class RestaurantService implements PhotoSource {
   Future<Uint8List?> Function(String key)? photoCacheRead;
   Future<void> Function(String key, Uint8List bytes)? photoCacheWrite;
 
+  /// Whether a search starts loading its places' stored photos round by round,
+  /// rather than leaving them all until the list is ready to draw. The app
+  /// turns this on; `bin/foodierank.dart` prints no pictures and leaves it off.
+  bool warmPhotosDuringSearch = false;
+
   /// Recent result sets, keyed by query and rounded location.
   ///
   /// Only ONE result set used to be remembered, in [_lastQueryKey]. Every
@@ -129,7 +162,24 @@ class RestaurantService implements PhotoSource {
   /// last few minutes", which is a different question with a much shorter
   /// useful life.
   final LinkedHashMap<String, _MemoisedSearch> _resultMemo = LinkedHashMap();
+
+  /// Searches running right now. The app starts its default search before the
+  /// first frame (see `Startup`); the list screen, mounting a second or two
+  /// later, asks the same question and joins it rather than paying for and
+  /// waiting on a second run from the start.
+  final List<_SharedSearch> _searchesInFlight = [];
   static const int _resultMemoLimit = 12;
+
+  /// Every price level, which is what an unfiltered search asks for — the list
+  /// screen's default and the search `Startup` begins before it exists. They
+  /// must agree exactly, or the two are different questions and share nothing.
+  static const List<String> allPriceLevels = [
+    'PRICE_LEVEL_UNSPECIFIED',
+    'PRICE_LEVEL_INEXPENSIVE',
+    'PRICE_LEVEL_MODERATE',
+    'PRICE_LEVEL_EXPENSIVE',
+    'PRICE_LEVEL_VERY_EXPENSIVE',
+  ];
 
   /// Short enough that "open now" cannot drift far, long enough to cover a
   /// session of trying filters against one place on the map.
@@ -239,8 +289,9 @@ class RestaurantService implements PhotoSource {
       int? targetDay,
       int? targetMinutes,
       String? contextKey,
-      void Function(int count, String type, double radius)?
-          onSearchUpdate}) async {
+      void Function(int count, String type, double radius)? onSearchUpdate,
+      void Function(List<Map<String, dynamic>> places)?
+          onPartialResults}) async {
     final key = queryKey(
       priceLevels: priceLevels,
       cuisineType: cuisineType,
@@ -266,6 +317,71 @@ class RestaurantService implements PhotoSource {
       return memo.places;
     }
 
+    for (final running in _searchesInFlight) {
+      if (running.key != key ||
+          _calculateDistance(running.latitude, running.longitude, latitude,
+                  longitude) >
+              _resultMemoMaxDriftM) {
+        continue;
+      }
+      if (onSearchUpdate != null) running.onUpdate.add(onSearchUpdate);
+      if (onPartialResults != null) {
+        running.onPartial.add(onPartialResults);
+        final latest = running.latest;
+        if (latest != null) onPartialResults(latest);
+      }
+      return running.result;
+    }
+
+    final shared = _SharedSearch(key, latitude, longitude);
+    if (onSearchUpdate != null) shared.onUpdate.add(onSearchUpdate);
+    if (onPartialResults != null) shared.onPartial.add(onPartialResults);
+    shared.result = _searchAndRemember(
+      key,
+      latitude,
+      longitude,
+      priceLevels: priceLevels,
+      cuisineType: cuisineType,
+      openNow: openNow,
+      searchQuery: searchQuery,
+      targetDay: targetDay,
+      targetMinutes: targetMinutes,
+      onSearchUpdate: (count, type, radius) {
+        for (final listener in List.of(shared.onUpdate)) {
+          listener(count, type, radius);
+        }
+      },
+      onPartialResults: (places) {
+        shared.latest = places;
+        for (final listener in List.of(shared.onPartial)) {
+          listener(places);
+        }
+      },
+    );
+    _searchesInFlight.add(shared);
+    // A block body: see loadPhoto for what `=> remove(...)` would do here.
+    // catchError first, so a failed search is reported to its callers alone
+    // and not again, unhandled, through this bookkeeping.
+    unawaited(shared.result
+        .catchError((Object _) => const <Map<String, dynamic>>[])
+        .whenComplete(() {
+      _searchesInFlight.remove(shared);
+    }));
+    return shared.result;
+  }
+
+  Future<List<Map<String, dynamic>>> _searchAndRemember(
+      String key, double latitude, double longitude,
+      {List<String>? priceLevels,
+      String? cuisineType,
+      required bool openNow,
+      String? searchQuery,
+      int? targetDay,
+      int? targetMinutes,
+      required void Function(int count, String type, double radius)
+          onSearchUpdate,
+      required void Function(List<Map<String, dynamic>> places)
+          onPartialResults}) async {
     final places = await getNearbyRestaurants(
       latitude,
       longitude,
@@ -276,6 +392,7 @@ class RestaurantService implements PhotoSource {
       targetDay: targetDay,
       targetMinutes: targetMinutes,
       onSearchUpdate: onSearchUpdate,
+      onPartialResults: onPartialResults,
     );
 
     // Only stamp the cache once the search has actually succeeded — recording
@@ -479,8 +596,9 @@ class RestaurantService implements PhotoSource {
       String? searchQuery,
       int? targetDay,
       int? targetMinutes,
-      void Function(int count, String type, double radius)?
-          onSearchUpdate}) async {
+      void Function(int count, String type, double radius)? onSearchUpdate,
+      void Function(List<Map<String, dynamic>> places)?
+          onPartialResults}) async {
     if (latitude.isNaN || longitude.isNaN) {
       throw ArgumentError('Invalid coordinates provided');
     }
@@ -505,6 +623,17 @@ class RestaurantService implements PhotoSource {
     double radius = _initialRadius;
     final Set<String> foundIds = {};
     final List<Map<String, dynamic>> allRestaurants = [];
+
+    // The locality lookups only need a centre and a radius, and in a dense area
+    // the first round's radius is the final one. Started here, they run
+    // alongside the first round instead of after the last — they used to add
+    // 1-2 s, in series, before the list or any photo could appear.
+    var pois = _fetchPois(latitude, longitude, radius);
+    final poisRadius = radius;
+    // The first ring's POIs once they land, for ranking a partial result set
+    // without waiting on them.
+    _Pois? firstPois;
+    unawaited(pois.then((p) => firstPois = p));
 
     // Keep widening the search until we have enough places or we hit the
     // safety cap. Dense areas are satisfied on the first (smallest) round;
@@ -534,6 +663,8 @@ class RestaurantService implements PhotoSource {
               priceLevels: priceLevels,
               searchQuery: searchQuery,
             ),
+            fields: _searchFields,
+            heldPhotos: true,
           ).catchError((Object e) {
             // Was `(_) => {}`, which flattened every failure into "no places
             // found" — so an API that had been switched off read as an empty
@@ -574,6 +705,16 @@ class RestaurantService implements PhotoSource {
         }
       }
 
+      // Every place a round keeps is in the final list, and the gateway has
+      // just said which of their photos it already stores. Those cost no
+      // Google purchase, so they start now: in a search that widens, the list
+      // used to wait seconds more for later rounds and the locality lookups,
+      // and only then begin downloading the photos it opened on.
+      if (warmPhotosDuringSearch) {
+        unawaited(_warmFree(
+            _firstPhotoRefs(allRestaurants.sublist(countBefore))));
+      }
+
       onSearchUpdate?.call(
           allRestaurants.length, cuisineType ?? 'restaurant', radius);
 
@@ -585,13 +726,31 @@ class RestaurantService implements PhotoSource {
       // requests over more of the same. Widening harder gets to the nearest
       // populated area in fewer sequential round trips, which is what the user
       // is actually waiting on.
+      // Another round is coming, and it is another full gateway round trip.
+      // What this one found is enough to draw: ranked on what is known so far
+      // (with the first ring's POIs if they have landed), then re-ranked when
+      // the search completes. In a city before the dinner rush, 500 m of
+      // open restaurants is rarely twenty, so this list used to wait on three
+      // rounds in series — about four seconds even with every answer cached.
+      if (onPartialResults != null && allRestaurants.isNotEmpty) {
+        final partial = [
+          for (final r in allRestaurants) Map<String, dynamic>.of(r)
+        ];
+        _applyLocalityScores(partial,
+            firstPois ?? (attractions: const [], hotels: const []));
+        onPartialResults(partial);
+      }
+
       final growth = allRestaurants.length == countBefore
           ? _emptyRoundGrowth
           : _radiusGrowth;
       radius = (radius * growth).clamp(_initialRadius, maxRadius);
     }
 
-    await _applyLocalityScores(allRestaurants, latitude, longitude, radius);
+    // The search had to widen, so the POIs fetched for the first ring cover
+    // too little of it.
+    if (radius != poisRadius) pois = _fetchPois(latitude, longitude, radius);
+    _applyLocalityScores(allRestaurants, await pois);
 
     return allRestaurants;
   }
@@ -626,17 +785,12 @@ class RestaurantService implements PhotoSource {
   ///    traffic of an already-busy strip.
   ///  * `frTouristPenalty` — 0..1 saturation of tourist attractions and
   ///    hotels within ~250m, i.e. how captive the audience is.
-  Future<void> _applyLocalityScores(List<Map<String, dynamic>> restaurants,
-      double latitude, double longitude, double searchRadius) async {
+  void _applyLocalityScores(
+      List<Map<String, dynamic>> restaurants, _Pois pois) {
     if (restaurants.isEmpty) return;
 
-    final pois = await Future.wait([
-      _fetchPoiLocations(latitude, longitude, searchRadius,
-          type: 'tourist_attraction'),
-      _fetchPoiLocations(latitude, longitude, searchRadius, type: 'lodging'),
-    ]);
-    final attractions = pois[0];
-    final hotels = pois[1];
+    final attractions = pois.attractions;
+    final hotels = pois.hotels;
 
     final positions = [
       for (final r in restaurants)
@@ -687,6 +841,18 @@ class RestaurantService implements PhotoSource {
     }
   }
 
+  /// Tourist attractions and hotels within [searchRadius], for
+  /// [_applyLocalityScores]. Never throws: each half degrades to empty.
+  Future<_Pois> _fetchPois(
+      double latitude, double longitude, double searchRadius) async {
+    final pois = await Future.wait([
+      _fetchPoiLocations(latitude, longitude, searchRadius,
+          type: 'tourist_attraction'),
+      _fetchPoiLocations(latitude, longitude, searchRadius, type: 'lodging'),
+    ]);
+    return (attractions: pois[0], hotels: pois[1]);
+  }
+
   /// Best-effort fetch of nearby POI coordinates of [type] via Nearby Search.
   /// Returns an empty list on any failure so ranking degrades to "no penalty"
   /// instead of failing the whole restaurant search.
@@ -707,6 +873,8 @@ class RestaurantService implements PhotoSource {
             },
           },
         },
+        // Only the coordinates are read; a full hotel is ~30 KB.
+        fields: const ['location'],
       );
 
       final places = (response['places'] as List<dynamic>?) ?? const [];
@@ -812,6 +980,20 @@ class RestaurantService implements PhotoSource {
     'utcOffsetMinutes',
   };
 
+  /// What a search asks the gateway for: [_keptPlaceFields], with each photo
+  /// cut to its width — a placeholder, since all that is needed is how many
+  /// there are.
+  ///
+  /// It was each photo's `name`: ten ~480-character random strings per place,
+  /// 80% of every search response, and incompressible — 92 KB gzipped per
+  /// sector call against 6 KB without them, twelve calls to a search. Nothing
+  /// loads a photo by its name any more: the gateway knows a photo by place id
+  /// and slot (see [gatewayPhotoTarget]), and Google rotates names per response
+  /// anyway.
+  static final List<String> _searchFields = [
+    for (final f in _keptPlaceFields) f == 'photos' ? 'photos.widthPx' : f,
+  ];
+
   Map<String, dynamic> _buildSearchParams(
       ({double lowLat, double lowLng, double highLat, double highLng}) rect,
       {String? cuisineType,
@@ -852,8 +1034,29 @@ class RestaurantService implements PhotoSource {
 
   Map<String, dynamic>? _mapPlace(
       Map<String, dynamic> place, List<String>? targetPriceLevels) {
+    // Google's `priceLevels` filter is loose: a $–$$ search in Jaffa still
+    // returns Beit Kandinof, which it tags PRICE_LEVEL_EXPENSIVE. So the
+    // filter is enforced here too. A place with no price level passes only
+    // when the search asked for UNSPECIFIED. An unfiltered search (every
+    // level) keeps everything, PRICE_LEVEL_FREE included.
+    if (targetPriceLevels != null &&
+        targetPriceLevels.isNotEmpty &&
+        !allPriceLevels.every(targetPriceLevels.contains)) {
+      final level = place['priceLevel'] as String? ?? 'PRICE_LEVEL_UNSPECIFIED';
+      if (!targetPriceLevels.contains(level)) return null;
+    }
+
+    // A stand-in name per slot, in Google's shape, so [Restaurant.fromJson]
+    // and stored snapshots read them as before. Every loader goes by the
+    // `'<placeId>:<slot>'` cache id and never by this name; a search no longer
+    // fetches Google's (see [_searchFields]).
+    final id = place['id'] as String?;
     final photos = (place['photos'] as List<dynamic>?)
-        ?.map((photo) => {'name': photo['name'] as String})
+        ?.indexed
+        .map((e) => {
+              'name': (e.$2 as Map?)?['name'] as String? ??
+                  'places/$id/photos/${e.$1}'
+            })
         .toList();
     final photoRefs = photos?.map((photo) => photo['name']!).toList() ?? [];
 
@@ -864,8 +1067,8 @@ class RestaurantService implements PhotoSource {
     return {
       for (final entry in place.entries)
         if (_keptPlaceFields.contains(entry.key)) entry.key: entry.value,
-      // Only the resource name: a slot is the photo's index, and nothing
-      // reads the attributions or dimensions Google sends alongside.
+      // Only a name per slot: a slot is the photo's index, and nothing reads
+      // the attributions or dimensions Google sends alongside.
       if (photos != null) 'photos': photos,
       'photoRefs': photoRefs,
       'location': {
@@ -998,19 +1201,32 @@ class RestaurantService implements PhotoSource {
     final target = gatewayPhotoTarget(photoRef, cacheId);
     if (target == null) return null;
 
-    // Straight from Storage first: the gateway keeps a held photo at a fixed
-    // path, so for every photo it already has there is nothing to ask it.
-    var download = await _downloadPhoto(
-        ProxyService.storedPhotoUrl(target.placeId, target.slot), priority);
+    // Straight from Storage when the photo is, or may be, held: the gateway
+    // keeps it at a fixed path, so there is nothing to ask it. When the search
+    // already said it is not held, that probe could only answer 400, so go
+    // straight to the gateway.
+    final held = ProxyService.isPhotoHeld(target.placeId, target.slot);
+    var download = held == false
+        ? (bytes: null, missing: true)
+        : await _downloadPhoto(
+            ProxyService.storedPhotoUrl(target.placeId, target.slot), priority);
 
     // Not stored yet (Storage says 400), or stored under another extension:
-    // the gateway buys and stores it, and says where. Done without holding a
-    // download slot — it is a lookup, and could take seconds on a first buy.
+    // the gateway buys and stores it, and hands back the photo itself — or,
+    // if it turned out to hold it already, says where. Done without holding a
+    // download slot — it could take seconds on a first buy.
     if (download.missing) {
       ApiUsageTracker.instance.incrementPhoto();
-      final url = await ProxyService.photoUrl(target.placeId, target.slot);
-      if (url == null) return null;
-      download = await _downloadPhoto(Uri.parse(url), priority);
+      final got = await ProxyService.photo(target.placeId, target.slot);
+      final url = got.url;
+      if (got.bytes != null) {
+        download = (bytes: got.bytes, missing: false);
+      } else if (url != null) {
+        download = await _downloadPhoto(Uri.parse(url), priority);
+      } else {
+        return null;
+      }
+      ProxyService.notePhotoHeld(target.placeId, target.slot);
     }
 
     final bytes = download.bytes;
@@ -1079,7 +1295,10 @@ class RestaurantService implements PhotoSource {
     _photosInFlight--;
   }
 
-  /// How many photos are pulled before anyone has scrolled.
+  /// How many photos are pulled before anyone has scrolled, whatever they
+  /// cost. Photos the gateway already stores are pulled for every place on top
+  /// of these (see [warmFirstPhotos]): those are a CDN download, not a Google
+  /// purchase, and the billing argument below does not apply to them.
   ///
   /// This used to be every place in the result set, on the reasoning that
   /// arriving at a column of empty placeholders looks broken. The billing
@@ -1104,13 +1323,83 @@ class RestaurantService implements PhotoSource {
   /// fetches the rest on demand. It exists so the list does not open on a
   /// column of empty placeholders, and so a photo already on disk is in memory
   /// before its row is ever built.
+  ///
+  /// Past the first [_eagerPhotoCount], only photos that cost nothing are
+  /// warmed — already on disk, or known to be stored by the gateway. A screen
+  /// shows about eight rows, so rows six to eight used to open as shimmer and
+  /// start their download only once drawn, and every row further down did the
+  /// same as it scrolled in.
   Future<void> warmFirstPhotos() async {
     try {
       final refs = _firstPhotoRefs(_cachedRestaurants ?? const []);
-      await prefetchFirstPhotos(refs.take(_eagerPhotoCount).toList());
+      await Future.wait([
+        prefetchFirstPhotos(refs.take(_eagerPhotoCount).toList()),
+        _warmFree(refs.skip(_eagerPhotoCount)),
+      ]);
     } catch (_) {
       // Warming is best effort, and both callers leave it unawaited — an
       // failure here must not surface as an unhandled async error.
+    }
+  }
+
+  /// Loads each of [photos] only where that buys nothing from Google: from
+  /// Storage when the gateway is known to hold it, else from disk if it is
+  /// there. Anything else is left for [PlacePhoto] to fetch when it is drawn.
+  ///
+  /// The disk-only path deliberately does not go through [loadPhoto]: that
+  /// would register a shared request, and a widget joining it would be handed
+  /// "no photo" for a picture that was merely not on disk yet.
+  Future<void> _warmFree(Iterable<({String ref, String cacheId})> photos) async {
+    try {
+      await Future.wait(photos.map((p) async {
+        final target = gatewayPhotoTarget(p.ref, p.cacheId);
+        if (target != null &&
+            ProxyService.isPhotoHeld(target.placeId, target.slot) == true) {
+          await loadPhoto(p.ref, cacheId: p.cacheId, priority: true);
+          return;
+        }
+        final key = photoCacheKey(p.ref, p.cacheId, 800, 450);
+        if (_photoCache.containsKey(key) || _photoRequests.containsKey(key)) {
+          return;
+        }
+        final fromDisk = await photoCacheRead?.call(key);
+        if (fromDisk != null && !_photoCache.containsKey(key)) {
+          _cachePhoto(key, fromDisk);
+        }
+      }));
+    } catch (_) {
+      // Best effort, and always left unawaited.
+    }
+  }
+
+  /// How far ahead of the photo on screen a place's later photos are loaded.
+  ///
+  /// Those photos are rarely stored by the gateway yet — viewers only ever
+  /// reached slot 0 — so each one is a gateway buy (~1.5 s) and then a
+  /// download (~1 s). Started on the swipe that shows it, that wait is
+  /// on screen every time. Started ahead, it has happened by the time the
+  /// photo is reached.
+  ///
+  /// Two on opening a card: a buy takes ~2 s, longer than anyone looks at the
+  /// first photo, so with only one ahead the first swipe still waited ~1.4 s
+  /// and the second waited on a buy that started at the first. A card is also
+  /// opened ahead of being seen now (the card pager builds its neighbour), so
+  /// these have usually landed before the card is even on screen. Five once
+  /// someone is browsing, since they swipe faster than one a second.
+  static const int photosAheadOnOpen = 2;
+  static const int photosAheadWhileBrowsing = 5;
+
+  /// Starts loading the [count] photos of a place after [current], if it has
+  /// them. Nothing waits: [loadPhoto] shares each download with the widget
+  /// that later shows it, and remembers the bytes for when it does.
+  ///
+  /// [placeId] and [photoRefs] are the place's id and refs, and each photo is
+  /// cached as `'<placeId>:<index>'`, the same id the card and the gallery use.
+  void prefetchPhotosAhead(
+      String placeId, List<String> photoRefs, int current, int count) {
+    final end = min(current + 1 + count, photoRefs.length);
+    for (var i = current + 1; i < end; i++) {
+      unawaited(loadPhoto(photoRefs[i], cacheId: '$placeId:$i'));
     }
   }
 

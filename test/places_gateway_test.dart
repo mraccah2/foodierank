@@ -121,4 +121,33 @@ void main() {
       expect(e.isRetryable, isTrue);
     });
   });
+
+  group('held photos', () {
+    test('a search\'s heldPhotos map says which slots skip the probe', () {
+      ProxyService.recordHeldPhotos({
+        'HeldA': [0, 2],
+        'HeldB': <int>[],
+      });
+      expect(ProxyService.isPhotoHeld('HeldA', 0), isTrue);
+      expect(ProxyService.isPhotoHeld('HeldA', 1), isFalse);
+      expect(ProxyService.isPhotoHeld('HeldB', 0), isFalse);
+    });
+
+    test('a place no search has mentioned is unknown, not "not held"', () {
+      // Unknown keeps the Storage probe; "not held" would skip it and buy.
+      expect(ProxyService.isPhotoHeld('NeverSeen', 0), isNull);
+    });
+
+    test('an older gateway without the map changes nothing', () {
+      ProxyService.recordHeldPhotos(null);
+      ProxyService.recordHeldPhotos({'Bad': 'x', 3: [0]});
+      expect(ProxyService.isPhotoHeld('Bad', 0), isNull);
+    });
+
+    test('a photo the gateway just stored counts as held', () {
+      ProxyService.recordHeldPhotos({'Fresh': <int>[]});
+      ProxyService.notePhotoHeld('Fresh', 0);
+      expect(ProxyService.isPhotoHeld('Fresh', 0), isTrue);
+    });
+  });
 }
