@@ -23,8 +23,6 @@ import 'account_screen.dart';
 
 enum SortOption { rank, distance }
 
-enum ViewMode { card, list, map }
-
 class RestaurantListScreen extends StatefulWidget {
   const RestaurantListScreen({super.key});
 
@@ -378,11 +376,13 @@ class _RestaurantListScreenState extends State<RestaurantListScreen>
                     ),
                     const SizedBox(height: AppSpacing.lg),
                     Row(
-                      children: ['\$', '\$\$', '\$\$\$', '\$\$\$\$'].map((price) {
+                      children:
+                          ['\$', '\$\$', '\$\$\$', '\$\$\$\$'].map((price) {
                         final isSelected = _selectedPriceLevels.contains(price);
                         return Expanded(
                           child: Padding(
-                            padding: const EdgeInsets.only(right: AppSpacing.sm),
+                            padding:
+                                const EdgeInsets.only(right: AppSpacing.sm),
                             child: FilterChip(
                               label: SizedBox(
                                 width: double.infinity,
@@ -394,8 +394,12 @@ class _RestaurantListScreenState extends State<RestaurantListScreen>
                                   .labelLarge
                                   ?.copyWith(
                                     color: isSelected
-                                        ? Theme.of(context).colorScheme.onPrimary
-                                        : Theme.of(context).colorScheme.onSurface,
+                                        ? Theme.of(context)
+                                            .colorScheme
+                                            .onPrimary
+                                        : Theme.of(context)
+                                            .colorScheme
+                                            .onSurface,
                                   ),
                               onSelected: (_) {
                                 setModalState(() {
@@ -723,17 +727,9 @@ class _RestaurantListScreenState extends State<RestaurantListScreen>
     }
   }
 
-  void _toggleViewMode() {
-    setState(() {
-      // From the map, this pill just returns you to the list.
-      _viewMode = _viewMode == ViewMode.card ? ViewMode.list : ViewMode.card;
-    });
-  }
-
-  void _toggleMapView() {
-    setState(() {
-      _viewMode = _viewMode == ViewMode.map ? ViewMode.list : ViewMode.map;
-    });
+  void _selectView(ViewMode mode) {
+    if (mode == _viewMode) return;
+    setState(() => _viewMode = mode);
   }
 
   /// Open a restaurant's card, the same way tapping a list row does — used by
@@ -924,16 +920,13 @@ class _RestaurantListScreenState extends State<RestaurantListScreen>
                   timeLabel: _searchContext.timeDisplay,
                   timeIsCustom: _searchContext.isCustomTime,
                   onTime: _openTimePicker,
-                  onClearTime:
-                      _searchContext.isCustomTime ? _resetTime : null,
+                  onClearTime: _searchContext.isCustomTime ? _resetTime : null,
                   searchActive: _isSearchVisible,
                   onToggleSearch: _toggleSearch,
                   taggedOnly: _taggedOnly,
                   onToggleTagged: _toggleTaggedFilter,
-                  mapActive: _viewMode == ViewMode.map,
-                  onToggleMap: _toggleMapView,
-                  cardView: _viewMode == ViewMode.card,
-                  onToggleView: _toggleViewMode,
+                  view: _viewMode,
+                  onSelectView: _selectView,
                 ),
 
                 // Search field, expanding in place below the rail.
@@ -954,8 +947,8 @@ class _RestaurantListScreenState extends State<RestaurantListScreen>
                             style: Theme.of(context).textTheme.bodyMedium,
                             decoration: InputDecoration(
                               hintText: 'Search for a dish or a name',
-                              prefixIcon: const Icon(Icons.search_rounded,
-                                  size: 20),
+                              prefixIcon:
+                                  const Icon(Icons.search_rounded, size: 20),
                               suffixIcon: _searchQuery.isNotEmpty
                                   ? IconButton(
                                       tooltip: 'Clear search',
