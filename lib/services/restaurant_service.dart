@@ -255,8 +255,9 @@ class RestaurantService implements PhotoSource {
       int? targetDay,
       int? targetMinutes,
       String? contextKey,
-      void Function(int count, String type, double radius)?
-          onSearchUpdate}) async {
+      void Function(int count, String type, double radius)? onSearchUpdate,
+      void Function(List<Map<String, dynamic>> places)?
+          onPartialResults}) async {
     final key = queryKey(
       priceLevels: priceLevels,
       cuisineType: cuisineType,
@@ -292,6 +293,7 @@ class RestaurantService implements PhotoSource {
       targetDay: targetDay,
       targetMinutes: targetMinutes,
       onSearchUpdate: onSearchUpdate,
+      onPartialResults: onPartialResults,
     );
 
     // Only stamp the cache once the search has actually succeeded — recording
@@ -495,8 +497,9 @@ class RestaurantService implements PhotoSource {
       String? searchQuery,
       int? targetDay,
       int? targetMinutes,
-      void Function(int count, String type, double radius)?
-          onSearchUpdate}) async {
+      void Function(int count, String type, double radius)? onSearchUpdate,
+      void Function(List<Map<String, dynamic>> places)?
+          onPartialResults}) async {
     if (latitude.isNaN || longitude.isNaN) {
       throw ArgumentError('Invalid coordinates provided');
     }
@@ -528,6 +531,10 @@ class RestaurantService implements PhotoSource {
     // 1-2 s, in series, before the list or any photo could appear.
     var pois = _fetchPois(latitude, longitude, radius);
     final poisRadius = radius;
+    // The first ring's POIs once they land, for ranking a partial result set
+    // without waiting on them.
+    _Pois? firstPois;
+    unawaited(pois.then((p) => firstPois = p));
 
     // Keep widening the search until we have enough places or we hit the
     // safety cap. Dense areas are satisfied on the first (smallest) round;
@@ -620,6 +627,21 @@ class RestaurantService implements PhotoSource {
       // requests over more of the same. Widening harder gets to the nearest
       // populated area in fewer sequential round trips, which is what the user
       // is actually waiting on.
+      // Another round is coming, and it is another full gateway round trip.
+      // What this one found is enough to draw: ranked on what is known so far
+      // (with the first ring's POIs if they have landed), then re-ranked when
+      // the search completes. In a city before the dinner rush, 500 m of
+      // open restaurants is rarely twenty, so this list used to wait on three
+      // rounds in series — about four seconds even with every answer cached.
+      if (onPartialResults != null && allRestaurants.isNotEmpty) {
+        final partial = [
+          for (final r in allRestaurants) Map<String, dynamic>.of(r)
+        ];
+        _applyLocalityScores(partial,
+            firstPois ?? (attractions: const [], hotels: const []));
+        onPartialResults(partial);
+      }
+
       final growth = allRestaurants.length == countBefore
           ? _emptyRoundGrowth
           : _radiusGrowth;
@@ -860,9 +882,17 @@ class RestaurantService implements PhotoSource {
   };
 
   /// What a search asks the gateway for: [_keptPlaceFields], with each photo
-  /// cut to its `name` — the only part [_mapPlace] keeps.
+  /// cut to its width — a placeholder, since all that is needed is how many
+  /// there are.
+  ///
+  /// It was each photo's `name`: ten ~480-character random strings per place,
+  /// 80% of every search response, and incompressible — 92 KB gzipped per
+  /// sector call against 6 KB without them, twelve calls to a search. Nothing
+  /// loads a photo by its name any more: the gateway knows a photo by place id
+  /// and slot (see [gatewayPhotoTarget]), and Google rotates names per response
+  /// anyway.
   static final List<String> _searchFields = [
-    for (final f in _keptPlaceFields) f == 'photos' ? 'photos.name' : f,
+    for (final f in _keptPlaceFields) f == 'photos' ? 'photos.widthPx' : f,
   ];
 
   Map<String, dynamic> _buildSearchParams(
@@ -905,8 +935,17 @@ class RestaurantService implements PhotoSource {
 
   Map<String, dynamic>? _mapPlace(
       Map<String, dynamic> place, List<String>? targetPriceLevels) {
+    // A stand-in name per slot, in Google's shape, so [Restaurant.fromJson]
+    // and stored snapshots read them as before. Every loader goes by the
+    // `'<placeId>:<slot>'` cache id and never by this name; a search no longer
+    // fetches Google's (see [_searchFields]).
+    final id = place['id'] as String?;
     final photos = (place['photos'] as List<dynamic>?)
-        ?.map((photo) => {'name': photo['name'] as String})
+        ?.indexed
+        .map((e) => {
+              'name': (e.$2 as Map?)?['name'] as String? ??
+                  'places/$id/photos/${e.$1}'
+            })
         .toList();
     final photoRefs = photos?.map((photo) => photo['name']!).toList() ?? [];
 
@@ -917,8 +956,8 @@ class RestaurantService implements PhotoSource {
     return {
       for (final entry in place.entries)
         if (_keptPlaceFields.contains(entry.key)) entry.key: entry.value,
-      // Only the resource name: a slot is the photo's index, and nothing
-      // reads the attributions or dimensions Google sends alongside.
+      // Only a name per slot: a slot is the photo's index, and nothing reads
+      // the attributions or dimensions Google sends alongside.
       if (photos != null) 'photos': photos,
       'photoRefs': photoRefs,
       'location': {

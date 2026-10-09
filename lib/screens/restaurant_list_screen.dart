@@ -210,6 +210,20 @@ class _RestaurantListScreenState extends State<RestaurantListScreen>
             });
           }
         },
+        // Draw each round as it lands rather than a skeleton until the last.
+        // Not for a silent refresh: that would reshuffle results someone is
+        // already reading, twice, on its way to the same answer.
+        onPartialResults: silent
+            ? null
+            : (places) {
+                if (!mounted) return;
+                setState(() {
+                  _restaurants = _ranked(places);
+                  _isLoading = false;
+                  _invalidateVisible();
+                });
+                _sortRestaurants();
+              },
       );
 
       if (!mounted) return;
@@ -228,15 +242,7 @@ class _RestaurantListScreenState extends State<RestaurantListScreen>
         return;
       }
 
-      final restaurants =
-          rawRestaurants.map((place) => Restaurant.fromJson(place)).toList();
-
-      restaurants
-          .sort((a, b) => b.rankingScore.compareTo(a.rankingScore));
-
-      for (var i = 0; i < restaurants.length; i++) {
-        restaurants[i].rank = i + 1;
-      }
+      final restaurants = _ranked(rawRestaurants);
 
       if (mounted) {
         setState(() {
@@ -260,6 +266,17 @@ class _RestaurantListScreenState extends State<RestaurantListScreen>
     } finally {
       _isLoadingData = false;
     }
+  }
+
+  /// [places] as restaurants, best first, each carrying its rank.
+  List<Restaurant> _ranked(List<Map<String, dynamic>> places) {
+    final restaurants =
+        places.map((place) => Restaurant.fromJson(place)).toList();
+    restaurants.sort((a, b) => b.rankingScore.compareTo(a.rankingScore));
+    for (var i = 0; i < restaurants.length; i++) {
+      restaurants[i].rank = i + 1;
+    }
+    return restaurants;
   }
 
   /// Renders the result set already in memory — restored from disk by the

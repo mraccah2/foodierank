@@ -52,8 +52,12 @@ class _SplashScreenState extends State<SplashScreen> {
     final cached = await RestaurantDiskCache.load();
     if (cached != null) RestaurantService.instance.hydrate(cached);
 
-    // Warm the position so the list does not open on a GPS wait.
-    await LocationService.instance.current();
+    // Warm the position so the list does not open on a GPS wait — but only
+    // wait for it when there is nothing to draw without it. With results on
+    // disk the list renders at once, fills in distances when the fix lands,
+    // and shares this same fix rather than asking for another.
+    final position = LocationService.instance.current();
+    if (cached == null) await position;
   }
 
   Future<void> _start() async {
