@@ -108,12 +108,22 @@ class _RestaurantPhotoViewerState extends State<RestaurantPhotoViewer> {
                 child: PhotoViewGallery.builder(
                   pageController: _pageController,
                   itemCount: widget.restaurant.photoRefs.length,
+                  // The next photo is built, and so decoded, before the swipe
+                  // that shows it.
+                  allowImplicitScrolling: true,
                   builder: (context, index) {
                     return PhotoViewGalleryPageOptions.customChild(
                       child: GestureDetector(
                         onTap: () {},
                         child: FutureBuilder<Uint8List?>(
                           future: _photo(index),
+                          // A FutureBuilder starts out "waiting" even on a
+                          // future that has already completed, so a photo
+                          // sitting in memory flashed a spinner first.
+                          initialData: RestaurantService.instance
+                              .getCachedPhoto(
+                                  widget.restaurant.photoRefs[index],
+                                  cacheId: '${widget.restaurant.id}:$index'),
                           builder: (context, snapshot) {
                             if (snapshot.hasData) {
                               return PhotoView(

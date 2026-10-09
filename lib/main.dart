@@ -10,6 +10,7 @@ import 'theme/app_theme.dart';
 import 'services/navigation_service.dart';
 import 'services/photo_disk_cache.dart';
 import 'services/restaurant_disk_cache.dart';
+import 'services/restaurant_service.dart';
 import 'utils/debug_log.dart';
 
 void main() {
@@ -32,6 +33,7 @@ void main() {
     // the hooks is synchronous; the reading and writing they enable is not.
     RestaurantDiskCache.install();
     PhotoDiskCache.install();
+    RestaurantService.instance.warmPhotosDuringSearch = true;
 
     // Nothing is awaited before this line, and that is the point.
     //

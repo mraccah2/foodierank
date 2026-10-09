@@ -218,9 +218,14 @@ class _RestaurantCardState extends State<RestaurantCard> {
           child: PageView.builder(
             controller: _pageController,
             itemCount: widget.restaurant.photoRefs.length,
+            // Keeps the pages either side built, so the next photo is already
+            // decoded when a swipe reveals it. Without it the next page was
+            // built only once the drag began, and even a photo whose bytes
+            // were in memory slid in blank for the frames its decode took.
+            allowImplicitScrolling: true,
             // PageView only builds the next page once a drag has begun, so a
             // photo fetched on build started its 1.5 s+ wait at the swipe that
-            // showed it. The next one is loaded when the card opens, and once
+            // showed it. The next ones are loaded when the card opens, and once
             // someone is browsing, the next several.
             onPageChanged: (index) {
               _photoIndex.value = index;

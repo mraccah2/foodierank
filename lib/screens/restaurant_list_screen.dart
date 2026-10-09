@@ -1008,6 +1008,11 @@ class _RestaurantListScreenState extends State<RestaurantListScreen>
           pageSnapping: true,
           physics: const PageScrollPhysics(),
           itemCount: _visibleRestaurants.length,
+          // Builds the next restaurant's card while this one is read, so its
+          // photo is decoded and its next few photos are already loading by
+          // the time it is swiped to, instead of all of that starting on the
+          // swipe.
+          allowImplicitScrolling: true,
           // No `onPageChanged` here on purpose: it used to hold an empty
           // `setState`, which rebuilt the header, the filters and every card on
           // each swipe. Nothing in this subtree reads the current page.

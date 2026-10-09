@@ -88,7 +88,12 @@ class RestaurantService implements PhotoSource {
   /// photo ever fetched for the life of the process, so a few changes of
   /// cuisine or city accumulated tens of megabytes nothing would look at again.
   final LinkedHashMap<String, Uint8List> _photoCache = LinkedHashMap();
-  static const int _photoCacheLimit = 60;
+
+  /// Room for a full result set's list photos (~25) plus several cards' worth
+  /// of browsing (ten each) — at sixty, opening three cards pushed the list's
+  /// own thumbnails out, and scrolling back re-read them from disk behind a
+  /// shimmer. Photos average ~150 KB, so this is ~15 MB.
+  static const int _photoCacheLimit = 100;
 
   /// In-flight photo requests, so a list row, its card and any prefetch share
   /// one download of the same photo rather than racing three.
@@ -120,6 +125,11 @@ class RestaurantService implements PhotoSource {
   /// per-response nonce, so a disk file named after one is never read again.
   Future<Uint8List?> Function(String key)? photoCacheRead;
   Future<void> Function(String key, Uint8List bytes)? photoCacheWrite;
+
+  /// Whether a search starts loading its places' stored photos round by round,
+  /// rather than leaving them all until the list is ready to draw. The app
+  /// turns this on; `bin/foodierank.dart` prints no pictures and leaves it off.
+  bool warmPhotosDuringSearch = false;
 
   /// Recent result sets, keyed by query and rounded location.
   ///
@@ -587,6 +597,16 @@ class RestaurantService implements PhotoSource {
             // the whole search.
           }
         }
+      }
+
+      // Every place a round keeps is in the final list, and the gateway has
+      // just said which of their photos it already stores. Those cost no
+      // Google purchase, so they start now: in a search that widens, the list
+      // used to wait seconds more for later rounds and the locality lookups,
+      // and only then begin downloading the photos it opened on.
+      if (warmPhotosDuringSearch) {
+        unawaited(_warmFree(
+            _firstPhotoRefs(allRestaurants.sublist(countBefore))));
       }
 
       onSearchUpdate?.call(
@@ -1125,7 +1145,10 @@ class RestaurantService implements PhotoSource {
     _photosInFlight--;
   }
 
-  /// How many photos are pulled before anyone has scrolled.
+  /// How many photos are pulled before anyone has scrolled, whatever they
+  /// cost. Photos the gateway already stores are pulled for every place on top
+  /// of these (see [warmFirstPhotos]): those are a CDN download, not a Google
+  /// purchase, and the billing argument below does not apply to them.
   ///
   /// This used to be every place in the result set, on the reasoning that
   /// arriving at a column of empty placeholders looks broken. The billing
@@ -1150,13 +1173,52 @@ class RestaurantService implements PhotoSource {
   /// fetches the rest on demand. It exists so the list does not open on a
   /// column of empty placeholders, and so a photo already on disk is in memory
   /// before its row is ever built.
+  ///
+  /// Past the first [_eagerPhotoCount], only photos that cost nothing are
+  /// warmed — already on disk, or known to be stored by the gateway. A screen
+  /// shows about eight rows, so rows six to eight used to open as shimmer and
+  /// start their download only once drawn, and every row further down did the
+  /// same as it scrolled in.
   Future<void> warmFirstPhotos() async {
     try {
       final refs = _firstPhotoRefs(_cachedRestaurants ?? const []);
-      await prefetchFirstPhotos(refs.take(_eagerPhotoCount).toList());
+      await Future.wait([
+        prefetchFirstPhotos(refs.take(_eagerPhotoCount).toList()),
+        _warmFree(refs.skip(_eagerPhotoCount)),
+      ]);
     } catch (_) {
       // Warming is best effort, and both callers leave it unawaited — an
       // failure here must not surface as an unhandled async error.
+    }
+  }
+
+  /// Loads each of [photos] only where that buys nothing from Google: from
+  /// Storage when the gateway is known to hold it, else from disk if it is
+  /// there. Anything else is left for [PlacePhoto] to fetch when it is drawn.
+  ///
+  /// The disk-only path deliberately does not go through [loadPhoto]: that
+  /// would register a shared request, and a widget joining it would be handed
+  /// "no photo" for a picture that was merely not on disk yet.
+  Future<void> _warmFree(Iterable<({String ref, String cacheId})> photos) async {
+    try {
+      await Future.wait(photos.map((p) async {
+        final target = gatewayPhotoTarget(p.ref, p.cacheId);
+        if (target != null &&
+            ProxyService.isPhotoHeld(target.placeId, target.slot) == true) {
+          await loadPhoto(p.ref, cacheId: p.cacheId, priority: true);
+          return;
+        }
+        final key = photoCacheKey(p.ref, p.cacheId, 800, 450);
+        if (_photoCache.containsKey(key) || _photoRequests.containsKey(key)) {
+          return;
+        }
+        final fromDisk = await photoCacheRead?.call(key);
+        if (fromDisk != null && !_photoCache.containsKey(key)) {
+          _cachePhoto(key, fromDisk);
+        }
+      }));
+    } catch (_) {
+      // Best effort, and always left unawaited.
     }
   }
 
@@ -1168,9 +1230,13 @@ class RestaurantService implements PhotoSource {
   /// on screen every time. Started ahead, it has happened by the time the
   /// photo is reached.
   ///
-  /// One on opening a card, since most people never swipe; five once they do,
-  /// since someone browsing photos swipes faster than one a second.
-  static const int photosAheadOnOpen = 1;
+  /// Two on opening a card: a buy takes ~2 s, longer than anyone looks at the
+  /// first photo, so with only one ahead the first swipe still waited ~1.4 s
+  /// and the second waited on a buy that started at the first. A card is also
+  /// opened ahead of being seen now (the card pager builds its neighbour), so
+  /// these have usually landed before the card is even on screen. Five once
+  /// someone is browsing, since they swipe faster than one a second.
+  static const int photosAheadOnOpen = 2;
   static const int photosAheadWhileBrowsing = 5;
 
   /// Starts loading the [count] photos of a place after [current], if it has
