@@ -126,6 +126,9 @@ void main() {
     expect(tester.getTopLeft(find.byTooltip('Cards view')), cards);
     final chips = tester.state<ScrollableState>(find.byType(Scrollable).first);
     expect(chips.position.pixels, greaterThan(0));
+
+    // Both pinned controls sit together at the leading edge, before the chips.
+    expect(cards.dx, lessThan(tester.getTopLeft(find.text('Open now')).dx));
   });
 
   testWidgets('the view switcher fills the current view and selects others',

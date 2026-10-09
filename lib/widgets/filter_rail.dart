@@ -12,9 +12,9 @@ enum ViewMode { card, list, map }
 /// with nowhere to go when they ran out of it. Scrolling is the thing that lets
 /// each control be a comfortable size instead of the smallest size that fits.
 ///
-/// Search and the view switcher are pinned at either end; only the filter chips
-/// between them scroll. They used to scroll too, which meant the two controls
-/// you reach for most were the ones most often off-screen.
+/// Search and the view switcher sit together, pinned at the leading edge; only
+/// the filter chips after them scroll. They used to scroll too, which meant the
+/// two controls you reach for most were the ones most often off-screen.
 ///
 /// Purely presentational — every callback here is the screen's own handler.
 class FilterRail extends StatelessWidget {
@@ -85,19 +85,23 @@ class FilterRail extends StatelessWidget {
       child: Row(
         children: [
           const SizedBox(width: AppSpacing.gutter),
-          _RailIcon(
-            icon: Icons.search_rounded,
-            tooltip: 'Search by name',
-            active: searchActive,
-            onTap: onToggleSearch,
+          _PinnedTray(
+            searchActive: searchActive,
+            onToggleSearch: onToggleSearch,
+            view: view,
+            onSelectView: onSelectView,
           ),
           Expanded(
             child: _EdgeFade(
               child: ListView(
                 scrollDirection: Axis.horizontal,
-                padding: const EdgeInsets.symmetric(
-                  horizontal: AppSpacing.sm,
-                  vertical: AppSpacing.xs,
+                // The chips run to the screen edge, so the last one gets the
+                // gutter inside the scroll rather than a wall outside it.
+                padding: const EdgeInsets.fromLTRB(
+                  AppSpacing.sm,
+                  AppSpacing.xs,
+                  AppSpacing.gutter,
+                  AppSpacing.xs,
                 ),
                 children: [
                   // Both of these are *always* applied — "Near me" and "Open
@@ -158,8 +162,6 @@ class FilterRail extends StatelessWidget {
               ),
             ),
           ),
-          _ViewSwitcher(view: view, onSelect: onSelectView),
-          const SizedBox(width: AppSpacing.gutter),
         ],
       ),
     );
@@ -196,89 +198,128 @@ class _EdgeFade extends StatelessWidget {
   }
 }
 
-/// List, card and map as one segmented control.
+/// The list / card / map switcher and search, as one pinned tray.
 ///
-/// This was a toggle whose icon showed the view you would switch *to*, plus a
-/// separate map button — so nothing on screen said which view you were in, and
-/// getting from the map to the cards took two taps. Here the filled segment is
-/// the current view, and every view is one tap away.
-class _ViewSwitcher extends StatelessWidget {
+/// The tray sits a tone deeper than the chips and has no hairline of its own,
+/// so it reads as a fixed part of the header rather than as two more filters —
+/// the chips slide under it, it never moves.
+///
+/// The views were once a toggle whose icon showed the view you would switch
+/// *to*, plus a separate map button, so nothing on screen said which view you
+/// were in. Here the filled segment is the current view, and every view is one
+/// tap away.
+class _PinnedTray extends StatelessWidget {
   static const double _segment = 36;
   static const double _inset = 3;
 
   static const _views = [
-    (ViewMode.list, Icons.view_list_rounded, 'List'),
-    (ViewMode.card, Icons.crop_portrait_rounded, 'Cards'),
-    (ViewMode.map, Icons.map_outlined, 'Map'),
+    (ViewMode.list, Icons.view_list_rounded, 'List view'),
+    (ViewMode.card, Icons.crop_portrait_rounded, 'Cards view'),
+    (ViewMode.map, Icons.map_outlined, 'Map view'),
   ];
 
+  final bool searchActive;
+  final VoidCallback onToggleSearch;
   final ViewMode view;
-  final ValueChanged<ViewMode> onSelect;
+  final ValueChanged<ViewMode> onSelectView;
 
-  const _ViewSwitcher({required this.view, required this.onSelect});
+  const _PinnedTray({
+    required this.searchActive,
+    required this.onToggleSearch,
+    required this.view,
+    required this.onSelectView,
+  });
 
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     final index = _views.indexWhere((v) => v.$1 == view);
     final reduceMotion = MediaQuery.of(context).disableAnimations;
+    final motion =
+        reduceMotion ? Duration.zero : const Duration(milliseconds: 220);
 
     return Container(
       height: _RailChip.height,
       padding: const EdgeInsets.all(_inset),
       decoration: BoxDecoration(
-        color: scheme.surfaceContainer,
+        color: scheme.surfaceContainerHighest,
         borderRadius: AppRadius.pillAll,
-        border: Border.all(color: scheme.outlineVariant),
       ),
-      child: SizedBox(
-        width: _segment * _views.length,
-        child: Stack(
-          children: [
-            // The selection slides to the tapped view — it shows what changed.
-            AnimatedPositioned(
-              duration: reduceMotion
-                  ? Duration.zero
-                  : const Duration(milliseconds: 220),
-              curve: Curves.easeOutCubic,
-              left: _segment * index,
-              top: 0,
-              bottom: 0,
-              width: _segment,
-              child: DecoratedBox(
-                decoration: BoxDecoration(
-                  color: scheme.primary,
-                  borderRadius: AppRadius.pillAll,
-                ),
-              ),
-            ),
-            Row(
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          SizedBox(
+            width: _segment * _views.length,
+            child: Stack(
               children: [
-                for (final (mode, icon, label) in _views)
-                  _ViewSegment(
-                    icon: icon,
-                    label: label,
-                    selected: mode == view,
-                    width: _segment,
-                    onTap: () => onSelect(mode),
+                // The selection slides to the tapped view — it shows what
+                // changed.
+                AnimatedPositioned(
+                  duration: motion,
+                  curve: Curves.easeOutCubic,
+                  left: _segment * index,
+                  top: 0,
+                  bottom: 0,
+                  width: _segment,
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(
+                      color: scheme.primary,
+                      borderRadius: AppRadius.pillAll,
+                    ),
                   ),
+                ),
+                Row(
+                  children: [
+                    for (final (mode, icon, label) in _views)
+                      _TraySegment(
+                        icon: icon,
+                        label: label,
+                        selected: mode == view,
+                        width: _segment,
+                        onTap: mode == view ? null : () => onSelectView(mode),
+                      ),
+                  ],
+                ),
               ],
             ),
-          ],
-        ),
+          ),
+          Container(
+            width: 1,
+            height: _segment - 16,
+            margin: const EdgeInsets.symmetric(horizontal: AppSpacing.xs),
+            color: scheme.outline.withValues(alpha: 0.35),
+          ),
+          // Search is a switch of its own, not one of the views, so it fills
+          // in place rather than taking the sliding selection.
+          AnimatedContainer(
+            duration: motion,
+            decoration: BoxDecoration(
+              color: searchActive ? scheme.primary : Colors.transparent,
+              shape: BoxShape.circle,
+            ),
+            child: _TraySegment(
+              icon: Icons.search_rounded,
+              label: 'Search by name',
+              selected: searchActive,
+              width: _segment,
+              // Tapping again closes it, so it stays tappable while on.
+              onTap: onToggleSearch,
+            ),
+          ),
+        ],
       ),
     );
   }
 }
 
-class _ViewSegment extends StatelessWidget {
+class _TraySegment extends StatelessWidget {
   final IconData icon;
   final String label;
   final bool selected;
   final double width;
-  final VoidCallback onTap;
+  final VoidCallback? onTap;
 
-  const _ViewSegment({
+  const _TraySegment({
     required this.icon,
     required this.label,
     required this.selected,
@@ -293,12 +334,12 @@ class _ViewSegment extends StatelessWidget {
     return Semantics(
       button: true,
       selected: selected,
-      label: '$label view',
+      label: label,
       excludeSemantics: true,
       child: Tooltip(
-        message: '$label view',
+        message: label,
         child: InkWell(
-          onTap: selected ? null : onTap,
+          onTap: onTap,
           customBorder: const StadiumBorder(),
           child: SizedBox(
             width: width,
