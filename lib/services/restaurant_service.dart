@@ -1034,6 +1034,18 @@ class RestaurantService implements PhotoSource {
 
   Map<String, dynamic>? _mapPlace(
       Map<String, dynamic> place, List<String>? targetPriceLevels) {
+    // Google's `priceLevels` filter is loose: a $–$$ search in Jaffa still
+    // returns Beit Kandinof, which it tags PRICE_LEVEL_EXPENSIVE. So the
+    // filter is enforced here too. A place with no price level passes only
+    // when the search asked for UNSPECIFIED. An unfiltered search (every
+    // level) keeps everything, PRICE_LEVEL_FREE included.
+    if (targetPriceLevels != null &&
+        targetPriceLevels.isNotEmpty &&
+        !allPriceLevels.every(targetPriceLevels.contains)) {
+      final level = place['priceLevel'] as String? ?? 'PRICE_LEVEL_UNSPECIFIED';
+      if (!targetPriceLevels.contains(level)) return null;
+    }
+
     // A stand-in name per slot, in Google's shape, so [Restaurant.fromJson]
     // and stored snapshots read them as before. Every loader goes by the
     // `'<placeId>:<slot>'` cache id and never by this name; a search no longer
