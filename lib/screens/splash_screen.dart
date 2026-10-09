@@ -11,12 +11,14 @@ import 'restaurant_list_screen.dart';
 
 /// The first screen: a brief, bounded warm-up before the list takes over.
 ///
-/// It starts the saved-places feature and waits for `Startup` — begun in
-/// `main`, before this screen existed — to have restored the last session's
-/// results or resolved a position. None of that is strictly needed by the list
-/// screen, which resolves whatever is missing itself and has its own error and
-/// retry, so this screen never blocks on it: whatever has not finished by
-/// [_deadline] simply happens later. The search itself is already running.
+/// It starts the saved-places feature and holds until `Startup` — begun in
+/// `main`, before this screen existed — has content for the list: the last
+/// session's results, or the launch search's first places and their photos.
+/// Opening the list any earlier only swapped one waiting screen for another, a
+/// skeleton. None of it is strictly needed by the list screen, which resolves
+/// whatever is missing itself and has its own error and retry, so this screen
+/// still never blocks past [_deadline]: on a slow network the list's own
+/// progress is the better thing to be looking at.
 ///
 /// It used to await a full Places search here — and before that, `main` awaited
 /// one too — with no ceiling on either, which is how a slow network turned into
@@ -44,10 +46,9 @@ class _SplashScreenState extends State<SplashScreen> {
     // alongside rather than in front of it.
     unawaited(Bootstrap.start());
 
-    // The last session's results restored, or a position to search around —
-    // both begun in `main`, along with the search itself, so this only waits
-    // on what is still outstanding. With results on disk the list renders at
-    // once and fills in distances when the fix lands.
+    // Content for the list — restored results, or the launch search's first
+    // places with their photos — all begun in `main`, so this only waits on
+    // what is still outstanding.
     await Startup.ready;
   }
 
