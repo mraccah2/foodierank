@@ -68,6 +68,23 @@ class _MemoisedSearch {
   });
 }
 
+/// A search under way, which a second caller asking the same question from
+/// about the same place joins instead of starting its own.
+class _SharedSearch {
+  final String key;
+  final double latitude;
+  final double longitude;
+  late final Future<List<Map<String, dynamic>>> result;
+
+  /// The most recent partial result set, handed straight to a late joiner so
+  /// it can draw what the search has found so far.
+  List<Map<String, dynamic>>? latest;
+  final List<void Function(List<Map<String, dynamic>>)> onPartial = [];
+  final List<void Function(int, String, double)> onUpdate = [];
+
+  _SharedSearch(this.key, this.latitude, this.longitude);
+}
+
 /// Tourist attractions and hotels around a search, for the locality scores.
 typedef _Pois = ({
   List<({double lat, double lng})> attractions,
@@ -145,7 +162,24 @@ class RestaurantService implements PhotoSource {
   /// last few minutes", which is a different question with a much shorter
   /// useful life.
   final LinkedHashMap<String, _MemoisedSearch> _resultMemo = LinkedHashMap();
+
+  /// Searches running right now. The app starts its default search before the
+  /// first frame (see `Startup`); the list screen, mounting a second or two
+  /// later, asks the same question and joins it rather than paying for and
+  /// waiting on a second run from the start.
+  final List<_SharedSearch> _searchesInFlight = [];
   static const int _resultMemoLimit = 12;
+
+  /// Every price level, which is what an unfiltered search asks for — the list
+  /// screen's default and the search `Startup` begins before it exists. They
+  /// must agree exactly, or the two are different questions and share nothing.
+  static const List<String> allPriceLevels = [
+    'PRICE_LEVEL_UNSPECIFIED',
+    'PRICE_LEVEL_INEXPENSIVE',
+    'PRICE_LEVEL_MODERATE',
+    'PRICE_LEVEL_EXPENSIVE',
+    'PRICE_LEVEL_VERY_EXPENSIVE',
+  ];
 
   /// Short enough that "open now" cannot drift far, long enough to cover a
   /// session of trying filters against one place on the map.
@@ -283,6 +317,71 @@ class RestaurantService implements PhotoSource {
       return memo.places;
     }
 
+    for (final running in _searchesInFlight) {
+      if (running.key != key ||
+          _calculateDistance(running.latitude, running.longitude, latitude,
+                  longitude) >
+              _resultMemoMaxDriftM) {
+        continue;
+      }
+      if (onSearchUpdate != null) running.onUpdate.add(onSearchUpdate);
+      if (onPartialResults != null) {
+        running.onPartial.add(onPartialResults);
+        final latest = running.latest;
+        if (latest != null) onPartialResults(latest);
+      }
+      return running.result;
+    }
+
+    final shared = _SharedSearch(key, latitude, longitude);
+    if (onSearchUpdate != null) shared.onUpdate.add(onSearchUpdate);
+    if (onPartialResults != null) shared.onPartial.add(onPartialResults);
+    shared.result = _searchAndRemember(
+      key,
+      latitude,
+      longitude,
+      priceLevels: priceLevels,
+      cuisineType: cuisineType,
+      openNow: openNow,
+      searchQuery: searchQuery,
+      targetDay: targetDay,
+      targetMinutes: targetMinutes,
+      onSearchUpdate: (count, type, radius) {
+        for (final listener in List.of(shared.onUpdate)) {
+          listener(count, type, radius);
+        }
+      },
+      onPartialResults: (places) {
+        shared.latest = places;
+        for (final listener in List.of(shared.onPartial)) {
+          listener(places);
+        }
+      },
+    );
+    _searchesInFlight.add(shared);
+    // A block body: see loadPhoto for what `=> remove(...)` would do here.
+    // catchError first, so a failed search is reported to its callers alone
+    // and not again, unhandled, through this bookkeeping.
+    unawaited(shared.result
+        .catchError((Object _) => const <Map<String, dynamic>>[])
+        .whenComplete(() {
+      _searchesInFlight.remove(shared);
+    }));
+    return shared.result;
+  }
+
+  Future<List<Map<String, dynamic>>> _searchAndRemember(
+      String key, double latitude, double longitude,
+      {List<String>? priceLevels,
+      String? cuisineType,
+      required bool openNow,
+      String? searchQuery,
+      int? targetDay,
+      int? targetMinutes,
+      required void Function(int count, String type, double radius)
+          onSearchUpdate,
+      required void Function(List<Map<String, dynamic>> places)
+          onPartialResults}) async {
     final places = await getNearbyRestaurants(
       latitude,
       longitude,

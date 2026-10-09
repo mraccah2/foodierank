@@ -11,6 +11,7 @@ import 'services/navigation_service.dart';
 import 'services/photo_disk_cache.dart';
 import 'services/restaurant_disk_cache.dart';
 import 'services/restaurant_service.dart';
+import 'services/startup.dart';
 import 'utils/debug_log.dart';
 
 void main() {
@@ -34,6 +35,11 @@ void main() {
     RestaurantDiskCache.install();
     PhotoDiskCache.install();
     RestaurantService.instance.warmPhotosDuringSearch = true;
+
+    // Restore, locate and search from here, before the first frame, rather
+    // than once the splash is up. Nothing is awaited: the splash and the list
+    // screen pick up whatever has landed (see Startup).
+    Startup.begin();
 
     // Nothing is awaited before this line, and that is the point.
     //
