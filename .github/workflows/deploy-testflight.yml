@@ -172,7 +172,17 @@ jobs:
 
       - name: Pod install
         working-directory: ios
+        env:
+          # The CDN breaks HTTP/2 from this network ("Error in the HTTP2
+          # framing layer"); pod sources cloned from GitHub over HTTP/2 were
+          # reset mid-transfer too. Keep git on HTTP/1.1.
+          GIT_CONFIG_COUNT: "1"
+          GIT_CONFIG_KEY_0: http.version
+          GIT_CONFIG_VALUE_0: HTTP/1.1
         run: |
+          # CocoaPods fetches CDN specs over HTTP/2 only, so seed the specs
+          # Podfile.lock pins over HTTP/1.1 first.
+          ../.github/scripts/prefetch_pod_specs.sh Podfile.lock
           # Try without --repo-update first; if it fails (missing pod), retry with refresh.
           pod install || pod install --repo-update
 
