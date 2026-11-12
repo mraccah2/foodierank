@@ -2,8 +2,13 @@ import  Flutter
 import UIKit
 import GoogleMaps
 
+// UIScene lifecycle (Info.plist UIApplicationSceneManifest → FlutterSceneDelegate).
+// iOS 27 refuses to launch an app built with the iOS 27 SDK that has not
+// adopted scenes. With scenes, the Flutter engine is created implicitly by the
+// storyboard's FlutterViewController, so plugins are registered when that
+// engine exists rather than in didFinishLaunching.
 @main
-@objc class AppDelegate: FlutterAppDelegate {
+@objc class AppDelegate: FlutterAppDelegate, FlutterImplicitEngineDelegate {
   override func application(
     _ application: UIApplication,
     didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
@@ -16,7 +21,10 @@ import GoogleMaps
        mapsApiKey != "$(GOOGLE_MAPS_IOS_API_KEY)" {
       GMSServices.provideAPIKey(mapsApiKey)
     }
-    GeneratedPluginRegistrant.register(with: self)
     return super.application(application, didFinishLaunchingWithOptions: launchOptions)
+  }
+
+  func didInitializeImplicitFlutterEngine(_ engineBridge: FlutterImplicitEngineBridge) {
+    GeneratedPluginRegistrant.register(with: engineBridge.pluginRegistry)
   }
 }

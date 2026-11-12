@@ -27,6 +27,15 @@ import {
   listTakeoutArchives,
   newestExportParts,
 } from './drive';
+import { deleteUserAndData } from './account';
+import {
+  checkGuestCode,
+  GUEST_REVIEW_CODE,
+  isAccessCode,
+  OWNER_CODE,
+  isThrottled,
+  recordFailure,
+} from './guest';
 import { PLACES_GATEWAY_KEY, resolvePlaces } from './placeResolve';
 import { parseTakeoutArchive } from './takeout';
 import {
@@ -77,6 +86,62 @@ export const unlinkGoogleAccount = onCall({ region: REGION }, async (req) => {
   await forgetGrant(requireUid(req.auth?.uid));
   return { linked: false };
 });
+
+/**
+ * Permanently delete the caller's account and every piece of data held for it
+ * (App Store guideline 5.1.1(v)). See `deleteUserAndData` for what goes.
+ */
+export const deleteAccount = onCall(
+  { region: REGION, timeoutSeconds: 300 },
+  async (request) => {
+    const uid = requireUid(request.auth?.uid);
+    try {
+      await deleteUserAndData(uid);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      logger.error('Account deletion failed', { uid, message });
+      throw new HttpsError('internal', 'Could not delete the account. Try again.');
+    }
+    return { deleted: true };
+  }
+);
+
+/**
+ * Unlock the guest build with the last four digits of the phone number on a
+ * current reservation, or the six-digit App Review or owner code. No
+ * account is created and nothing about the guest is returned — only the role
+ * and when the pass runs out.
+ */
+export const verifyGuestCode = onCall(
+  { region: REGION, secrets: [GUEST_REVIEW_CODE, OWNER_CODE] },
+  async (request) => {
+    const code = request.data?.code;
+    if (!isAccessCode(code)) {
+      throw new HttpsError('invalid-argument', 'Enter four digits.');
+    }
+    const ip = request.rawRequest?.ip;
+    const now = Date.now();
+    if (await isThrottled(ip, now)) {
+      throw new HttpsError('resource-exhausted', 'Too many tries. Try again in an hour.');
+    }
+    let result;
+    try {
+      result = await checkGuestCode(code, now, {
+        reviewCode: GUEST_REVIEW_CODE.value(),
+        ownerCode: OWNER_CODE.value(),
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      logger.error('Guest code check failed', { message });
+      throw new HttpsError('unavailable', 'Could not check your reservation. Try again.');
+    }
+    if (!result.ok) {
+      await recordFailure(ip, now);
+      throw new HttpsError('not-found', 'No current stay matches that number.');
+    }
+    return { expiresAt: result.expiresAt, role: result.role };
+  }
+);
 
 /**
  * Step 2: kick off a Starred places export.

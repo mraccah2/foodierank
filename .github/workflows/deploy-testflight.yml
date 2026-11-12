@@ -17,6 +17,14 @@ on:
           get a TestFlight-only build for testing.
         type: boolean
         default: true
+      variant:
+        description: >-
+          Which app to build. "guest" is the unlisted guest build
+          (com.foodierank.foodierank.public, GUEST_MODE): TestFlight only,
+          never submitted for review by this workflow.
+        type: choice
+        options: [private, guest]
+        default: private
 
 permissions:
   actions: write
@@ -58,6 +66,22 @@ jobs:
         with:
           clean: true
 
+      # Everything below reads bundle_id / guest from here rather than from
+      # vars.IOS_BUNDLE_ID directly, so one workflow builds either app.
+      - name: Resolve app variant
+        env:
+          VARIANT: ${{ inputs.variant || 'private' }}
+        run: |
+          if [ "$VARIANT" = "guest" ]; then
+            CLIENT_ID="$(scripts/apply_guest_identity.sh)"
+            echo "guest=true" >> "$GITHUB_ENV"
+            echo "bundle_id=com.foodierank.foodierank.public" >> "$GITHUB_ENV"
+            echo "guest_ios_client_id=$CLIENT_ID" >> "$GITHUB_ENV"
+          else
+            echo "guest=false" >> "$GITHUB_ENV"
+            echo "bundle_id=${{ vars.IOS_BUNDLE_ID || 'com.foodierank.foodierank' }}" >> "$GITHUB_ENV"
+          fi
+
       - name: Verify Xcode
         run: xcodebuild -version
 
@@ -69,6 +93,9 @@ jobs:
           IOS_CERTIFICATE_P12: ${{ secrets.IOS_CERTIFICATE_P12 }}
           IOS_CERTIFICATE_PASSWORD: ${{ secrets.IOS_CERTIFICATE_PASSWORD }}
           IOS_PROVISIONING_PROFILE: ${{ secrets.IOS_PROVISIONING_PROFILE }}
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_PRIVATE_KEY: ${{ secrets.ASC_PRIVATE_KEY }}
         run: |
           KEYCHAIN_PATH="$RUNNER_TEMP/app-signing.keychain-db"
           KEYCHAIN_PASSWORD="$(openssl rand -hex 16)"
@@ -106,7 +133,19 @@ jobs:
           mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
 
           PROFILE_PATH="$RUNNER_TEMP/profile.mobileprovision"
-          echo "$IOS_PROVISIONING_PROFILE" | base64 --decode > "$PROFILE_PATH"
+          if [ "$guest" = "true" ]; then
+            # The guest app has no profile in secrets: fetch or create its App
+            # Store profile for the certificate just imported.
+            SERIAL=$(security find-certificate -a -c "Apple Distribution" -p "$KEYCHAIN_PATH" \
+              | openssl x509 -noout -serial | head -1)
+            python3 -m venv --clear "$RUNNER_TEMP/verify-venv"
+            "$RUNNER_TEMP/verify-venv/bin/python3" -m pip install --quiet --timeout 30 PyJWT cryptography
+            "$RUNNER_TEMP/verify-venv/bin/python3" scripts/asc_app_store_profile.py \
+              --bundle-id "$bundle_id" --cert-serial "$SERIAL" --out "$PROFILE_PATH" \
+              --name "FoodieRank Guest App Store"
+          else
+            echo "$IOS_PROVISIONING_PROFILE" | base64 --decode > "$PROFILE_PATH"
+          fi
           # Installs under the UUID filename and prunes ONLY profiles with the
           # same application-identifier. The blanket `rm -f ...Profiles/*` this
           # replaces wiped the whole per-USER directory, deleting concurrent
@@ -129,6 +168,9 @@ jobs:
       # mraccah2/listo's scripts/verify_ios_signing.py — keep them in sync
       # when the contract changes.
       - name: Verify signing state vs Apple
+        # The guest profile was just fetched from Apple, so there is no secret
+        # copy to cross-check.
+        if: env.guest != 'true'
         env:
           IOS_CERTIFICATE: ${{ secrets.IOS_CERTIFICATE_P12 }}
           IOS_CERTIFICATE_PASSWORD: ${{ secrets.IOS_CERTIFICATE_PASSWORD }}
@@ -194,16 +236,18 @@ jobs:
           # FoodieRank's key for the shared Places gateway (all Places calls).
           PLACES_GATEWAY_KEY: ${{ secrets.PLACES_GATEWAY_KEY }}
           IOS_MAPS_API_KEY: ${{ secrets.IOS_MAPS_API_KEY }}
-          IOS_BUNDLE_ID: ${{ vars.IOS_BUNDLE_ID || 'com.foodierank.foodierank' }}
+          IOS_BUNDLE_ID: ${{ env.bundle_id }}
           # OAuth client ids are public identifiers — they ship inside the app
           # binary and GoogleService-Info.plist — so they live in `vars`, not
           # `secrets`. Leaving GOOGLE_SERVER_CLIENT_ID unset is a supported
           # build: Google sign-in simply switches off and the rest of the app
           # is unaffected.
           GOOGLE_SERVER_CLIENT_ID: ${{ vars.GOOGLE_SERVER_CLIENT_ID }}
-          GOOGLE_IOS_CLIENT_ID: ${{ vars.GOOGLE_IOS_CLIENT_ID }}
+          GOOGLE_IOS_CLIENT_ID: ${{ env.guest_ios_client_id || vars.GOOGLE_IOS_CLIENT_ID }}
+          GUEST_MODE: ${{ env.guest }}
         run: |
           flutter build ios --release --no-codesign \
+            --dart-define=GUEST_MODE="$GUEST_MODE" \
             --dart-define=PLACES_GATEWAY_KEY="$PLACES_GATEWAY_KEY" \
             --dart-define=IOS_MAPS_API_KEY="$IOS_MAPS_API_KEY" \
             --dart-define=IOS_BUNDLE_ID="$IOS_BUNDLE_ID" \
@@ -212,7 +256,7 @@ jobs:
 
       - name: Configure manual signing for CI (Runner target only)
         env:
-          BUNDLE_ID: ${{ vars.IOS_BUNDLE_ID || 'com.foodierank.foodierank' }}
+          BUNDLE_ID: ${{ env.bundle_id }}
         run: |
           PBXPROJ="ios/Runner.xcodeproj/project.pbxproj"
           sed -i '' 's/CODE_SIGN_STYLE = Automatic/CODE_SIGN_STYLE = Manual/g' "$PBXPROJ"
@@ -256,7 +300,7 @@ jobs:
             <string>Apple Distribution</string>
             <key>provisioningProfiles</key>
             <dict>
-              <key>${{ vars.IOS_BUNDLE_ID || 'com.foodierank.foodierank' }}</key>
+              <key>${{ env.bundle_id }}</key>
               <string>$app_profile_name</string>
             </dict>
             <!-- Export locally rather than uploading straight from
@@ -346,7 +390,7 @@ jobs:
           ASC_PRIVATE_KEY: ${{ secrets.ASC_PRIVATE_KEY }}
           BUILD_NUMBER: ${{ github.run_number }}
           TRAIN_VERSION: ${{ env.train_version }}
-          BUNDLE_ID: ${{ vars.IOS_BUNDLE_ID || 'com.foodierank.foodierank' }}
+          BUNDLE_ID: ${{ env.bundle_id }}
         run: |
           VENV="$RUNNER_TEMP/verify-venv"
           "$VENV/bin/python3" .github/scripts/await_build_processing.py
@@ -354,7 +398,7 @@ jobs:
       # Pushes to main always submit, preserving the release flow. A manual
       # dispatch can opt out to get a TestFlight-only build for testing.
       - name: Submit for App Store review (auto-release after approval)
-        if: github.event_name == 'push' || inputs.submit_for_review
+        if: env.guest != 'true' && (github.event_name == 'push' || inputs.submit_for_review)
         env:
           ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
           ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}

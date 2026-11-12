@@ -1,5 +1,7 @@
 import 'dart:io' show Platform;
 
+import 'services/guest_pass.dart';
+
 /// Application configuration.
 ///
 /// All secrets and app-identity values are injected at **build time** via
@@ -106,7 +108,24 @@ class Config {
       String.fromEnvironment('GOOGLE_IOS_CLIENT_ID');
 
   /// True when the build carries enough configuration to offer Google sign-in.
-  static bool get googleSignInConfigured => googleServerClientId.isNotEmpty;
+  static bool get googleSignInConfigured =>
+      accountsEnabled && googleServerClientId.isNotEmpty;
+
+  /// Sign-in and the saved-places screen: everywhere but the guest build,
+  /// where only the owner's code turns them on.
+  static bool get accountsEnabled => !guestMode || GuestPass.isOwner;
+
+  // ---------------------------------------------------------------------------
+  // Guest build.
+  //
+  // The unlisted App Store build is for guests at our rentals. It has no
+  // accounts: Google sign-in and the saved-places screen are gone, and the app
+  // opens behind a code screen — the last four digits of the phone number on
+  // the reservation — that stays unlocked until the end of checkout day. The
+  // owner's six-digit code unlocks everything, sign-in included.
+  // `--dart-define=GUEST_MODE=true`; scripts/build_public_ios.sh sets it.
+  // ---------------------------------------------------------------------------
+  static const bool guestMode = bool.fromEnvironment('GUEST_MODE');
 
   static String get baseUrl {
     return useLocalProxy

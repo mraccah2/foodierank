@@ -65,7 +65,7 @@ class AuthService extends ChangeNotifier {
     _initialized = true;
 
     try {
-      await Firebase.initializeApp();
+      if (Firebase.apps.isEmpty) await Firebase.initializeApp();
       _firebaseReady = true;
     } catch (e) {
       // No google-services.json / GoogleService-Info.plist yet, or the project
@@ -204,6 +204,46 @@ class AuthService extends ChangeNotifier {
     }
     _grantedScopes.clear();
     notifyListeners();
+  }
+
+  /// Permanently delete the account and everything stored for it.
+  ///
+  /// The backend's `deleteAccount` revokes the stored Google grant, removes all
+  /// Firestore and Storage data under the user, and deletes the Firebase Auth
+  /// user with the Admin SDK — so this never hits `requires-recent-login`.
+  /// Afterwards the app-side Google grant is revoked too, and local sessions
+  /// are cleared.
+  ///
+  /// Returns a human-readable error, or null on success.
+  Future<String?> deleteAccount() async {
+    if (!isSignedIn) return 'Sign in first.';
+
+    try {
+      await FirebaseFunctions.instance
+          .httpsCallable(
+            'deleteAccount',
+            options: HttpsCallableOptions(timeout: const Duration(minutes: 5)),
+          )
+          .call();
+    } on FirebaseFunctionsException catch (e) {
+      debugLog('dBug/auth: delete failed: ${e.code} ${e.message}');
+      return e.message ?? 'Could not delete your account. Try again.';
+    } catch (e) {
+      debugLog('dBug/auth: delete failed: $e');
+      return 'Could not delete your account. Check your connection and try '
+          'again.';
+    }
+
+    // The account is gone server-side; from here on everything is cleanup.
+    try {
+      // Revokes the grant this app's iOS/Android client holds, not just the
+      // local session.
+      await GoogleSignIn.instance.disconnect();
+    } catch (e) {
+      debugLog('dBug/auth: google disconnect failed: $e');
+    }
+    await signOut();
+    return null;
   }
 
   Future<void> signOut() async {

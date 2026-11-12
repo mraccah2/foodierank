@@ -56,6 +56,7 @@ class _AccountScreenState extends State<AccountScreen> {
                 _buildDriveCard(auth),
                 _buildApiCard(auth),
                 _buildJobList(),
+                _buildDeleteAccountCard(),
               ],
             ],
           );
@@ -398,6 +399,73 @@ class _AccountScreenState extends State<AccountScreen> {
         ],
       ),
     );
+  }
+
+  /// Account deletion (App Store guideline 5.1.1(v)). Last on the screen, but
+  /// always present while signed in.
+  Widget _buildDeleteAccountCard() {
+    final theme = Theme.of(context);
+
+    return _Section(
+      title: 'Delete account',
+      children: [
+        Text(
+          'Permanently deletes your FoodieRank account and everything stored '
+          'with it: imported saved places, your marks, import history and any '
+          'Google access you granted. Your data in Google Maps is not '
+          'affected.',
+          style: theme.textTheme.bodyMedium,
+        ),
+        const SizedBox(height: AppSpacing.lg),
+        OutlinedButton.icon(
+          key: const Key('delete-account'),
+          onPressed: _busy ? null : _confirmDeleteAccount,
+          style: OutlinedButton.styleFrom(
+            foregroundColor: theme.colorScheme.error,
+            side: BorderSide(color: theme.colorScheme.error),
+          ),
+          icon: const Icon(Icons.delete_forever_rounded, size: 18),
+          label: const Text('Delete account'),
+        ),
+      ],
+    );
+  }
+
+  Future<void> _confirmDeleteAccount() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) {
+        final theme = Theme.of(context);
+        return AlertDialog(
+          title: const Text('Delete your account?'),
+          content: const Text(
+            'This removes your account and all data FoodieRank stores for '
+            'it. It cannot be undone.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: const Text('Cancel'),
+            ),
+            TextButton(
+              key: const Key('confirm-delete-account'),
+              onPressed: () => Navigator.of(context).pop(true),
+              style: TextButton.styleFrom(
+                foregroundColor: theme.colorScheme.error,
+              ),
+              child: const Text('Delete'),
+            ),
+          ],
+        );
+      },
+    );
+    if (confirmed != true || !mounted) return;
+
+    setState(() => _busy = true);
+    final error = await AuthService.instance.deleteAccount();
+    if (!mounted) return;
+    setState(() => _busy = false);
+    _toast(error ?? 'Your account and its data have been deleted.');
   }
 
   Future<void> _signIn() async {
