@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
+import '../config.dart';
 import '../models/restaurant.dart';
 import '../models/search_context.dart';
 import '../services/restaurant_service.dart';
@@ -789,7 +790,9 @@ class _RestaurantListScreenState extends State<RestaurantListScreen>
         actions: [
           // Signed-in users get their avatar; everyone else a neutral icon, so
           // the optional sign-in never reads as something the app requires.
-          AnimatedBuilder(
+          // The guest build has no accounts, so no account screen either —
+          // unless the owner's code was used.
+          if (Config.accountsEnabled) AnimatedBuilder(
             animation: AuthService.instance,
             builder: (context, _) {
               final photoUrl = AuthService.instance.photoUrl;

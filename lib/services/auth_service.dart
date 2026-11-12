@@ -65,7 +65,7 @@ class AuthService extends ChangeNotifier {
     _initialized = true;
 
     try {
-      await Firebase.initializeApp();
+      if (Firebase.apps.isEmpty) await Firebase.initializeApp();
       _firebaseReady = true;
     } catch (e) {
       // No google-services.json / GoogleService-Info.plist yet, or the project

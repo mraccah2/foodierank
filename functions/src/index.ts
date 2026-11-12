@@ -28,6 +28,14 @@ import {
   newestExportParts,
 } from './drive';
 import { deleteUserAndData } from './account';
+import {
+  checkGuestCode,
+  GUEST_REVIEW_CODE,
+  isAccessCode,
+  OWNER_CODE,
+  isThrottled,
+  recordFailure,
+} from './guest';
 import { PLACES_GATEWAY_KEY, resolvePlaces } from './placeResolve';
 import { parseTakeoutArchive } from './takeout';
 import {
@@ -95,6 +103,43 @@ export const deleteAccount = onCall(
       throw new HttpsError('internal', 'Could not delete the account. Try again.');
     }
     return { deleted: true };
+  }
+);
+
+/**
+ * Unlock the guest build with the last four digits of the phone number on a
+ * current reservation, or the six-digit App Review or owner code. No
+ * account is created and nothing about the guest is returned — only the role
+ * and when the pass runs out.
+ */
+export const verifyGuestCode = onCall(
+  { region: REGION, secrets: [GUEST_REVIEW_CODE, OWNER_CODE] },
+  async (request) => {
+    const code = request.data?.code;
+    if (!isAccessCode(code)) {
+      throw new HttpsError('invalid-argument', 'Enter four digits.');
+    }
+    const ip = request.rawRequest?.ip;
+    const now = Date.now();
+    if (await isThrottled(ip, now)) {
+      throw new HttpsError('resource-exhausted', 'Too many tries. Try again in an hour.');
+    }
+    let result;
+    try {
+      result = await checkGuestCode(code, now, {
+        reviewCode: GUEST_REVIEW_CODE.value(),
+        ownerCode: OWNER_CODE.value(),
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      logger.error('Guest code check failed', { message });
+      throw new HttpsError('unavailable', 'Could not check your reservation. Try again.');
+    }
+    if (!result.ok) {
+      await recordFailure(ip, now);
+      throw new HttpsError('not-found', 'No current stay matches that number.');
+    }
+    return { expiresAt: result.expiresAt, role: result.role };
   }
 );
 

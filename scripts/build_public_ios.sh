@@ -10,7 +10,8 @@
 #   ios/Runner.xcodeproj/project.pbxproj   Runner bundle id -> com.foodierank.foodierank.public
 #   ios/Runner/GoogleService-Info.plist    <- ios/config/public/GoogleService-Info.plist
 #   ios/Runner/Info.plist                  Google Sign-In URL scheme -> public REVERSED_CLIENT_ID
-#   dart defines                           IOS_BUNDLE_ID / GOOGLE_IOS_CLIENT_ID -> public values
+#   dart defines                           IOS_BUNDLE_ID / GOOGLE_IOS_CLIENT_ID -> public values,
+#                                          GUEST_MODE=true (guest code screen)
 #                                          (merged over dart_defines.json into a temp file)
 #
 # Signing is Xcode automatic signing, authenticated with the App Store Connect
@@ -114,6 +115,9 @@ src, dst, bundle_id, client_id = sys.argv[1:]
 d = json.load(open(src))
 d["IOS_BUNDLE_ID"] = bundle_id
 d["GOOGLE_IOS_CLIENT_ID"] = client_id
+# The unlisted build is the guest build: a code screen, no accounts unless the
+# owner's code is used (see Config.guestMode).
+d["GUEST_MODE"] = "true"
 json.dump(d, open(dst, "w"), indent=2)
 PY
 

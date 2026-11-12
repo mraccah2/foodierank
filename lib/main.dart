@@ -3,9 +3,12 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import 'config.dart';
+import 'screens/guest_gate_screen.dart';
 import 'screens/restaurant_list_screen.dart';
 import 'screens/splash_screen.dart';
 import 'services/api_usage_tracker.dart';
+import 'services/guest_pass.dart';
 import 'theme/app_theme.dart';
 import 'services/navigation_service.dart';
 import 'services/photo_disk_cache.dart';
@@ -39,7 +42,10 @@ void main() {
     // Restore, locate and search from here, before the first frame, rather
     // than once the splash is up. Nothing is awaited: the splash and the list
     // screen pick up whatever has landed (see Startup).
-    Startup.begin();
+    //
+    // The guest build starts it from the code screen instead, once the guest
+    // is in — no location prompt behind a locked door.
+    if (!Config.guestMode) Startup.begin();
 
     // Nothing is awaited before this line, and that is the point.
     //
@@ -79,6 +85,16 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     super.didChangeAppLifecycleState(state);
+    // A guest whose stay ended while the app sat in the background goes back
+    // to the code screen.
+    if (state == AppLifecycleState.resumed &&
+        Config.guestMode &&
+        GuestPass.hasExpired) {
+      NavigationService.navigatorKey.currentState?.pushAndRemoveUntil(
+        MaterialPageRoute<void>(builder: (_) => const GuestGateScreen()),
+        (_) => false,
+      );
+    }
     if (state == AppLifecycleState.paused) {
       // App is going to background, print stats
       ApiUsageTracker.instance.printUsageStats();
@@ -95,7 +111,9 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
       darkTheme: AppTheme.dark(),
       themeMode: ThemeMode.system,
       routes: {
-        '/': (context) => const SplashScreen(),
+        '/': (context) => Config.guestMode
+            ? const GuestGateScreen()
+            : const SplashScreen(),
         '/restaurant_list': (context) => const RestaurantListScreen(),
       },
       builder: (context, widget) {

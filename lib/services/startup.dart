@@ -36,8 +36,13 @@ class Startup {
   /// photo is decoration; a slow one fills in on the list instead.
   static const Duration _photoWait = Duration(milliseconds: 1500);
 
-  /// Call once, after the disk caches are installed. Nothing here is awaited.
+  static bool _begun = false;
+
+  /// Call after the disk caches are installed; later calls do nothing. Nothing
+  /// here is awaited.
   static void begin() {
+    if (_begun) return;
+    _begun = true;
     final position = LocationService.instance.current();
     final restored = _restore();
     unawaited(restored.then((cached) {
