@@ -66,8 +66,13 @@ def main() -> int:
         at = prof["attributes"]
         if at.get("profileType") != "IOS_APP_STORE" or at.get("profileState") != "ACTIVE":
             continue
-        pcerts = api("GET", f"/v1/profiles/{prof['id']}/certificates?limit=50")
-        if any(c["id"] == cert["id"] for c in pcerts["data"]):
+        # Xcode-managed profiles (from automatic signing) are listed under the
+        # bundle id but not readable through the API: skip them.
+        full = api("GET", f"/v1/profiles/{prof['id']}?include=certificates", tolerate=(404,))
+        if "__error__" in full:
+            continue
+        linked = full["data"].get("relationships", {}).get("certificates", {}).get("data", [])
+        if any(c["id"] == cert["id"] for c in linked):
             content = at["profileContent"]
             print(f"Using existing profile: {at['name']}")
             break
