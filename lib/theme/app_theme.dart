@@ -1,3 +1,7 @@
+// Flutter 3.47 moved CupertinoPageTransitionsBuilder out of material.dart.
+// Older SDKs (the mini's 3.41) still export it from material, hence the ignore.
+// ignore: unnecessary_import
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 
 import 'app_colors.dart';
