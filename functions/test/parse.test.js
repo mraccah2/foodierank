@@ -8,6 +8,8 @@ const {
   coordsFromMapsUrl,
   stripPreamble,
   statusForList,
+  extractStarredFromZip,
+  ArchiveTooLargeError,
 } = require('../lib/takeout');
 const { parseStarredGeoJson } = require('../lib/dataportability');
 
@@ -152,6 +154,61 @@ test('irrelevant lists are reported as skipped, not imported', () => {
   assert.strictEqual(places.length, 1);
   assert.strictEqual(places[0].name, 'Noma');
   assert.ok(skipped.includes('Parked car'));
+});
+
+test('an entry over the size cap is refused before it is inflated', () => {
+  const zip = new AdmZip();
+  // 2 MB of zeros: compresses to a few KB, the shape of a decompression bomb.
+  zip.addFile(
+    'Takeout/Maps (your places)/Saved/Want to go.csv',
+    Buffer.alloc(2 * 1024 * 1024)
+  );
+  const limits = { maxEntryBytes: 1024 * 1024, maxTotalBytes: 8 * 1024 * 1024 };
+
+  assert.throws(
+    () => parseTakeoutArchive(zip.toBuffer(), limits),
+    (error) =>
+      error instanceof ArchiveTooLargeError &&
+      /too large to import/.test(error.message) &&
+      /exceeds/.test(error.detail)
+  );
+});
+
+test('the total cap counts every entry that is read', () => {
+  const zip = new AdmZip();
+  const row = 'Title,URL\n' + 'Noma,https://y\n'.repeat(4000); // ~60 KB each
+  zip.addFile('Takeout/Maps (your places)/Saved/Want to go.csv', Buffer.from(row));
+  zip.addFile('Takeout/Maps (your places)/Saved/Favorite places.csv', Buffer.from(row));
+  const limits = { maxEntryBytes: 100 * 1024, maxTotalBytes: 100 * 1024 };
+
+  assert.throws(
+    () => parseTakeoutArchive(zip.toBuffer(), limits),
+    ArchiveTooLargeError
+  );
+});
+
+test('large entries the parser never reads do not count against the cap', () => {
+  const zip = new AdmZip();
+  zip.addFile('Takeout/Photos/big.bin', Buffer.alloc(2 * 1024 * 1024));
+  zip.addFile(
+    'Takeout/Maps (your places)/Saved/Want to go.csv',
+    Buffer.from('Title,URL\nNoma,https://y\n')
+  );
+  const limits = { maxEntryBytes: 1024 * 1024, maxTotalBytes: 1024 * 1024 };
+
+  const { places } = parseTakeoutArchive(zip.toBuffer(), limits);
+  assert.strictEqual(places.length, 1);
+});
+
+test('extractStarredFromZip applies the same cap', () => {
+  const zip = new AdmZip();
+  zip.addFile('Saved Places.json', Buffer.alloc(2 * 1024 * 1024));
+  const limits = { maxEntryBytes: 1024 * 1024, maxTotalBytes: 8 * 1024 * 1024 };
+
+  assert.throws(
+    () => extractStarredFromZip(zip.toBuffer(), limits),
+    ArchiveTooLargeError
+  );
 });
 
 test('rows without a title are skipped', () => {
