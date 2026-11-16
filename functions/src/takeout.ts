@@ -35,6 +35,66 @@ const LIST_NAME_TO_STATUS: Record<string, PlaceStatus> = {
   'starred places': 'starred',
 };
 
+/**
+ * How much of an uploaded archive we are willing to inflate.
+ *
+ * Any signed-in user can upload a zip, and a zip can honestly declare a
+ * multi-gigabyte entry that compresses to a few megabytes (a decompression
+ * bomb). adm-zip 0.6 stops inflating past an entry's declared size; these caps
+ * stop us asking it to inflate a large declared size at all, before any memory
+ * is allocated. Real list CSVs are kilobytes and Saved Places.json a few
+ * megabytes, so the caps sit far above any genuine export.
+ */
+export interface ZipLimits {
+  /** Largest single entry we read, by its declared uncompressed size. */
+  maxEntryBytes: number;
+  /** Total declared uncompressed bytes we read across the archive. */
+  maxTotalBytes: number;
+}
+
+export const ZIP_LIMITS: ZipLimits = {
+  maxEntryBytes: 32 * 1024 * 1024,
+  maxTotalBytes: 128 * 1024 * 1024,
+};
+
+/**
+ * Thrown when an archive asks for more than ZIP_LIMITS allows. The message is
+ * shown to the user on the failed import; `detail` is for the log.
+ */
+export class ArchiveTooLargeError extends Error {
+  constructor(readonly detail: string) {
+    super(
+      'That archive is too large to import. Export only "Maps (your places)" ' +
+        'from Takeout and upload that .zip.'
+    );
+    this.name = 'ArchiveTooLargeError';
+  }
+}
+
+/** Inflate one entry as text, charging its declared size against the budget. */
+function readEntryText(
+  entry: AdmZip.IZipEntry,
+  budget: { left: number },
+  limits: ZipLimits
+): string {
+  const declared = entry.header.size;
+  if (!Number.isFinite(declared) || declared < 0) {
+    throw new ArchiveTooLargeError(`${entry.entryName}: bad declared size`);
+  }
+  if (declared > limits.maxEntryBytes) {
+    throw new ArchiveTooLargeError(
+      `${entry.entryName}: ${declared} bytes exceeds ${limits.maxEntryBytes}`
+    );
+  }
+  if (declared > budget.left) {
+    throw new ArchiveTooLargeError(
+      `archive exceeds ${limits.maxTotalBytes} uncompressed bytes`
+    );
+  }
+  budget.left -= declared;
+  return entry.getData().toString('utf8');
+}
+
 /** The marker a list maps to, or null when the list should be ignored. */
 export function statusForList(listName: string): PlaceStatus | null {
   return LIST_NAME_TO_STATUS[listName.trim().toLowerCase()] ?? null;
@@ -55,8 +115,12 @@ export interface TakeoutParseResult {
 }
 
 /** Pull every saved place out of a Takeout zip. */
-export function parseTakeoutArchive(buffer: Buffer): TakeoutParseResult {
+export function parseTakeoutArchive(
+  buffer: Buffer,
+  limits: ZipLimits = ZIP_LIMITS
+): TakeoutParseResult {
   const zip = new AdmZip(buffer);
+  const budget = { left: limits.maxTotalBytes };
   const byPlace = new Map<string, RawPlace>();
   const listsFound: string[] = [];
   const skipped: string[] = [];
@@ -79,19 +143,20 @@ export function parseTakeoutArchive(buffer: Buffer): TakeoutParseResult {
         }
 
         for (const place of parseSavedListCsv(
-          entry.getData().toString('utf8'),
+          readEntryText(entry, budget, limits),
           listName
         )) {
           mergeInto(byPlace, place);
         }
       } else if (isStarredGeoJson(path)) {
         for (const place of parseStarredGeoJson(
-          entry.getData().toString('utf8')
+          readEntryText(entry, budget, limits)
         )) {
           mergeInto(byPlace, place);
         }
       }
     } catch (error) {
+      if (error instanceof ArchiveTooLargeError) throw error;
       logger.warn('Could not parse Takeout entry', { path, error });
       skipped.push(path);
     }
@@ -101,13 +166,17 @@ export function parseTakeoutArchive(buffer: Buffer): TakeoutParseResult {
 }
 
 /** Used when a Data Portability archive arrives zipped rather than bare. */
-export function extractStarredFromZip(buffer: Buffer): RawPlace[] {
+export function extractStarredFromZip(
+  buffer: Buffer,
+  limits: ZipLimits = ZIP_LIMITS
+): RawPlace[] {
   const zip = new AdmZip(buffer);
+  const budget = { left: limits.maxTotalBytes };
   const places: RawPlace[] = [];
   for (const entry of zip.getEntries()) {
     if (entry.isDirectory) continue;
     if (!entry.entryName.toLowerCase().endsWith('.json')) continue;
-    places.push(...parseStarredGeoJson(entry.getData().toString('utf8')));
+    places.push(...parseStarredGeoJson(readEntryText(entry, budget, limits)));
   }
   return places;
 }

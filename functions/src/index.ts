@@ -37,7 +37,7 @@ import {
   recordFailure,
 } from './guest';
 import { PLACES_GATEWAY_KEY, resolvePlaces } from './placeResolve';
-import { parseTakeoutArchive } from './takeout';
+import { ArchiveTooLargeError, parseTakeoutArchive } from './takeout';
 import {
   applyImport,
   createImportJob,
@@ -613,7 +613,9 @@ export const onTakeoutUploaded = onObjectFinalized(
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      logger.error('Takeout import failed', { uid, message });
+      const detail =
+        error instanceof ArchiveTooLargeError ? error.detail : undefined;
+      logger.error('Takeout import failed', { uid, message, detail });
       await updateImportJob(uid, jobId, { state: 'FAILED', error: message });
     } finally {
       // The archive holds a lot of personal data; do not keep it around.
